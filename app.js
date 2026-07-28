@@ -51,6 +51,79 @@ window.closeAddBuildingModalFunc = function() {
     }
 };
 
+window.selectedUploadedDrawings = [];
+
+window.parseFloorInfoFromFilename = function(fileName) {
+    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
+    const cleanName = nameWithoutExt.toUpperCase();
+
+    if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('PH')) {
+        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상 층 (ROOF)' };
+    }
+
+    const bMatch = cleanName.match(/(?:B|지하)\s*([0-9]{1,2})(?![0-9])/i);
+    if (bMatch) {
+        const num = parseInt(bMatch[1], 10);
+        if (num > 0 && num <= 99) {
+            return { rank: -num, floorCode: `B${num}F`, floorLabel: `지하 ${num}층 (B${num}F)` };
+        }
+    }
+
+    const fMatch = cleanName.match(/(?:F|층|지상)\s*([0-9]{1,2})(?![0-9])/i) || 
+                   cleanName.match(/([0-9]{1,2})\s*(?:F|층)(?![0-9])/i) ||
+                   cleanName.match(/(?<![0-9])([0-9]{1,2})(?![0-9])/);
+    if (fMatch) {
+        const num = parseInt(fMatch[1], 10);
+        if (num > 0 && num <= 99) {
+            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)` };
+        }
+    }
+
+    return { rank: 1, floorCode: '1F', floorLabel: '지상 1층 (1F)' };
+};
+
+// Global File Input Change Handler (Listens immediately for multi-drawing floor sorting preview)
+document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'inputBuildingDrawings') {
+        const files = Array.from(e.target.files || []);
+        if (files.length === 0) return;
+
+        window.selectedUploadedDrawings = files.map(file => {
+            const info = window.parseFloorInfoFromFilename(file.name);
+            return {
+                file: file,
+                fileName: file.name,
+                rank: info.rank,
+                floorCode: info.floorCode,
+                floorLabel: info.floorLabel
+            };
+        });
+
+        window.selectedUploadedDrawings.sort((a, b) => a.rank - b.rank);
+
+        const drawingSortPreview = document.getElementById('drawingSortPreview');
+        if (drawingSortPreview) {
+            drawingSortPreview.innerHTML = `
+                <div style="font-size:0.8rem; font-weight:700; color:#38bdf8; margin-bottom:0.3rem;">
+                    <i class="fa-solid fa-arrow-down-short-wide"></i> 층별 도면 자동 정렬 (아래층 ➔ 상부층 순서):
+                </div>
+            ` + window.selectedUploadedDrawings.map((item, idx) => `
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 0.4rem 0.8rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); display:flex; justify-content:space-between; align-items:center; font-size:0.82rem;">
+                    <span><strong>${idx + 1}. ${item.floorLabel}</strong> <span class="text-muted">(${item.fileName})</span></span>
+                    <span class="badge" style="background:rgba(56, 189, 248, 0.2); color:#38bdf8; font-size:0.7rem;">인식 완료</span>
+                </div>
+            `).join('');
+        }
+
+        const lowest = window.selectedUploadedDrawings[0];
+        const highest = window.selectedUploadedDrawings[window.selectedUploadedDrawings.length - 1];
+        const inputFloors = document.getElementById('inputBuildingFloors');
+        if (inputFloors && lowest && highest) {
+            inputFloors.value = `${highest.floorLabel.split(' ')[0]} ${highest.floorLabel.split(' ')[1]} ~ ${lowest.floorLabel.split(' ')[0]} ${lowest.floorLabel.split(' ')[1]}`;
+        }
+    }
+});
+
 window.switchTab = function(targetTabId) {
     if (!targetTabId) targetTabId = 'tab-home';
     const headerSelectorGroup = document.getElementById('headerSelectorGroup');
