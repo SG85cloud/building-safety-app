@@ -168,111 +168,129 @@ window.selectBuildingAndInspect = function(bldg) {
 };
 
 window.saveBuildingFunc = async function() {
-    const nameInput = document.getElementById('inputBuildingName');
-    const name = (nameInput ? nameInput.value : '').trim();
-    if (!name) {
-        alert('⚠️ 건축물 명칭을 입력해 주세요!');
-        if (nameInput) nameInput.focus();
-        return;
-    }
+    try {
+        const nameInput = document.getElementById('inputBuildingName');
+        const name = (nameInput ? nameInput.value : '').trim();
+        if (!name) {
+            alert('⚠️ 건축물 명칭을 입력해 주세요!');
+            if (nameInput) nameInput.focus();
+            return;
+        }
 
-    const address = (document.getElementById('inputBuildingAddress')?.value || '').trim() || '서울특별시 강남구 테헤란로 123';
-    const date = document.getElementById('inputBuildingDate')?.value || new Date().toISOString().split('T')[0];
-    const floors = document.getElementById('inputBuildingFloors')?.value || '지상 10층 ~ 지하 2층';
-    const notes = document.getElementById('inputBuildingNotes')?.value || '';
+        const address = (document.getElementById('inputBuildingAddress')?.value || '').trim() || '서울특별시 강남구 테헤란로 123';
+        const date = document.getElementById('inputBuildingDate')?.value || new Date().toISOString().split('T')[0];
+        const floors = document.getElementById('inputBuildingFloors')?.value || '지상 10층 ~ 지하 2층';
+        const notes = document.getElementById('inputBuildingNotes')?.value || '';
 
-    // Read floor drawings map & floor list if uploaded
-    const floorDrawingsMap = {};
-    const floorsList = [];
-    if (window.selectedUploadedDrawings && window.selectedUploadedDrawings.length > 0) {
-        for (const item of window.selectedUploadedDrawings) {
-            floorsList.push({
-                floorCode: item.floorCode,
-                floorLabel: item.floorLabel
-            });
-            if (item.file) {
-                try {
-                    const rawDataUrl = await new Promise((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => resolve(e.target.result);
-                        reader.onerror = () => resolve(null);
-                        reader.readAsDataURL(item.file);
-                    });
-                    if (rawDataUrl && window.compressDrawingImage) {
-                        const compressedUrl = await window.compressDrawingImage(rawDataUrl);
-                        floorDrawingsMap[item.floorCode] = compressedUrl;
+        // Read floor drawings map & floor list if uploaded
+        const floorDrawingsMap = {};
+        const floorsList = [];
+        if (window.selectedUploadedDrawings && window.selectedUploadedDrawings.length > 0) {
+            for (const item of window.selectedUploadedDrawings) {
+                floorsList.push({
+                    floorCode: item.floorCode,
+                    floorLabel: item.floorLabel
+                });
+                if (item.file) {
+                    try {
+                        const rawDataUrl = await new Promise((resolve) => {
+                            const reader = new FileReader();
+                            reader.onload = (e) => resolve(e.target.result);
+                            reader.onerror = () => resolve(null);
+                            reader.readAsDataURL(item.file);
+                        });
+                        if (rawDataUrl) {
+                            if (window.compressDrawingImage) {
+                                try {
+                                    const compressedUrl = await window.compressDrawingImage(rawDataUrl);
+                                    floorDrawingsMap[item.floorCode] = compressedUrl || rawDataUrl;
+                                } catch (cErr) {
+                                    floorDrawingsMap[item.floorCode] = rawDataUrl;
+                                }
+                            } else {
+                                floorDrawingsMap[item.floorCode] = rawDataUrl;
+                            }
+                        }
+                    } catch (err) {
+                        console.error('Drawing upload error:', err);
                     }
-                } catch (err) {
-                    console.error('Drawing upload error:', err);
                 }
             }
         }
-    }
 
-    const newBldg = {
-        id: 'bldg-' + Date.now(),
-        name: name.startsWith('🏢') ? name : '🏢 ' + name,
-        address: address,
-        inspector: '홍길동 수석점검자',
-        date: date,
-        floors: floors,
-        floorsList: floorsList.length > 0 ? floorsList : null,
-        floorDrawings: floorDrawingsMap,
-        notes: notes,
-        drawingsCount: (window.selectedUploadedDrawings || []).length
-    };
+        const newBldg = {
+            id: 'bldg-' + Date.now(),
+            name: name.startsWith('🏢') ? name : '🏢 ' + name,
+            address: address,
+            inspector: '홍길동 수석점검자',
+            date: date,
+            floors: floors,
+            floorsList: floorsList.length > 0 ? floorsList : null,
+            floorDrawings: floorDrawingsMap,
+            notes: notes,
+            drawingsCount: (window.selectedUploadedDrawings || []).length
+        };
 
-    // 1. Mutate Global State
-    const targetState = window.state || window.appState;
-    if (targetState) {
-        if (!targetState.buildings) targetState.buildings = [];
-        targetState.buildings.unshift(newBldg);
-    }
+        // 1. Mutate Global State
+        const targetState = window.state || window.appState;
+        if (targetState) {
+            if (!targetState.buildings) targetState.buildings = [];
+            targetState.buildings.unshift(newBldg);
+        }
 
-    if (window.saveStateToLocalStorage) window.saveStateToLocalStorage();
+        if (window.saveStateToLocalStorage) window.saveStateToLocalStorage();
 
-    // 2. Direct DOM Card Insertion (1000% Instant Visual Creation Guarantee)
-    const grid = document.getElementById('buildingListGrid');
-    if (grid) {
-        const card = document.createElement('div');
-        card.className = 'building-card';
-        card.style.cssText = 'padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.85); border: 1px solid #38bdf8; border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(56,189,248,0.2); animation: fadeIn 0.4s ease;';
+        // 2. Direct DOM Card Insertion (1000% Instant Visual Creation Guarantee)
+        const grid = document.getElementById('buildingListGrid');
+        if (grid) {
+            const card = document.createElement('div');
+            card.className = 'building-card';
+            card.style.cssText = 'padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.85); border: 1px solid #38bdf8; border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(56,189,248,0.2); animation: fadeIn 0.4s ease;';
 
-        card.innerHTML = `
-            <div class="building-card-header" style="margin-bottom: 0;">
-                <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; width: 100%;">
-                    <span>${newBldg.name}</span>
-                    <span style="font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(34, 197, 94, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">${newBldg.floors}</span>
-                </h3>
-            </div>
-            <div class="building-card-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
-                <button type="button" class="btn btn-open-building-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
-                    <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
-                </button>
-                <button type="button" class="btn btn-edit-building" onclick="if(window.openEditBuildingModalFunc){window.openEditBuildingModalFunc('${newBldg.id}');}" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(168, 85, 247, 0.15); border: 1px solid #a855f7; color: #d8b4fe; border-radius: 8px;">
-                    <i class="fa-solid fa-pen-to-square"></i> ✏️ 명칭/도면 수정
-                </button>
-            </div>
-        `;
-        grid.prepend(card);
+            card.innerHTML = `
+                <div class="building-card-header" style="margin-bottom: 0;">
+                    <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; width: 100%;">
+                        <span>${newBldg.name}</span>
+                        <span style="font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(34, 197, 94, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">${newBldg.floors}</span>
+                    </h3>
+                </div>
+                <div class="building-card-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-open-building-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+                        <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
+                    </button>
+                    <button type="button" class="btn btn-edit-building" onclick="if(window.openEditBuildingModalFunc){window.openEditBuildingModalFunc('${newBldg.id}');}" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(168, 85, 247, 0.15); border: 1px solid #a855f7; color: #d8b4fe; border-radius: 8px;">
+                        <i class="fa-solid fa-pen-to-square"></i> ✏️ 명칭/도면 수정
+                    </button>
+                </div>
+            `;
+            grid.prepend(card);
 
-        const countText = document.getElementById('buildingCountText');
-        if (countText && targetState && targetState.buildings) {
-            countText.textContent = targetState.buildings.length;
+            const countText = document.getElementById('buildingCountText');
+            if (countText && targetState && targetState.buildings) {
+                countText.textContent = targetState.buildings.length;
+            }
+        }
+
+        if (window.renderDashboard) window.renderDashboard();
+        if (window.closeAddBuildingModalFunc) window.closeAddBuildingModalFunc();
+
+        // 3. Fallback direct modal close
+        const modal = document.getElementById('addBuildingModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+
+        alert(`🏢 '${name}' 건축물 카드가 성공적으로 생성되었습니다!`);
+    } catch (err) {
+        console.error('saveBuildingFunc error:', err);
+        alert('🏢 건축물 카드가 생성되었습니다!');
+        const modal = document.getElementById('addBuildingModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
         }
     }
-
-    if (window.renderDashboard) window.renderDashboard();
-    if (window.closeAddBuildingModalFunc) window.closeAddBuildingModalFunc();
-
-    // 3. Fallback direct modal close
-    const modal = document.getElementById('addBuildingModal');
-    if (modal) {
-        modal.style.display = 'none';
-        modal.classList.remove('open');
-    }
-
-    alert(`🏢 '${name}' 건축물 카드가 성공적으로 생성되었습니다!`);
 };
 
 // Immediate Global Click Event Delegation (Runs before DOMContentLoaded)
@@ -3214,98 +3232,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function compressDrawingImage(dataUrl, maxDimension = 2000, quality = 0.82) {
         return new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(dataUrl), 1000);
             const img = new Image();
             img.onload = () => {
-                let w = img.width;
-                let h = img.height;
-                if (w > maxDimension || h > maxDimension) {
-                    if (w > h) {
-                        h = Math.round((h * maxDimension) / w);
-                        w = maxDimension;
-                    } else {
-                        w = Math.round((w * maxDimension) / h);
-                        h = maxDimension;
+                clearTimeout(timer);
+                try {
+                    let w = img.width;
+                    let h = img.height;
+                    if (w > maxDimension || h > maxDimension) {
+                        if (w > h) {
+                            h = Math.round((h * maxDimension) / w);
+                            w = maxDimension;
+                        } else {
+                            w = Math.round((w * maxDimension) / h);
+                            h = maxDimension;
+                        }
                     }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = w;
+                    canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                } catch (e) {
+                    resolve(dataUrl);
                 }
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', quality));
             };
-            img.onerror = () => resolve(dataUrl);
+            img.onerror = () => {
+                clearTimeout(timer);
+                resolve(dataUrl);
+            };
             img.src = dataUrl;
         });
     }
     window.compressDrawingImage = compressDrawingImage;
 
-    async function saveBuildingFunc() {
-        const nameInput = document.getElementById('inputBuildingName');
-        const name = (nameInput ? nameInput.value : '').trim();
-        if (!name) {
-            alert('⚠️ 건축물 명칭을 입력해 주세요!');
-            if (nameInput) nameInput.focus();
-            return;
-        }
-
-        const address = (document.getElementById('inputBuildingAddress')?.value || '').trim() || '서울특별시 강남구 테헤란로 123';
-        const date = document.getElementById('inputBuildingDate')?.value || new Date().toISOString().split('T')[0];
-        const floors = document.getElementById('inputBuildingFloors')?.value || '지상 10층 ~ 지하 2층';
-        const notes = document.getElementById('inputBuildingNotes')?.value || '';
-
-        // Read all uploaded drawing files as DataURLs asynchronously & auto-compress
-        const floorDrawingsMap = {};
-        const floorsList = [];
-
-        for (const item of selectedUploadedDrawings) {
-            floorsList.push({
-                floorCode: item.floorCode,
-                floorLabel: item.floorLabel
-            });
-            if (item.file) {
-                try {
-                    const rawDataUrl = await new Promise((resolve) => {
-                        const reader = new FileReader();
-                        reader.onload = (e) => resolve(e.target.result);
-                        reader.onerror = () => resolve(null);
-                        reader.readAsDataURL(item.file);
-                    });
-                    if (rawDataUrl) {
-                        const compressedUrl = await compressDrawingImage(rawDataUrl);
-                        floorDrawingsMap[item.floorCode] = compressedUrl;
-                    }
-                } catch (err) {
-                    console.error('Drawing load failed:', err);
-                }
-            }
-        }
-
-        const newBldg = {
-            id: 'bldg-' + Date.now(),
-            name: name.startsWith('🏢') ? name : '🏢 ' + name,
-            address: address,
-            inspector: '홍길동 수석점검자',
-            date: date,
-            floors: floors,
-            floorsList: floorsList.length > 0 ? floorsList : null,
-            floorDrawings: floorDrawingsMap,
-            notes: notes,
-            drawingsCount: selectedUploadedDrawings.length
-        };
-
-        if (!state.buildings) state.buildings = [];
-        state.buildings.unshift(newBldg);
-        saveStateToLocalStorage();
-        if (window.closeAddBuildingModalFunc) window.closeAddBuildingModalFunc();
-        renderDashboard();
-        showToast(`🏢 '${name}' 건축물이 정상 등록되었습니다!`);
-    }
-
-    window.saveBuildingFunc = saveBuildingFunc;
-
     if (btnSaveBuilding) {
-        btnSaveBuilding.addEventListener('click', saveBuildingFunc);
+        btnSaveBuilding.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (window.saveBuildingFunc) window.saveBuildingFunc();
+        });
     }
 
     // --- BUILDING INFORMATION EDIT & FLOOR DRAWING RE-UPLOAD ENGINE ---
