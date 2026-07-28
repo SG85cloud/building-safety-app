@@ -2814,10 +2814,17 @@ document.addEventListener('DOMContentLoaded', () => {
         state.currentTab = targetTabId;
 
         if (targetTabId === 'tab-map') {
+            if (!state.currentBuilding && state.buildings && state.buildings.length > 0) {
+                state.currentBuilding = state.buildings[0];
+            }
+            if (!state.bgImage) {
+                loadFloorDrawing(state.currentFloor || '1F');
+            }
             drawCanvas();
             setTimeout(() => {
                 resizeCanvas();
                 fitToScreen();
+                drawCanvas();
             }, 50);
         } else if (targetTabId === 'tab-survey') {
             renderSurveyTable();
