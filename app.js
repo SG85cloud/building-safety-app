@@ -2666,6 +2666,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.renderDashboard = renderDashboard;
 
+    function getDefaultBlueprintSvgDataUrl(floorCode) {
+        const svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+            <rect width="1600" height="1000" fill="#0f172a"/>
+            <g stroke="rgba(56,189,248,0.15)" stroke-width="1">
+                <line x1="0" y1="100" x2="1600" y2="100"/><line x1="0" y1="200" x2="1600" y2="200"/>
+                <line x1="0" y1="300" x2="1600" y2="300"/><line x1="0" y1="400" x2="1600" y2="400"/>
+                <line x1="0" y1="500" x2="1600" y2="500"/><line x1="0" y1="600" x2="1600" y2="600"/>
+                <line x1="0" y1="700" x2="1600" y2="700"/><line x1="0" y1="800" x2="1600" y2="800"/>
+                <line x1="0" y1="900" x2="1600" y2="900"/>
+                <line x1="200" y1="0" x2="200" y2="1000"/><line x1="400" y1="0" x2="400" y2="1000"/>
+                <line x1="600" y1="0" x2="600" y2="1000"/><line x1="800" y1="0" x2="800" y2="1000"/>
+                <line x1="1000" y1="0" x2="1000" y2="1000"/><line x1="1200" y1="0" x2="1200" y2="1000"/>
+                <line x1="1400" y1="0" x2="1400" y2="1000"/>
+            </g>
+            <rect x="150" y="150" width="1300" height="700" fill="none" stroke="#38bdf8" stroke-width="8"/>
+            <line x1="550" y1="150" x2="550" y2="850" stroke="#38bdf8" stroke-width="5"/>
+            <line x1="1000" y1="150" x2="1000" y2="850" stroke="#38bdf8" stroke-width="5"/>
+            <line x1="150" y1="500" x2="1450" y2="500" stroke="#38bdf8" stroke-width="5"/>
+            <rect x="140" y="140" width="20" height="20" fill="#38bdf8"/><rect x="540" y="140" width="20" height="20" fill="#38bdf8"/><rect x="990" y="140" width="20" height="20" fill="#38bdf8"/><rect x="1440" y="140" width="20" height="20" fill="#38bdf8"/>
+            <rect x="140" y="490" width="20" height="20" fill="#38bdf8"/><rect x="540" y="490" width="20" height="20" fill="#38bdf8"/><rect x="990" y="490" width="20" height="20" fill="#38bdf8"/><rect x="1440" y="490" width="20" height="20" fill="#38bdf8"/>
+            <rect x="140" y="840" width="20" height="20" fill="#38bdf8"/><rect x="540" y="840" width="20" height="20" fill="#38bdf8"/><rect x="990" y="840" width="20" height="20" fill="#38bdf8"/><rect x="1440" y="840" width="20" height="20" fill="#38bdf8"/>
+            <text x="800" y="100" fill="#38bdf8" font-size="28" font-weight="bold" text-anchor="middle">🏢 건축물 ${floorCode} 표준 구조 도면 (ARCHITECTURAL BLUEPRINT)</text>
+        </svg>`;
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr);
+    }
+
     function loadFloorDrawing(floorCode) {
         state.currentFloor = floorCode;
         state.bgImage = null;
@@ -2678,25 +2704,31 @@ document.addEventListener('DOMContentLoaded', () => {
             dataUrl = state.floorDrawings[floorCode];
         }
 
-        if (dataUrl) {
-            const img = new Image();
-            img.onload = () => {
-                state.bgImage = img;
-                resizeCanvas();
-                fitToScreen();
-                drawCanvas();
-            };
-            img.src = dataUrl;
-        } else {
+        if (!dataUrl) {
+            dataUrl = getDefaultBlueprintSvgDataUrl(floorCode || '1F');
+        }
+
+        const img = new Image();
+        img.onload = () => {
+            state.bgImage = img;
+            resizeCanvas();
+            fitToScreen();
+            drawCanvas();
+        };
+        img.onerror = () => {
             drawCanvas();
             setTimeout(() => {
                 resizeCanvas();
                 fitToScreen();
             }, 50);
-        }
+        };
+        img.src = dataUrl;
     }
 
+    window.loadFloorDrawing = loadFloorDrawing;
+
     function selectBuildingAndInspect(bldg) {
+        if (!bldg) return;
         state.currentBuilding = bldg;
         state.currentBuildingId = bldg.id;
 
@@ -2720,6 +2752,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(`🏢 '${bldg.name}' 현장 점검 화면으로 이동했습니다.`);
         switchTab('tab-map');
     }
+
+    window.selectBuildingAndInspect = selectBuildingAndInspect;
+    window.selectBuildingAndInspectFunc = function(bldgId) {
+        const targetState = window.state || window.appState || state;
+        if (!targetState || !targetState.buildings) return;
+        let bldg = targetState.buildings.find(b => b.id === bldgId);
+        if (!bldg && targetState.buildings.length > 0) bldg = targetState.buildings[0];
+        if (bldg) selectBuildingAndInspect(bldg);
+    };
 
     function updateProjectSelectDropdown() {
         const projectSelect = document.getElementById('projectSelect');
