@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스마트 건축물 안전점검 현장점검 시스템</title>
+    <link rel="stylesheet" href="styles.css?v=20260728_1310">
+    <!-- FontAwesome icons for clean engineering UI -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- html2pdf.js for one-click PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+</head>
+<body class="theme-dark">
+
+    <!-- Top Header Navigation -->
+    <header class="app-header">
+        <div class="header-brand" id="btnLogoHome" data-tab="tab-home" onclick="if(window.switchTab){window.switchTab('tab-home');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-home').style.display='flex';}" style="cursor: pointer;" title="🏠 클릭 시 홈(건축물 목록)으로 이동">
+            <i class="fa-solid fa-building-shield brand-icon"></i>
+            <div>
+                <h1 class="app-title">스마트 건축물 안전점검 시스템</h1>
+                <p class="app-subtitle">PC · 갤럭시 탭 · 스마트폰 실시간 연동 현장점검</p>
+            </div>
+        </div>
+
+        <button type="button" id="btnPersistentHome" data-tab="tab-home" onclick="if(window.switchTab){window.switchTab('tab-home');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-home').style.display='flex';}" class="btn btn-outline" style="border-color: #38bdf8; color: #38bdf8; font-weight: 700; background: rgba(56, 189, 248, 0.12); border-radius: 8px; font-size: 0.9rem; padding: 0.5rem 0.9rem; white-space: nowrap;">
+            <i class="fa-solid fa-house"></i> 🏠 홈 (건축물 목록)
+        </button>
+
+        <!-- Building / Floor Selector (Displayed ONLY when a building is selected) -->
+        <div class="header-selector" id="headerSelectorGroup" style="display: none;">
+            <div class="selector-group">
+                <label><i class="fa-solid fa-city"></i> 점검 대상:</label>
+                <select id="projectSelect" class="styled-select">
+                    <option value="p1">🏢 강남 테헤란 타워</option>
+                    <option value="p2">🏢 인천 물류센터 A동</option>
+                    <option value="p3">🏢 서초 아파트 101동</option>
+                </select>
+            </div>
+            <div class="selector-group">
+                <label><i class="fa-solid fa-layer-group"></i> 점검 층:</label>
+                <select id="floorSelect" class="styled-select">
+                    <option value="B2F">지하 2층 (B2F)</option>
+                    <option value="B1F">지하 1층 (B1F)</option>
+                    <option value="1F" selected>지상 1층 (1F)</option>
+                    <option value="2F">지상 2층 (2F)</option>
+                    <option value="3F">지상 3층 (3F)</option>
+                    <option value="ROOF">옥상층 (ROOF)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Action Controls (Displayed ONLY when a building is selected) -->
+        <div class="header-actions" id="headerReportActions" style="display: none;">
+            <span id="onlineStatusBadge" class="status-badge" style="padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.82rem; background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); font-weight: 600;">
+                <i class="fa-solid fa-wifi"></i> 온라인 (자동보관)
+            </span>
+            <button id="btnPreviewReport" class="btn btn-primary" style="background: linear-gradient(135deg, #6366f1, #4f46e5); font-weight: 700;">
+                <i class="fa-solid fa-file-contract"></i> 👁️ 보고서 화면 미리보기
+            </button>
+            <button id="btnExportPDF" class="btn btn-outline" style="border-color: #60a5fa; color: #60a5fa;">
+                <i class="fa-solid fa-file-pdf"></i> PDF 저장
+            </button>
+            <button id="btnPrintReport" class="btn btn-outline" style="border-color: #94a3b8; color: #cbd5e1;">
+                <i class="fa-solid fa-print"></i> 인쇄
+            </button>
+            <button id="btnThemeToggle" class="btn btn-icon" title="다크/라이트 모드 전환">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Navigation Tabs (Displayed ONLY when a building is selected) -->
+    <nav class="main-tabs" id="mainNavTabs" style="display: none;">
+        <button class="tab-btn" data-tab="tab-home" onclick="if(window.switchTab){window.switchTab('tab-home');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-home').style.display='flex';}" style="background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2);">
+            <i class="fa-solid fa-house"></i> ↩️ 건물 변경 (홈)
+        </button>
+        <button class="tab-btn active" data-tab="tab-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';}">
+            <i class="fa-solid fa-map-location-dot"></i> 🗺️ 층별 도면 점검
+        </button>
+        <button class="tab-btn" data-tab="tab-survey" onclick="if(window.switchTab){window.switchTab('tab-survey');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-survey').style.display='flex';}">
+            <i class="fa-solid fa-clipboard-list"></i> 📋 층별 상태조사표
+        </button>
+        <button class="tab-btn" data-tab="tab-album" onclick="if(window.switchTab){window.switchTab('tab-album');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-album').style.display='flex';}">
+            <i class="fa-solid fa-images"></i> 📷 현장 사진첩
+        </button>
+    </nav>
+
+    <!-- App Container -->
+    <main class="app-content">
+
+        <!-- TAB 0: 🏠 홈 대시보드 (Home Dashboard - Building Management) -->
+        <section id="tab-home" class="tab-content active" style="display: flex !important;">
+            <div class="dashboard-wrapper">
+                
+                <!-- Hero Header with Add Building Button -->
+                <div class="dashboard-hero">
+                    <div class="hero-text">
+                        <span class="hero-badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 0.85rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-weight: 700;">
+                            <i class="fa-solid fa-circle-check"></i> v2.7 100% 최신 버전 가동 중 (13:10 갱신)
+                        </span>
+                        <h2 class="hero-title" style="margin-top: 0.4rem;">🏢 점검 대상 건축물 목록</h2>
+                    </div>
+                    <div class="hero-actions">
+                        <button type="button" class="btn btn-primary btn-hero-cta" id="btnOpenAddBuildingModal" onclick="if(window.openAddBuildingModalFunc){window.openAddBuildingModalFunc();}const m=document.getElementById('addBuildingModal');if(m){m.style.display='flex';m.style.opacity='1';m.style.visibility='visible';m.classList.add('open');}">
+                            <i class="fa-solid fa-plus"></i> ➕ 신규 건축물 등록
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Building List Section -->
+                <div class="dashboard-section">
+                    <div class="building-card-grid" id="buildingListGrid">
+                        <div class="building-card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <div class="building-card-header" style="margin-bottom: 0;">
+                                <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 0.6rem;">
+                                    🏢 강남 테헤란 타워
+                                </h3>
+                            </div>
+                            <div class="building-card-actions">
+                                <button type="button" class="btn btn-open-building-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';document.getElementById('mainNavTabs').style.display='flex';}" style="width: 100%; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+                                    <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
+                                </button>
+                            </div>
+                        </div>
+                        <div class="building-card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <div class="building-card-header" style="margin-bottom: 0;">
+                                <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 0.6rem;">
+                                    🏢 인천 물류센터 A동
+                                </h3>
+                            </div>
+                            <div class="building-card-actions">
+                                <button type="button" class="btn btn-open-building-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';document.getElementById('mainNavTabs').style.display='flex';}" style="width: 100%; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+                                    <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
+                                </button>
+                            </div>
+                        </div>
+                        <div class="building-card" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
+                            <div class="building-card-header" style="margin-bottom: 0;">
+                                <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; gap: 0.6rem;">
+                                    🏢 서초 아파트 101동
+                                </h3>
+                            </div>
+                            <div class="building-card-actions">
+                                <button type="button" class="btn btn-open-building-map" onclick="if(window.switchTab){window.switchTab('tab-map');}else{document.querySelectorAll('.tab-content').forEach(c=>c.style.display='none');document.getElementById('tab-map').style.display='flex';document.getElementById('mainNavTabs').style.display='flex';}" style="width: 100%; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+                                    <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- TAB 1: 층별 위치도 (Interactive Drawing Map) -->
+        <section id="tab-map" class="tab-content">
+            <div class="map-toolbar">
+                <div class="toolbar-left">
+                    <span class="toolbar-title"><i class="fa-solid fa-sliders"></i> 도면 결함 레이어 필터</span>
+                    
+                    <!-- Time/Period Layer Filters -->
+                    <div class="filter-group">
+                        <span class="filter-label">점검 시기:</span>
+                        <label class="checkbox-chip">
+                            <input type="checkbox" id="filterPeriod2026H2" checked> 2026 하반기
+                        </label>
+                        <label class="checkbox-chip">
+                            <input type="checkbox" id="filterPeriod2026H1" checked> 2026 상반기
+                        </label>
+                        <label class="checkbox-chip">
+                            <input type="checkbox" id="filterPeriod2025H2"> 2025 하반기
+                        </label>
+                    </div>
+
+                    <!-- Category / Element Type Layer Filters -->
+                    <div class="filter-group">
+                        <span class="filter-label">부재 분류:</span>
+                        <label class="checkbox-chip tag-structural">
+                            <input type="checkbox" id="filterCatStructural" checked> 🔴 구조체
+                        </label>
+                        <label class="checkbox-chip tag-nonstructural">
+                            <input type="checkbox" id="filterCatNonStructural" checked> 🔵 비구조체
+                        </label>
+                        <label class="checkbox-chip tag-finishing">
+                            <input type="checkbox" id="filterCatFinishing" checked> 🟠 마감재
+                        </label>
+                        <label class="checkbox-chip" style="border-color: #facc15; color: #facc15;">
+                            <input type="checkbox" id="filterOnlyBookmark"> ⭐ 중요 결함만 보기
+                        </label>
+                    </div>
+
+                    <!-- Pin Marker Shape Selector -->
+                    <div class="filter-group">
+                        <span class="filter-label">박스 모양:</span>
+                        <button type="button" id="btnPinShapeSquare" class="chip active">🔲 네모 박스 (01-1)</button>
+                        <button type="button" id="btnPinShapeCircle" class="chip">⚪ 동그라미 (01-1)</button>
+                    </div>
+
+                    <!-- Target Tip Shape Selector -->
+                    <div class="filter-group">
+                        <span class="filter-label">지시선 끝:</span>
+                        <button type="button" id="btnTipShapeArrow" class="chip active">➔ 화살표 끝</button>
+                        <button type="button" id="btnTipShapeCircle" class="chip">● 동그라미 끝</button>
+                    </div>
+
+                    <!-- Pin Marker Size Adjuster Slider -->
+                    <div class="filter-group">
+                        <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀/화살표 크기:</span>
+                        <input type="range" id="pinSizeRange" min="0.6" max="2.2" step="0.1" value="1.0" style="width: 80px; vertical-align: middle;" title="핀 및 화살표 크기 조절">
+                        <span id="pinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
+                    </div>
+                </div>
+
+                <div class="toolbar-right">
+                    <button id="btnUndo" class="btn btn-outline" title="실행 취소 (Ctrl+Z)" style="border-color: #6366f1; color: #a5b4fc;">
+                        <i class="fa-solid fa-rotate-left"></i> ↩️ 되돌리기 (Ctrl+Z)
+                    </button>
+                    <label for="drawingUpload" class="btn btn-outline">
+                        <i class="fa-solid fa-upload"></i> 도면 이미지/PDF 등록
+                    </label>
+                    <input type="file" id="drawingUpload" accept="image/*,.pdf" style="display:none;">
+                    
+                    <button id="btnClearPins" class="btn btn-danger-outline">
+                        <i class="fa-solid fa-trash-can"></i> 핀 전체 초기화
+                    </button>
+                </div>
+            </div>
+
+            <!-- Unified Top Drawing Controls Toolbar (No Overlap & Always Visible) -->
+            <div class="canvas-top-toolbar">
+                <div class="toolbar-mode-group">
+                    <button type="button" id="btnModePan" class="mode-btn active" title="화면 자유 이동/확대 모드">
+                        <i class="fa-solid fa-hand"></i> ✋ 화면 자유 이동
+                    </button>
+                    <button type="button" id="btnModeMark" class="mode-btn btn-mark-mode" title="결함 위치 마킹 모드">
+                        <i class="fa-solid fa-location-dot"></i> 📍 [결함 위치 마킹]
+                    </button>
+                </div>
+                
+                <div class="toolbar-action-group">
+                    <button type="button" id="btnRotateDrawing" class="btn-rotate-hero" title="세로 도면 가로로 90도 회전">
+                        <i class="fa-solid fa-rotate-right"></i> 🔄 도면 90° 가로회전
+                    </button>
+                    <div class="zoom-pill-group">
+                        <button id="btnZoomIn" class="zoom-pill-btn" title="확대 (+)"><i class="fa-solid fa-plus"></i></button>
+                        <span id="zoomScaleText" class="zoom-pill-badge">100%</span>
+                        <button id="btnZoomOut" class="zoom-pill-btn" title="축소 (-)"><i class="fa-solid fa-minus"></i></button>
+                        <button id="btnZoomFit" class="zoom-pill-btn text-btn" title="화면에 맞추기"><i class="fa-solid fa-expand"></i> 맞춤</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Canvas Viewport -->
+            <div class="canvas-container" id="canvasContainer">
+                <div class="canvas-hint" id="canvasHintText">
+                    <i class="fa-solid fa-hand-pointer"></i> 
+                    <span>[✋ 화면 이동 모드] 손가락으로 도면 자유 이동 및 확대/축소 | 핀을 찍으려면 <strong>📍[결함 위치 마킹]</strong> 버튼 클릭</span>
+                </div>
+
+                <canvas id="planCanvas"></canvas>
+            </div>
+        </section>
+
+        <!-- TAB 2: 층별 상태조사표 (Condition Survey Table) -->
+        <section id="tab-survey" class="tab-content">
+            <div class="section-header">
+                <h2>📋 <span id="surveyFloorTitle">지상 1층 (1F)</span> 상태조사표</h2>
+                <div class="section-actions">
+                    <button id="btnAddDefectDirect" class="btn btn-primary">
+                        <i class="fa-solid fa-plus"></i> 결함 수동 추가
+                    </button>
+                    <input type="file" id="inputImportCSV" accept=".csv, .txt" style="display:none;">
+                    <button id="btnImportSurvey" class="btn btn-outline" style="border-color: #10b981; color: #34d399;">
+                        <i class="fa-solid fa-file-import"></i> 📥 엑셀/CSV 불러오기
+                    </button>
+                    <button id="btnExportSurvey" class="btn btn-outline">
+                        <i class="fa-solid fa-file-excel"></i> 엑셀 내보내기
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="data-table" id="surveyTable">
+                    <thead>
+                        <tr>
+                            <th>결함 번호</th>
+                            <th>부재 분류</th>
+                            <th>부재명</th>
+                            <th>결함 종류</th>
+                            <th>손상 규모 (폭/길이)</th>
+                            <th>결함원인 추정</th>
+                            <th>비고</th>
+                            <th>사진 수</th>
+                            <th>관리</th>
+                        </tr>
+                    </thead>
+                    <tbody id="surveyTableBody">
+                        <!-- Dynamic rows populated via app.js -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- TAB 3: 층별 사진첩 (Photo Album Gallery) -->
+        <section id="tab-album" class="tab-content">
+            <div class="section-header">
+                <h2>📷 <span id="albumFloorTitle">지상 1층 (1F)</span> 현장 사진첩</h2>
+                <div class="album-filter">
+                    <select id="albumFilterComponent" class="styled-select">
+                        <option value="ALL">전체 부재 보기</option>
+                        <option value="구조체">구조체만 보기</option>
+                        <option value="비구조체">비구조체만 보기</option>
+                        <option value="마감재">마감재만 보기</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="photo-grid" id="photoGrid">
+                <!-- Dynamic photo cards populated via app.js -->
+            </div>
+        </section>
+
+        <!-- TAB 4: 안전등급 통계 대시보드 (Safety Grade Statistics) -->
+        <section id="tab-stats" class="tab-content">
+            <div class="section-header">
+                <h2>📊 건축물 부재별 · 결함별 · 안전등급(A~E) 통계 대시보드</h2>
+                <span class="badge badge-info">실시간 집계</span>
+            </div>
+
+            <!-- Grade Summary Cards -->
+            <div class="summary-cards">
+                <div class="grade-card grade-a">
+                    <div class="grade-letter">A</div>
+                    <div class="grade-info">
+                        <span class="grade-name">A등급 (우수)</span>
+                        <span class="grade-count" id="countGradeA">0개</span>
+                    </div>
+                </div>
+                <div class="grade-card grade-b">
+                    <div class="grade-letter">B</div>
+                    <div class="grade-info">
+                        <span class="grade-name">B등급 (양호)</span>
+                        <span class="grade-count" id="countGradeB">0개</span>
+                    </div>
+                </div>
+                <div class="grade-card grade-c">
+                    <div class="grade-letter">C</div>
+                    <div class="grade-info">
+                        <span class="grade-name">C등급 (보통)</span>
+                        <span class="grade-count" id="countGradeC">0개</span>
+                    </div>
+                </div>
+                <div class="grade-card grade-d">
+                    <div class="grade-letter">D</div>
+                    <div class="grade-info">
+                        <span class="grade-name">D등급 (미흡)</span>
+                        <span class="grade-count" id="countGradeD">0개</span>
+                    </div>
+                </div>
+                <div class="grade-card grade-e">
+                    <div class="grade-letter">E</div>
+                    <div class="grade-info">
+                        <span class="grade-name">E등급 (불량)</span>
+                        <span class="grade-count" id="countGradeE">0개</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Detailed Breakdown Tables & Charts -->
+            <div class="stats-grid">
+                <!-- Component breakdown -->
+                <div class="stats-panel">
+                    <h3><i class="fa-solid fa-list-check"></i> 부재 및 결함종류별 등급 집계표</h3>
+                    <div class="table-responsive">
+                        <table class="data-table" id="statsTable">
+                            <thead>
+                                <tr>
+                                    <th>부재 분류</th>
+                                    <th>부재명</th>
+                                    <th>결함 종류</th>
+                                    <th>A등급</th>
+                                    <th>B등급</th>
+                                    <th>C등급</th>
+                                    <th>D등급</th>
+                                    <th>E등급</th>
+                                    <th>합계</th>
+                                </tr>
+                            </thead>
+                            <tbody id="statsTableBody">
+                                <!-- Dynamic stats populated via app.js -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Text Summary Box for Report -->
+                <div class="stats-panel">
+                    <h3><i class="fa-solid fa-file-contract"></i> 점검 종합 평가 요약</h3>
+                    <div class="report-summary-box" id="reportSummaryBox">
+                        <!-- Dynamic text summary -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MODAL: One-Stop Defect Input Modal (원스톱 결함 입력 팝업) -->
+    <div class="modal-overlay" id="defectModal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-location-dot"></i> 결함 정보 입력 (<span id="modalPinNumber">1-1</span>)</h3>
+                <button class="modal-close" id="btnCloseDefectModal">&times;</button>
+            </div>
+            
+            <div class="modal-body">
+                <form id="defectForm">
+                    <input type="hidden" id="inputPinId">
+                    <input type="hidden" id="inputCoordX">
+                    <input type="hidden" id="inputCoordY">
+
+                    <!-- Pin Number & Related Parent -->
+                    <div class="form-row flex-row">
+                        <div class="form-group flex-1">
+                            <label>결함 번호 (직접 수정 가능):</label>
+                            <input type="text" id="inputDefectNumber" class="styled-input" placeholder="예: 01 또는 01-1">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>부재 분류:</label>
+                            <select id="inputCategory" class="styled-select">
+                                <option value="구조체">🔴 구조체 (기둥, 보, 슬래브 등)</option>
+                                <option value="비구조체">🔵 비구조체 (조적벽, 칸막이 등)</option>
+                                <option value="마감재">🟠 마감재 (천장, 바닥, 도장 등)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Bookmark Toggle Checkbox -->
+                    <div class="form-group" style="background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.35); padding: 0.6rem 0.9rem; border-radius: 8px; margin-bottom: 1rem;">
+                        <label for="inputIsBookmark" style="margin: 0; cursor: pointer; display: flex; align-items: center; justify-content: space-between; color: #facc15; font-weight: 700; font-size: 0.9rem;">
+                            <span><i class="fa-solid fa-star"></i> ⭐ 중요 결함으로 북마크 지정 (앱 현장 강조 표기)</span>
+                            <input type="checkbox" id="inputIsBookmark" style="width: 20px; height: 20px; cursor: pointer; accent-color: #eab308;">
+                        </label>
+                    </div>
+
+                    <!-- Component Selection Chips -->
+                    <div class="form-group">
+                        <label>부재 선택 (원터치 및 직접 추가):</label>
+                        <div class="chips-container" id="componentChips">
+                            <button type="button" class="chip active" data-val="기둥">기둥</button>
+                            <button type="button" class="chip" data-val="큰보">큰보</button>
+                            <button type="button" class="chip" data-val="작은보">작은보</button>
+                            <button type="button" class="chip" data-val="슬래브">슬래브</button>
+                            <button type="button" class="chip" data-val="조적벽체">조적벽체</button>
+                            <button type="button" class="chip" data-val="옹벽">옹벽</button>
+                            <button type="button" class="chip" data-val="지붕/옥상">지붕/옥상</button>
+                            <button type="button" class="chip" data-val="기타">기타</button>
+                        </div>
+                        <div class="custom-add-row">
+                            <input type="text" id="inputCustomComponent" class="styled-input input-sm" placeholder="+ 부재 직접 입력 (예: 계단실, 엘리베이터 피트)">
+                            <button type="button" class="btn btn-outline btn-sm" id="btnAddCustomComponent"><i class="fa-solid fa-plus"></i> 부재 추가</button>
+                        </div>
+                        <input type="hidden" id="inputComponentName" value="기둥">
+                    </div>
+
+                    <!-- Defect Type Selection Chips -->
+                    <div class="form-group">
+                        <label>결함 종류 선택 (원터치 및 직접 추가):</label>
+                        <div class="chips-container" id="defectTypeChips">
+                            <button type="button" class="chip active" data-val="균열">균열</button>
+                            <button type="button" class="chip" data-val="수직균열">수직균열</button>
+                            <button type="button" class="chip" data-val="경사균열">경사균열</button>
+                            <button type="button" class="chip" data-val="수평균열">수평균열</button>
+                            <button type="button" class="chip" data-val="누수">누수</button>
+                            <button type="button" class="chip" data-val="누수흔적">누수흔적</button>
+                            <button type="button" class="chip" data-val="오염">오염</button>
+                            <button type="button" class="chip" data-val="파손">파손</button>
+                            <button type="button" class="chip" data-val="고정불량">고정불량</button>
+                        </div>
+                        <div class="custom-add-row">
+                            <input type="text" id="inputCustomDefectType" class="styled-input input-sm" placeholder="+ 결함내용 직접 입력 (예: 박리, 철근노출, 백화)">
+                            <button type="button" class="btn btn-outline btn-sm" id="btnAddCustomDefectType"><i class="fa-solid fa-plus"></i> 결함내용 추가</button>
+                        </div>
+                        <input type="hidden" id="inputDefectType" value="균열">
+                    </div>
+
+                    <!-- Hidden Grade Input for default C grade -->
+                    <input type="hidden" id="inputGrade" value="C">
+
+                    <!-- Defect Size & Location Details -->
+                    <div class="form-row flex-row">
+                        <div class="form-group flex-1">
+                            <label>균열 폭 (mm):</label>
+                            <input type="text" id="inputWidth" class="styled-input" placeholder="예: 0.2 mm">
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>길이 (m) / 면적 (㎡):</label>
+                            <input type="text" id="inputLength" class="styled-input" placeholder="예: 1.5 m">
+                        </div>
+                    </div>
+
+                    <!-- Photo Upload / Capture -->
+                    <div class="form-group">
+                        <label><i class="fa-solid fa-camera"></i> 현장 사진 첨부 (휴대폰/탭 카메라):</label>
+                        <div class="photo-upload-box">
+                            <input type="file" id="inputPhotoFile" accept="image/*" capture="environment" multiple style="display:none;">
+                            <button type="button" class="btn btn-outline" id="btnTriggerPhoto">
+                                <i class="fa-solid fa-camera-retro"></i> 사진 촬영 / 앨범에서 선택
+                            </button>
+                            <div class="photo-preview-list" id="modalPhotoPreviews">
+                                <!-- Photo thumbnails -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Estimated Defect Cause Input & Dynamic One-Touch Chips -->
+                    <div class="form-group">
+                        <label>결함원인 추정 (결함종류별 맞춤 추천 칩 / 직접 입력 / 사용자 원인 추가):</label>
+                        <input type="text" id="inputCause" class="styled-input" placeholder="예: 건조수축, 부재 내력부족, 개구부 응력집중, 지반침하, 시공 미흡 등">
+                        <div class="chips-container" id="causeChips" style="margin-top: 0.4rem;">
+                            <!-- Dynamically populated per defect type in app.js -->
+                        </div>
+                        <div class="custom-add-row" style="margin-top: 0.5rem;">
+                            <input type="text" id="inputCustomCause" class="styled-input input-sm" placeholder="+ 새로운 결함원인 직접 추가 (예: 보 처짐, 경화전 가하중)">
+                            <button type="button" class="btn btn-outline btn-sm" id="btnAddCustomCause"><i class="fa-solid fa-plus"></i> 원인 추가</button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Note Input -->
+                    <div class="form-group">
+                        <label>결함 세부 설명 및 비고 (직접 입력):</label>
+                        <textarea id="inputDescription" class="styled-textarea" rows="2" placeholder="결함 부위 특이사항 및 상세 설명을 입력하세요..."></textarea>
+                    </div>
+                </form>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger-outline" id="btnDeleteDefect" style="margin-right:auto;">
+                    <i class="fa-solid fa-trash"></i> 삭제
+                </button>
+                <button type="button" class="btn btn-secondary" id="btnAddSubDefect">
+                    <i class="fa-solid fa-plus"></i> 동일 부재 결함 추가 (1-2)
+                </button>
+                <button type="button" class="btn btn-primary" id="btnSaveDefect">
+                    <i class="fa-solid fa-check"></i> 저장하기
+                </button>
+            </div>
+        </div>
+    </div><!-- End of defectModal -->
+
+    <!-- MODAL: Building Registration (신규 건축물 등록 팝업) -->
+    <div class="modal-overlay" id="addBuildingModal">
+        <div class="modal-card" style="max-width: 580px; width: 94%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-building-circle-check"></i> 🏢 신규 점검 건축물 등록</h3>
+                <button class="modal-close" id="btnCloseAddBuildingModal" onclick="if(window.closeAddBuildingModalFunc){window.closeAddBuildingModalFunc();}const m=document.getElementById('addBuildingModal');if(m){m.style.display='none';m.classList.remove('open');}">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto;">
+                <div class="form-group">
+                    <label class="form-label">🏢 건축물 명칭 *</label>
+                    <input type="text" id="inputBuildingName" class="form-control" placeholder="예: 강남 서초 타워, 인천 물류센터 A동">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">📍 소재지 주소</label>
+                    <input type="text" id="inputBuildingAddress" class="form-control" placeholder="예: 서울특별시 강남구 테헤란로 123">
+                </div>
+                <div class="form-row" style="display:flex; gap:0.8rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label">🏢 규모 및 층수</label>
+                        <input type="text" id="inputBuildingFloors" class="form-control" placeholder="예: 지상 15층 ~ 지하 3층">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label">📅 점검 일시</label>
+                        <input type="date" id="inputBuildingDate" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">📝 비고 / 특이사항</label>
+                    <textarea id="inputBuildingNotes" class="form-control" rows="2" placeholder="건물 특이사항이나 주요 요청 사항 입력"></textarea>
+                </div>
+                
+                <!-- Multi Drawing File Upload & Floor Auto-Sort Engine -->
+                <div class="form-group" style="background: rgba(255,255,255,0.03); padding: 1rem; border-radius: 8px; border: 1px dashed var(--border-highlight);">
+                    <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-file-image" style="color: #38bdf8;"></i> 📁 층별 도면 파일 여러개 일괄 올리기</span>
+                        <span class="text-muted" style="font-size:0.75rem;">(B1, 지하1층, 1F 등 파일명 자동인식 & 아래층 순 자동정렬)</span>
+                    </label>
+                    <input type="file" id="inputBuildingDrawings" multiple accept="image/*" class="form-control" style="margin-top: 0.4rem;">
+                    
+                    <!-- Floor Sorting Preview Box -->
+                    <div id="drawingSortPreview" style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                        <!-- Automatically parsed and sorted floor items rendered here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: flex-end; gap: 0.6rem;">
+                <button type="button" class="btn btn-outline" id="btnCancelAddBuilding" onclick="if(window.closeAddBuildingModalFunc){window.closeAddBuildingModalFunc();}const m=document.getElementById('addBuildingModal');if(m){m.style.display='none';m.classList.remove('open');}">취소</button>
+                <button type="button" class="btn btn-primary" id="btnSaveBuilding" onclick="if(window.saveBuildingFunc){window.saveBuildingFunc();}else{const n=document.getElementById('inputBuildingName');if(!n||!n.value.trim()){alert('⚠️ 건축물 명칭을 입력해 주세요!');if(n)n.focus();}else{const m=document.getElementById('addBuildingModal');if(m){m.style.display='none';m.classList.remove('open');}}}"><i class="fa-solid fa-check"></i> 💾 건축물 등록 완료</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Building Information Edit & Floor Drawing Re-upload Modal (건축물 정보 수정 및 층별 도면 교체 팝업) -->
+    <div class="modal-overlay" id="editBuildingModal">
+        <div class="modal-card" style="max-width: 620px; width: 94%;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); border-bottom: 1px solid var(--border-highlight);">
+                <h3><i class="fa-solid fa-pen-to-square" style="color: #38bdf8;"></i> ✏️ 건축물 명칭 수정 & 층별 도면 교체</h3>
+                <button type="button" class="modal-close" onclick="if(window.closeEditBuildingModalFunc){window.closeEditBuildingModalFunc();}const m=document.getElementById('editBuildingModal');if(m){m.style.display='none';m.classList.remove('open');}">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto; padding: 1.2rem;">
+                <input type="hidden" id="inputEditBuildingId">
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: 700;">🏢 건축물 명칭 *</label>
+                    <input type="text" id="inputEditBuildingName" class="form-control" placeholder="예: 강남 테헤란 타워 A동">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: 700;">📍 소재지 주소</label>
+                    <input type="text" id="inputEditBuildingAddress" class="form-control" placeholder="예: 서울특별시 강남구 테헤란로 123">
+                </div>
+                <div class="form-row" style="display:flex; gap:0.8rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" style="font-weight: 700;">🏢 규모 및 층수</label>
+                        <input type="text" id="inputEditBuildingFloors" class="form-control" placeholder="예: 지상 15층 ~ 지하 3층">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" style="font-weight: 700;">📅 점검 일시</label>
+                        <input type="date" id="inputEditBuildingDate" class="form-control">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="font-weight: 700;">📝 비고 / 특이사항</label>
+                    <textarea id="inputEditBuildingNotes" class="form-control" rows="2" placeholder="건물 특이사항이나 주요 요청 사항 입력"></textarea>
+                </div>
+                
+                <!-- Floor Drawing Re-upload & Replace Section -->
+                <div class="form-group" style="background: rgba(15, 23, 42, 0.7); padding: 1.2rem; border-radius: 10px; border: 1px dashed #38bdf8;">
+                    <label class="form-label" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.6rem;">
+                        <span style="color: #38bdf8; font-weight: 800; font-size: 0.95rem;"><i class="fa-solid fa-file-arrow-up"></i> 🖼️ 층별 도면 다시 올리기 / 교체 (파일 선택)</span>
+                        <span class="text-muted" style="font-size:0.75rem;">(B1, 1F 등 파일명 자동인식 & 고화질 자동압축)</span>
+                    </label>
+                    <input type="file" id="inputEditBuildingDrawings" multiple accept="image/*" class="form-control">
+                    
+                    <!-- Floor Sorting & Existing Drawing List Preview -->
+                    <div id="editDrawingSortPreview" style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                        <!-- Dynamically populated existing and new floor drawings -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between; gap: 0.6rem; background: #1e293b; padding: 1rem 1.2rem;">
+                <button type="button" class="btn btn-danger-outline" onclick="if(window.deleteBuildingFunc){window.deleteBuildingFunc();}"><i class="fa-solid fa-trash"></i> 🗑️ 건물 삭제</button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button type="button" class="btn btn-outline" onclick="if(window.closeEditBuildingModalFunc){window.closeEditBuildingModalFunc();}const m=document.getElementById('editBuildingModal');if(m){m.style.display='none';m.classList.remove('open');}">취소</button>
+                    <button type="button" class="btn btn-primary" onclick="if(window.saveEditBuildingFunc){window.saveEditBuildingFunc();}"><i class="fa-solid fa-check"></i> 💾 수정사항 및 도면 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Mobile Phone Camera Pairing QR Modal -->
+    <div class="modal-overlay" id="mobileQrModal">
+        <div class="modal-card modal-sm">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-qrcode"></i> 스마트폰 카메라 연동</h3>
+                <button class="modal-close" id="btnCloseQrModal">&times;</button>
+            </div>
+            <div class="modal-body text-center">
+                <p>스마트폰 기본 카메라로 아래 QR 코드를 스캔하시면 <strong>현장 사진 전송 모드</strong>로 연결됩니다.</p>
+                <div class="qr-placeholder">
+                    <i class="fa-solid fa-qrcode qr-large-icon"></i>
+                    <div class="qr-code-text">세션 코드: <strong>BUILD-7892</strong></div>
+                </div>
+                <p class="text-muted small">스마트폰에서 셔터를 누르면 갤럭시 탭/PC 도면 핀 위치로 즉시 전송됩니다.</p>
+            </div>
+            <div class="modal-footer justify-center">
+                <button class="btn btn-primary" id="btnCloseQrConfirm">연결 완료</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Full Screen Interactive Report Preview Modal -->
+    <div class="modal-overlay" id="reportPreviewModal">
+        <div class="modal-card" style="max-width: 920px; width: 95%; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid rgba(255,255,255,0.15);">
+            <div class="modal-header" style="background: #1e293b; padding: 1rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                <h3><i class="fa-solid fa-file-contract"></i> 📋 정밀 안전점검 보고서 화면 미리보기</h3>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn btn-primary btn-sm" id="btnModalExportPdf"><i class="fa-solid fa-file-pdf"></i> PDF 저장</button>
+                    <button class="btn btn-secondary btn-sm" id="btnModalPrint"><i class="fa-solid fa-print"></i> 인쇄</button>
+                    <button class="modal-close" id="btnCloseReportPreviewModal">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body" id="modalReportPreviewBody" style="flex: 1; overflow-y: auto; padding: 1.5rem; background: #334155;">
+                <!-- Rendered A4 Report Pages Go Here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Dedicated Printable Report Container (Off-screen for html2pdf, Visible on Print) -->
+    <div id="printableReportContainer" class="print-only"></div>
+
+    <!-- Application Script -->
+    <script src="app.js?v=20260728_1310"></script>
+</body>
+</html>
