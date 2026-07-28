@@ -894,12 +894,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawSyntheticBlueprint(ctx, w, h) {
-        ctx.fillStyle = '#ffffff'; // Clean white paper background
+        w = w || 1400;
+        h = h || 850;
+
+        // 1. Crisp White Architectural Paper Background
+        ctx.fillStyle = '#ffffff';
         ctx.fillRect(0, 0, w, h);
 
-        ctx.strokeStyle = '#e2e8f0'; // Light gray grid
+        // 2. Light Blue Architectural Grid Lines
+        ctx.strokeStyle = '#e2e8f0';
         ctx.lineWidth = 1;
-        const gridSize = 50;
+        const gridSize = 40;
         for (let x = 0; x <= w; x += gridSize) {
             ctx.beginPath();
             ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
@@ -909,12 +914,79 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
         }
 
-        ctx.strokeStyle = '#1e293b'; // Dark wall borders
-        ctx.lineWidth = 3;
-        ctx.strokeRect(40, 30, w - 80, h - 60);
+        // 3. Grid Axis Labels (A, B, C, D / 1, 2, 3, 4)
+        ctx.fillStyle = '#64748b';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ['A', 'B', 'C', 'D', 'E'].forEach((label, idx) => {
+            const x = 100 + idx * 280;
+            ctx.beginPath();
+            ctx.arc(x, 25, 12, 0, Math.PI * 2);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.stroke();
+            ctx.fillText(label, x, 25);
+        });
+        ['1', '2', '3', '4'].forEach((label, idx) => {
+            const y = 80 + idx * 220;
+            ctx.beginPath();
+            ctx.arc(25, y, 12, 0, Math.PI * 2);
+            ctx.strokeStyle = '#94a3b8';
+            ctx.stroke();
+            ctx.fillText(label, 25, y);
+        });
 
+        // 4. Room Zone Fills (Light pastels for room identification)
+        // Office A
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+        ctx.fillRect(100, 80, 560, 220);
+        // Office B
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.08)';
+        ctx.fillRect(660, 80, 560, 220);
+        // Conference Room
+        ctx.fillStyle = 'rgba(168, 85, 247, 0.08)';
+        ctx.fillRect(100, 300, 350, 220);
+        // Elevator & Stair Core
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.12)';
+        ctx.fillRect(450, 300, 420, 220);
+        // Restrooms & Utility
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.08)';
+        ctx.fillRect(870, 300, 350, 220);
+        // Main Lobby
+        ctx.fillStyle = 'rgba(14, 165, 233, 0.06)';
+        ctx.fillRect(100, 520, 1120, 220);
+
+        // 5. Thick Exterior Concrete Load-Bearing Walls (Navy/Black)
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 8;
+        ctx.strokeRect(100, 80, 1120, 660);
+
+        // 6. Interior Partition Walls
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(w / 3, 30); ctx.lineTo(w / 3, h - 30);
+        // Horizontal main corridor line
+        ctx.moveTo(100, 300); ctx.lineTo(1220, 300);
+        ctx.moveTo(100, 520); ctx.lineTo(1220, 520);
+        // Vertical room separators
+        ctx.moveTo(660, 80); ctx.lineTo(660, 300);
+        ctx.moveTo(450, 300); ctx.lineTo(450, 520);
+        ctx.moveTo(870, 300); ctx.lineTo(870, 520);
+        ctx.stroke();
+
+        // 7. Structural Columns (Black Squares)
+        ctx.fillStyle = '#0f172a';
+        const colsX = [100, 380, 660, 940, 1220];
+        const colsY = [80, 300, 520, 740];
+        colsX.forEach(cx => {
+            colsY.forEach(cy => {
+                ctx.fillRect(cx - 10, cy - 10, 20, 20);
+            });
+        });
+
+        // 8. Elevator Shafts & Staircase Details
+        // EV Shaft
+        ctx.strokeStyle = '#d97706';
+        ctx.lineWidth = 3;
         ctx.moveTo((2 * w) / 3, 30); ctx.lineTo((2 * w) / 3, h - 30);
         ctx.moveTo(40, h / 2); ctx.lineTo(w - 40, h / 2);
         ctx.stroke();
@@ -2729,26 +2801,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function selectBuildingAndInspect(bldg) {
         if (!bldg) return;
+        const targetState = window.state || window.appState || state;
+        targetState.currentBuilding = bldg;
+        targetState.currentBuildingId = bldg.id;
         state.currentBuilding = bldg;
         state.currentBuildingId = bldg.id;
 
         const appTitle = document.querySelector('.app-title');
         const appSubtitle = document.querySelector('.app-subtitle');
-        if (appTitle) appTitle.textContent = `${bldg.name.replace(/^🏢\s*/, '')} 점검 시스템`;
+        const cleanName = bldg.name ? bldg.name.replace(/^🏢\s*/, '') : '건축물';
+        if (appTitle) appTitle.textContent = `${cleanName} 점검 시스템`;
         if (appSubtitle) appSubtitle.textContent = `📍 주소: ${bldg.address || '서울특별시 강남구'} | 👤 책임점검자: ${bldg.inspector || '홍길동 수석점검자'} | 📅 점검일: ${bldg.date || '2026-07-28'}`;
 
         updateProjectSelectDropdown();
 
         // Populate floorSelect dropdown dynamically if building has custom uploaded floor list
+        const floorSelect = document.getElementById('floorSelect');
         if (bldg.floorsList && bldg.floorsList.length > 0) {
-            const floorSelect = document.getElementById('floorSelect');
             if (floorSelect) {
                 floorSelect.innerHTML = bldg.floorsList.map(f => `<option value="${f.floorCode}">${f.floorLabel}</option>`).join('');
+                targetState.currentFloor = bldg.floorsList[0].floorCode;
                 state.currentFloor = bldg.floorsList[0].floorCode;
+            }
+        } else {
+            if (floorSelect) {
+                floorSelect.innerHTML = `
+                    <option value="1F">지상 1층 (1F)</option>
+                    <option value="2F">지상 2층 (2F)</option>
+                    <option value="3F">지상 3층 (3F)</option>
+                    <option value="B1F">지하 1층 (B1F)</option>
+                    <option value="B2F">지하 2층 (B2F)</option>
+                    <option value="ROOF">옥상 층 (ROOF)</option>
+                `;
             }
         }
 
-        loadFloorDrawing(state.currentFloor || '1F');
+        loadFloorDrawing(targetState.currentFloor || '1F');
         showToast(`🏢 '${bldg.name}' 현장 점검 화면으로 이동했습니다.`);
         switchTab('tab-map');
     }
@@ -2756,9 +2844,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.selectBuildingAndInspect = selectBuildingAndInspect;
     window.selectBuildingAndInspectFunc = function(bldgId) {
         const targetState = window.state || window.appState || state;
-        if (!targetState || !targetState.buildings) return;
-        let bldg = targetState.buildings.find(b => b.id === bldgId);
-        if (!bldg && targetState.buildings.length > 0) bldg = targetState.buildings[0];
+        if (!targetState || !targetState.buildings || targetState.buildings.length === 0) return;
+        
+        let bldg = null;
+        if (bldgId) {
+            bldg = targetState.buildings.find(b => b.id === bldgId || b.name === bldgId || (b.name && b.name.includes(bldgId)));
+        }
+        if (!bldg && targetState.buildings.length > 0) {
+            bldg = targetState.buildings[0];
+        }
         if (bldg) selectBuildingAndInspect(bldg);
     };
 

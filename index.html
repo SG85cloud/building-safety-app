@@ -4,13 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트 건축물 안전점검 현장점검 시스템</title>
-    <link rel="stylesheet" href="styles.css?v=20260728_1516">
+    <link rel="stylesheet" href="styles.css?v=20260728_1533">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
     <!-- Standalone Fail-Safe Building Registration Engine -->
     <script>
-    window.saveBuildingFunc = function() {
+    window.saveBuildingFunc = async function() {
         var nameInput = document.getElementById('inputBuildingName');
         var name = (nameInput ? nameInput.value : '').trim();
         if (!name) {
@@ -24,6 +24,36 @@
         var floors = (document.getElementById('inputBuildingFloors') ? document.getElementById('inputBuildingFloors').value : '').trim() || '지상 10층 ~ 지하 2층';
         var notes = (document.getElementById('inputBuildingNotes') ? document.getElementById('inputBuildingNotes').value : '').trim();
 
+        var safeUploadedDrawings = Array.isArray(window.selectedUploadedDrawings) ? window.selectedUploadedDrawings : [];
+        var floorDrawingsMap = {};
+        var floorsList = [];
+
+        if (safeUploadedDrawings.length > 0) {
+            for (var i = 0; i < safeUploadedDrawings.length; i++) {
+                var item = safeUploadedDrawings[i];
+                var fCode = item.floorCode || ('floor-' + (i + 1));
+                var fLabel = item.floorLabel || (item.fileName || ('층별 도면 ' + (i + 1)));
+
+                floorsList.push({ floorCode: fCode, floorLabel: fLabel });
+
+                if (item.file) {
+                    try {
+                        var dataUrl = await new Promise(function(resolve) {
+                            var reader = new FileReader();
+                            reader.onload = function(e) { resolve(e.target.result); };
+                            reader.onerror = function() { resolve(null); };
+                            reader.readAsDataURL(item.file);
+                        });
+                        if (dataUrl) {
+                            floorDrawingsMap[fCode] = dataUrl;
+                        }
+                    } catch(err) {
+                        console.error('FileReader error:', err);
+                    }
+                }
+            }
+        }
+
         var newBldg = {
             id: 'bldg-' + Date.now(),
             name: name.indexOf('🏢') === 0 ? name : '🏢 ' + name,
@@ -31,7 +61,10 @@
             inspector: '홍길동 수석점검자',
             date: date,
             floors: floors,
-            notes: notes
+            floorsList: floorsList.length > 0 ? floorsList : null,
+            floorDrawings: floorDrawingsMap,
+            notes: notes,
+            drawingsCount: safeUploadedDrawings.length
         };
 
         if (!window.state) window.state = { buildings: [] };
@@ -59,7 +92,7 @@
                 '<span style="font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(34, 197, 94, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">' + newBldg.floors + '</span>' +
                 '</h3></div>' +
                 '<div class="building-card-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap;">' +
-                '<button type="button" class="btn btn-open-building-map" onclick="if(window.selectBuildingAndInspectFunc){window.selectBuildingAndInspectFunc(\'' + newBldg.id + '\');}else if(window.switchTab){window.switchTab(\'tab-map\');}else{document.querySelectorAll(\'.tab-content\').forEach(function(c){c.style.display=\'none\';});document.getElementById(\'tab-map\').style.display=\'flex\';}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">' +
+                '<button type="button" class="btn btn-open-building-map" onclick="if(window.selectBuildingAndInspectFunc){window.selectBuildingAndInspectFunc(\'' + newBldg.id + '\');}else if(window.switchTab){window.switchTab(\'tab-map\');}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">' +
                 '<i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작</button>' +
                 '<button type="button" class="btn btn-edit-building" onclick="if(window.openEditBuildingModalFunc){window.openEditBuildingModalFunc(\'' + newBldg.id + '\');}" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(168, 85, 247, 0.15); border: 1px solid #a855f7; color: #d8b4fe; border-radius: 8px;">' +
                 '<i class="fa-solid fa-pen-to-square"></i> ✏️ 명칭/도면 수정</button></div>';
@@ -74,8 +107,68 @@
 
         if (window.renderDashboard) window.renderDashboard();
         if (nameInput) nameInput.value = '';
-        alert("🏢 '" + name + "' 건축물 카드가 성공적으로 생성되었습니다!");
+        window.selectedUploadedDrawings = [];
+        alert("🏢 '" + name + "' 건축물 및 첨부하신 도면 파일이 100% 성공적으로 등록되었습니다!");
     };
+
+    window.selectBuildingAndInspectFunc = function(bldgId) {
+        var targetState = window.state || window.appState;
+        var bldg = null;
+        if (targetState && targetState.buildings && targetState.buildings.length > 0) {
+            if (bldgId) {
+                bldg = targetState.buildings.find(function(b) {
+                    return b.id === bldgId || b.name === bldgId || (b.name && b.name.indexOf(bldgId) !== -1);
+                });
+            }
+            if (!bldg) {
+                bldg = targetState.buildings[0];
+            }
+            if (bldg) {
+                targetState.currentBuilding = bldg;
+                targetState.currentBuildingId = bldg.id;
+            }
+        }
+
+        if (window.selectBuildingAndInspect && bldg) {
+            window.selectBuildingAndInspect(bldg);
+            return;
+        }
+
+        document.querySelectorAll('.tab-content').forEach(function(c) {
+            if (c.id === 'tab-map') {
+                c.classList.add('active');
+                c.style.display = 'flex';
+            } else {
+                c.classList.remove('active');
+                c.style.display = 'none';
+            }
+        });
+
+        var mainNavTabs = document.getElementById('mainNavTabs');
+        if (mainNavTabs) mainNavTabs.style.display = 'flex';
+        var headerSelectorGroup = document.getElementById('headerSelectorGroup');
+        if (headerSelectorGroup) headerSelectorGroup.style.display = 'flex';
+
+        if (window.loadFloorDrawing) {
+            window.loadFloorDrawing((targetState && targetState.currentFloor) ? targetState.currentFloor : '1F');
+        }
+        if (window.resizeCanvas) window.resizeCanvas();
+        if (window.fitToScreen) window.fitToScreen();
+        if (window.drawCanvas) window.drawCanvas();
+    };
+
+    document.addEventListener('click', function(e) {
+        var mapBtn = e.target.closest('.btn-open-building-map');
+        if (mapBtn) {
+            e.preventDefault();
+            var bldgId = mapBtn.getAttribute('data-id');
+            if (window.selectBuildingAndInspectFunc) {
+                window.selectBuildingAndInspectFunc(bldgId);
+            } else if (window.switchTab) {
+                window.switchTab('tab-map');
+            }
+        }
+    });
     </script>
 </head>
 <body class="theme-dark">
@@ -164,7 +257,7 @@
                 <div class="dashboard-hero">
                     <div class="hero-text">
                         <span class="hero-badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 0.85rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-weight: 700;">
-                            <i class="fa-solid fa-circle-check"></i> v4.2 100% 최신 버전 가동 중 (15:16 갱신)
+                            <i class="fa-solid fa-circle-check"></i> v8.0 100% 최신 버전 가동 중 (15:33 갱신)
                         </span>
                         <h2 class="hero-title" style="margin-top: 0.4rem;">🏢 점검 대상 건축물 목록</h2>
                     </div>
@@ -766,6 +859,6 @@
     <div id="printableReportContainer" class="print-only"></div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260728_1516"></script>
+    <script src="app.js?v=20260728_1533"></script>
 </body>
 </html>
