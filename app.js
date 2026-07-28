@@ -499,11 +499,15 @@ document.addEventListener('DOMContentLoaded', () => {
             imgH = state.bgImage.naturalHeight || state.bgImage.height || 700;
         }
 
-        const scaleX = (cw - 40) / imgW;
-        const scaleY = (ch - 40) / imgH;
+        const isRotated = (state.rotationAngle === 90 || state.rotationAngle === 270);
+        const drawW = isRotated ? imgH : imgW;
+        const drawH = isRotated ? imgW : imgH;
+
+        const scaleX = (cw - 40) / drawW;
+        const scaleY = (ch - 40) / drawH;
         state.view.scale = Math.min(scaleX, scaleY, 1.2);
-        state.view.offsetX = Math.max(20, (cw - imgW * state.view.scale) / 2);
-        state.view.offsetY = Math.max(20, (ch - imgH * state.view.scale) / 2);
+        state.view.offsetX = Math.max(20, (cw - drawW * state.view.scale) / 2);
+        state.view.offsetY = Math.max(20, (ch - drawH * state.view.scale) / 2);
         
         if (elements.zoomScaleText) {
             elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
@@ -567,9 +571,27 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.translate(state.view.offsetX, state.view.offsetY);
         ctx.scale(state.view.scale, state.view.scale);
 
+        const angle = state.rotationAngle || 0;
+        const img = state.bgImage;
+        const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
+        const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
+
+        ctx.save();
+        if (angle === 90) {
+            ctx.translate(imgH, 0);
+            ctx.rotate((90 * Math.PI) / 180);
+        } else if (angle === 180) {
+            ctx.translate(imgW, imgH);
+            ctx.rotate((180 * Math.PI) / 180);
+        } else if (angle === 270) {
+            ctx.translate(0, imgW);
+            ctx.rotate((270 * Math.PI) / 180);
+        }
+
         if (state.bgImage) {
             ctx.drawImage(state.bgImage, 0, 0);
         }
+        ctx.restore();
 
         // Draw Defect Pins
         const currentDefects = getCurrentFloorDefects();
@@ -787,6 +809,16 @@ document.addEventListener('DOMContentLoaded', () => {
         fitToScreen();
         drawCanvas();
     });
+
+    // Drawing Rotate Button
+    const btnRotateDrawing = document.getElementById('btnRotateDrawing');
+    if (btnRotateDrawing) {
+        btnRotateDrawing.addEventListener('click', () => {
+            state.rotationAngle = ((state.rotationAngle || 0) + 90) % 360;
+            fitToScreen();
+            drawCanvas();
+        });
+    }
 
     // Pin Size Adjuster Slider
     if (elements.pinSizeRange) {
