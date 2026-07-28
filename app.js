@@ -2663,59 +2663,40 @@ document.addEventListener('DOMContentLoaded', () => {
         const grid = document.getElementById('buildingListGrid');
         const countText = document.getElementById('buildingCountText');
 
-        if (!state.buildings) state.buildings = [];
-        if (state.buildings.length === 0 && !window._initializedBuildings) {
-            window._initializedBuildings = true;
-            state.buildings = [
-                {
-                    id: 'bldg-1',
-                    name: '🏢 강남 테헤란 타워',
-                    type: '정밀안전점검',
-                    inspector: '홍길동 수석점검자',
-                    date: '2026-07-28',
-                    floors: '지상 15층 ~ 지하 3층',
-                    notes: '2026 하반기 정밀안전점검 진행 중'
-                },
-                {
-                    id: 'bldg-2',
-                    name: '🏢 인천 물류센터 A동',
-                    type: '정기안전점검',
-                    inspector: '이순신 점검원',
-                    date: '2026-06-15',
-                    floors: '지상 5층 ~ 지하 1층',
-                    notes: '상반기 정기안전점검 완료'
-                },
-                {
-                    id: 'bldg-3',
-                    name: '🏢 서초 아파트 101동',
-                    type: '긴급안전점검',
-                    inspector: '김철수 부장',
-                    date: '2026-05-10',
-                    floors: '지상 20층 ~ 지하 2층',
-                    notes: '외벽 균열 긴급 점검 완료'
-                }
-            ];
-        }
-
-        if (countText) countText.textContent = state.buildings.length;
+        const bldgs = getGlobalBuildings();
+        if (countText) countText.textContent = bldgs.length;
 
         if (!grid) return;
         grid.innerHTML = '';
 
-        state.buildings.forEach(bldg => {
+        if (bldgs.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-building-card" style="grid-column: 1 / -1; text-align: center; padding: 3.5rem 1.5rem; background: rgba(15, 23, 42, 0.7); border: 2px dashed rgba(56, 189, 248, 0.4); border-radius: 16px; color: #94a3b8; animation: fadeIn 0.4s ease;">
+                    <i class="fa-solid fa-building-circle-plus" style="font-size: 3.5rem; color: #38bdf8; margin-bottom: 1.2rem;"></i>
+                    <h3 style="font-size: 1.35rem; font-weight: 800; color: #f8fafc; margin-bottom: 0.6rem;">등록된 건축물이 없습니다</h3>
+                    <p style="font-size: 0.95rem; color: #94a3b8; margin-bottom: 1.8rem; line-height: 1.6;">아래 [➕ 신규 건축물 등록] 버튼을 눌러 점검할 건축물 명칭과 도면을 첫 번째로 등록해 보세요!</p>
+                    <button type="button" class="btn btn-primary" onclick="if(window.openAddBuildingModalFunc){window.openAddBuildingModalFunc();}const m=document.getElementById('addBuildingModal');if(m){m.style.display='flex';m.classList.add('open');}" style="padding: 0.9rem 1.8rem; font-size: 1rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 10px; box-shadow: 0 4px 16px rgba(37, 99, 235, 0.4);">
+                        <i class="fa-solid fa-plus"></i> ➕ 신규 건축물 등록하기
+                    </button>
+                </div>
+            `;
+            return;
+        }
+
+        bldgs.forEach(bldg => {
             const card = document.createElement('div');
             card.className = 'building-card';
-            card.style.cssText = 'padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.75); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.3);';
+            card.style.cssText = 'padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 140px; background: rgba(15, 23, 42, 0.85); border: 1px solid #38bdf8; border-radius: 12px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(56,189,248,0.2); animation: fadeIn 0.4s ease;';
 
             card.innerHTML = `
                 <div class="building-card-header" style="margin-bottom: 0;">
                     <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; width: 100%;">
                         <span>${bldg.name}</span>
-                        <span style="font-size: 0.78rem; font-weight: 600; color: #94a3b8; background: rgba(255,255,255,0.06); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">${bldg.floors || '지상 10층 ~ 지하 2층'}</span>
+                        <span style="font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(34, 197, 94, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(34, 197, 94, 0.3);">${bldg.floors || '지상 10층 ~ 지하 2층'}</span>
                     </h3>
                 </div>
                 <div class="building-card-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
-                    <button class="btn btn-open-building-map" data-id="${bldg.id}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+                    <button class="btn btn-open-building-map" data-id="${bldg.id}" data-bldg-id="${bldg.id}" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
                         <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
                     </button>
                     <button class="btn btn-edit-building" data-id="${bldg.id}" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(168, 85, 247, 0.15); border: 1px solid #a855f7; color: #d8b4fe; border-radius: 8px;">
@@ -2817,22 +2798,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Populate floorSelect dropdown dynamically if building has custom uploaded floor list
         const floorSelect = document.getElementById('floorSelect');
+        let availableFloors = [];
+
         if (bldg.floorsList && bldg.floorsList.length > 0) {
+            availableFloors = bldg.floorsList;
+        } else if (bldg.floorDrawings && Object.keys(bldg.floorDrawings).length > 0) {
+            availableFloors = Object.keys(bldg.floorDrawings).map(code => {
+                let label = code;
+                if (code === 'ROOF') label = '옥상 층 (ROOF)';
+                else if (code.startsWith('B')) label = `지하 ${code.replace('B','').replace('F','')}층 (${code})`;
+                else if (code.endsWith('F')) label = `지상 ${code.replace('F','')}층 (${code})`;
+                return { floorCode: code, floorLabel: label };
+            });
+        }
+
+        if (availableFloors.length > 0) {
             if (floorSelect) {
-                floorSelect.innerHTML = bldg.floorsList.map(f => `<option value="${f.floorCode}">${f.floorLabel}</option>`).join('');
-                targetState.currentFloor = bldg.floorsList[0].floorCode;
-                state.currentFloor = bldg.floorsList[0].floorCode;
+                floorSelect.innerHTML = availableFloors.map(f => `<option value="${f.floorCode}">${f.floorLabel}</option>`).join('');
+                targetState.currentFloor = availableFloors[0].floorCode;
+                state.currentFloor = availableFloors[0].floorCode;
             }
         } else {
             if (floorSelect) {
                 floorSelect.innerHTML = `
                     <option value="1F">지상 1층 (1F)</option>
                     <option value="2F">지상 2층 (2F)</option>
-                    <option value="3F">지상 3층 (3F)</option>
                     <option value="B1F">지하 1층 (B1F)</option>
                     <option value="B2F">지하 2층 (B2F)</option>
                     <option value="ROOF">옥상 층 (ROOF)</option>
                 `;
+                targetState.currentFloor = '1F';
+                state.currentFloor = '1F';
             }
         }
 
@@ -2841,29 +2837,45 @@ document.addEventListener('DOMContentLoaded', () => {
         switchTab('tab-map');
     }
 
+    function getGlobalBuildings() {
+        if (window.state && Array.isArray(window.state.buildings) && window.state.buildings.length > 0) {
+            return window.state.buildings;
+        }
+        if (window.appState && Array.isArray(window.appState.buildings) && window.appState.buildings.length > 0) {
+            return window.appState.buildings;
+        }
+        return state.buildings || [];
+    }
+
+    window.getGlobalBuildings = getGlobalBuildings;
+
     window.selectBuildingAndInspect = selectBuildingAndInspect;
     window.selectBuildingAndInspectFunc = function(bldgId) {
-        const targetState = window.state || window.appState || state;
-        if (!targetState || !targetState.buildings || targetState.buildings.length === 0) return;
+        const bldgs = getGlobalBuildings();
+        if (!bldgs || bldgs.length === 0) return;
         
         let bldg = null;
         if (bldgId) {
-            bldg = targetState.buildings.find(b => b.id === bldgId || b.name === bldgId || (b.name && b.name.includes(bldgId)));
+            bldg = bldgs.find(b => b.id === bldgId || b.name === bldgId || (b.name && b.name.includes(bldgId)));
         }
-        if (!bldg && targetState.buildings.length > 0) {
-            bldg = targetState.buildings[0];
+        if (!bldg && bldgs.length > 0) {
+            bldg = bldgs[0];
         }
         if (bldg) selectBuildingAndInspect(bldg);
     };
 
     function updateProjectSelectDropdown() {
         const projectSelect = document.getElementById('projectSelect');
-        if (!projectSelect || !state.buildings) return;
-        projectSelect.innerHTML = state.buildings.map(b => {
+        if (!projectSelect) return;
+        const bldgs = getGlobalBuildings();
+        projectSelect.innerHTML = bldgs.map(b => {
             return `<option value="${b.id}">${b.name}</option>`;
         }).join('');
-        if (state.currentBuildingId) projectSelect.value = state.currentBuildingId;
+        const curId = (window.state && window.state.currentBuildingId) ? window.state.currentBuildingId : state.currentBuildingId;
+        if (curId) projectSelect.value = curId;
     }
+
+    window.updateProjectSelectDropdown = updateProjectSelectDropdown;
 
     function switchTab(targetTabId) {
         if (!targetTabId) targetTabId = 'tab-home';
@@ -3296,6 +3308,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // Auto-Sort: Below floor to Top floor (rank ascending: -3, -2, -1, 1, 2, 3...)
                 selectedUploadedDrawings.sort((a, b) => a.rank - b.rank);
+                window.selectedUploadedDrawings = selectedUploadedDrawings;
 
                 // Render Floor Sort Preview List
                 if (drawingSortPreview) {
