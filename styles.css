@@ -579,37 +579,48 @@ body {
     font-weight: 700;
 }
 
-/* Table Design */
-.table-responsive {
+/* Clean White Engineering Survey Table Styling */
+.table-container {
+    background: #ffffff !important;
+    border-radius: 12px;
+    border: 1px solid #cbd5e1 !important;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
     overflow-x: auto;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    padding: 0.5rem;
 }
 
-.data-table {
+.survey-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.85rem;
-    text-align: left;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 0.88rem;
 }
 
-.data-table th {
-    background: var(--bg-card);
-    color: var(--text-secondary);
-    padding: 0.8rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid var(--border-color);
+.survey-table th {
+    background: #f8fafc !important;
+    color: #1e293b !important;
+    border-bottom: 2px solid #cbd5e1 !important;
+    padding: 0.85rem 0.8rem;
+    font-weight: 800;
+    text-align: center;
     white-space: nowrap;
 }
 
-.data-table td {
-    padding: 0.8rem 1rem;
-    border-bottom: 1px solid var(--border-color);
+.survey-table td {
+    padding: 0.8rem 0.75rem;
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: #1e293b !important;
+    text-align: center;
+    vertical-align: middle;
 }
 
-.data-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.02);
+.survey-table tbody tr:nth-child(even) {
+    background-color: #f8fafc !important;
+}
+
+.survey-table tbody tr:hover {
+    background-color: #f1f5f9 !important;
 }
 
 /* Badges & Tag styling */
