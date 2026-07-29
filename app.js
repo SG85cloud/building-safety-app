@@ -572,34 +572,83 @@ document.addEventListener('DOMContentLoaded', () => {
             dataUrl = bldg.floorDrawings[floorCode];
         }
 
-        if (!dataUrl) {
-            dataUrl = getDefaultBlueprintSvgDataUrl(floorCode || '1F');
-        }
+        const isLocalFileUrl = (typeof dataUrl === 'string' && dataUrl.startsWith('file:///'));
 
-        const img = new Image();
-        img.onload = () => {
-            state.bgImage = img;
-            resizeCanvas();
-            fitToScreen();
-            drawCanvas();
+        const tryLoadImage = (srcUrl, isFallback = false) => {
+            const img = new Image();
+            img.onload = () => {
+                state.bgImage = img;
+                resizeCanvas();
+                fitToScreen();
+                drawCanvas();
+            };
+            img.onerror = () => {
+                if (!isFallback) {
+                    // Mobile or broken path fallback -> load high-res CAD Blueprint Data-URL
+                    tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
+                } else {
+                    resizeCanvas();
+                    drawCanvas();
+                }
+            };
+            img.src = srcUrl;
         };
-        img.onerror = () => {
-            drawCanvas();
-        };
-        img.src = dataUrl;
+
+        if (!dataUrl || (isLocalFileUrl && window.location.protocol !== 'file:')) {
+            // Mobile browser or web server accessing local file:/// path -> use high-res CAD SVG immediately
+            tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
+        } else {
+            tryLoadImage(dataUrl, false);
+        }
     }
 
     function getDefaultBlueprintSvgDataUrl(floorName) {
         const svg = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
-                <rect width="1200" height="700" fill="#0f172a"/>
-                <g stroke="#334155" stroke-width="1">
-                    ${Array.from({length: 24}).map((_, i) => `<line x1="${i*50}" y1="0" x2="${i*50}" y2="700"/>`).join('')}
-                    ${Array.from({length: 14}).map((_, i) => `<line x1="0" y1="${i*50}" x2="1200" y2="${i*50}"/>`).join('')}
+            <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850">
+                <rect width="1400" height="850" fill="#0b1329"/>
+                <!-- CAD Grid Lines -->
+                <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1">
+                    ${Array.from({length: 35}).map((_, i) => `<line x1="${i*40}" y1="0" x2="${i*40}" y2="850"/>`).join('')}
+                    ${Array.from({length: 22}).map((_, i) => `<line x1="0" y1="${i*40}" x2="1400" y2="${i*40}"/>`).join('')}
                 </g>
-                <rect x="100" y="80" width="1000" height="540" fill="none" stroke="#38bdf8" stroke-width="4"/>
-                <text x="600" y="340" fill="#94a3b8" font-size="28" font-weight="bold" text-anchor="middle">${floorName} 건축물 기본 평면도 (CAD CAD CAD)</text>
-                <text x="600" y="380" fill="#64748b" font-size="16" text-anchor="middle">도면 사진을 추가 등록하시면 본인의 도면 사진이 선명하게 표시됩니다.</text>
+                <!-- Building Outer Boundary & Walls -->
+                <rect x="120" y="90" width="1160" height="670" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <rect x="135" y="105" width="1130" height="640" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="2" stroke-dasharray="8 4"/>
+                
+                <!-- Internal Structural Rooms & Walls -->
+                <rect x="150" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="520" y="120" width="360" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="910" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                
+                <rect x="150" y="430" width="530" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="710" y="430" width="540" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+
+                <!-- Structural Columns (C1, C2, C3) -->
+                ${[[150,120],[490,120],[520,120],[880,120],[910,120],[1250,120],
+                   [150,400],[490,400],[520,400],[880,400],[910,400],[1250,400],
+                   [150,430],[680,430],[710,430],[1250,430],
+                   [150,730],[680,730],[710,730],[1250,730]].map(([cx, cy]) => `
+                    <rect x="${cx-10}" y="${cy-10}" width="20" height="20" fill="#f43f5e" stroke="#fff" stroke-width="1.5"/>
+                `).join('')}
+
+                <!-- Dimension Lines -->
+                <line x1="120" y1="55" x2="1280" y2="55" stroke="#f59e0b" stroke-width="2"/>
+                <text x="700" y="45" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle">X-AXIS DIMENSION: 28,400 mm</text>
+                
+                <line x1="55" y1="90" x2="55" y2="760" stroke="#f59e0b" stroke-width="2"/>
+                <text x="45" y="435" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle" transform="rotate(-90 45 435)">Y-AXIS DIMENSION: 16,800 mm</text>
+
+                <!-- Zone Labels -->
+                <text x="320" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE A (${floorName})</text>
+                <text x="700" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">코어 및 계단실 (CORE)</text>
+                <text x="1080" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE B (${floorName})</text>
+                <text x="415" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">주차장 / 로비 구역</text>
+                <text x="980" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">기계실 / 전기실 구역</text>
+
+                <!-- Architectural Title Block -->
+                <rect x="850" y="650" width="390" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="2"/>
+                <text x="865" y="678" fill="#38bdf8" font-size="16" font-weight="bold">도휘에드가9차 현장점검 CAD 평면도 [${floorName}]</text>
+                <text x="865" y="704" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템 | SCALE 1:100</text>
             </svg>
         `;
         return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
