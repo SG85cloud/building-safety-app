@@ -17,6 +17,7 @@ if (!window.state) {
         pinShape: 'square', // 'square' | 'circle'
         tipShape: 'arrow',  // 'arrow' | 'circle'
         pinSizeScale: 1.0,
+        arrowSizeScale: 1.0,
         bgImage: null,
         canvas: null,
         ctx: null
@@ -128,6 +129,8 @@ document.addEventListener('DOMContentLoaded', () => {
         zoomScaleText: document.getElementById('zoomScaleText'),
         pinSizeRange: document.getElementById('pinSizeRange'),
         pinSizeLabel: document.getElementById('pinSizeLabel'),
+        arrowSizeRange: document.getElementById('arrowSizeRange'),
+        arrowSizeLabel: document.getElementById('arrowSizeLabel'),
         
         // Tables & Albums
         surveyTableBody: document.getElementById('surveyTableBody'),
@@ -142,7 +145,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const dataToSave = {
                 defects: window.state.defects || {},
                 buildings: window.state.buildings || [],
-                lastUsedBuildingId: window.state.currentBuildingId || null
+                lastUsedBuildingId: window.state.currentBuildingId || null,
+                customDefectTypes: window.state.customDefectTypes || {},
+                customDefectCauses: window.state.customDefectCauses || {}
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
         } catch (e) {
@@ -150,16 +155,59 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getDefaultBuildings() {
+        return [
+            {
+                id: 'bldg-dohwi-9',
+                name: '🏢 도휘에드가9차',
+                address: '서울특별시 강남구 테헤란로 456 (도휘에드가 9차)',
+                inspector: '홍길동 수석점검자',
+                date: '2026-07-29',
+                floors: '101동 ~ 105동 (5개동 기준층)',
+                floorsList: [
+                    { floorCode: '101동', floorLabel: '101동 기준층 (101동)' },
+                    { floorCode: '102동', floorLabel: '102동 기준층 (102동)' },
+                    { floorCode: '103동', floorLabel: '103동 기준층 (103동)' },
+                    { floorCode: '104동', floorLabel: '104동 기준층 (104동)' },
+                    { floorCode: '105동', floorLabel: '105동 기준층 (105동)' }
+                ],
+                floorDrawings: {
+                    '101동': 'file:///C:/Users/ST-SUGEUN/.gemini/antigravity/brain/f73fd602-c574-41f5-adf1-2594e5bd90e2/.user_uploaded/media__1785282834742.png',
+                    '102동': 'file:///C:/Users/ST-SUGEUN/.gemini/antigravity/brain/f73fd602-c574-41f5-adf1-2594e5bd90e2/.user_uploaded/media__1785282834691.png',
+                    '103동': 'file:///C:/Users/ST-SUGEUN/.gemini/antigravity/brain/f73fd602-c574-41f5-adf1-2594e5bd90e2/.user_uploaded/media__1785282834702.png',
+                    '104동': 'file:///C:/Users/ST-SUGEUN/.gemini/antigravity/brain/f73fd602-c574-41f5-adf1-2594e5bd90e2/.user_uploaded/media__1785282834690.png',
+                    '105동': 'file:///C:/Users/ST-SUGEUN/.gemini/antigravity/brain/f73fd602-c574-41f5-adf1-2594e5bd90e2/.user_uploaded/media__1785282834697.png'
+                },
+                notes: '도휘에드가9차 건축물 정밀 안전점검 현장 5개동 기준층 도면 세트'
+            }
+        ];
+    }
+
     function loadStateFromLocalStorage() {
         try {
-            // Wipe any legacy test data to guarantee 100% clean initial state
-            localStorage.removeItem('building_safety_app_state_v2');
-            window.state.buildings = [];
-            window.state.defects = {};
-            window.state.currentBuilding = null;
-            window.state.currentBuildingId = null;
+            const saved = localStorage.getItem('building_safety_app_state_v2');
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (parsed.buildings && Array.isArray(parsed.buildings) && parsed.buildings.length > 0) {
+                    window.state.buildings = parsed.buildings;
+                } else {
+                    window.state.buildings = getDefaultBuildings();
+                }
+                if (parsed.defects) {
+                    window.state.defects = parsed.defects;
+                }
+                if (parsed.customDefectTypes) {
+                    window.state.customDefectTypes = parsed.customDefectTypes;
+                }
+                if (parsed.customDefectCauses) {
+                    window.state.customDefectCauses = parsed.customDefectCauses;
+                }
+            } else {
+                window.state.buildings = getDefaultBuildings();
+            }
         } catch (e) {
             console.error('LocalStorage load failed:', e);
+            window.state.buildings = getDefaultBuildings();
         }
     }
 
@@ -597,6 +645,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentDefects = getCurrentFloorDefects();
         currentDefects.forEach(defect => drawPin(ctx, defect));
 
+        // Draw Live Marking Drag Preview
+        if (isMarkingDrag) {
+            const nextSeq = (currentDefects.length + 1);
+            const nextSeqStr = nextSeq < 10 ? `0${nextSeq}` : `${nextSeq}`;
+            const liveNoStr = `NO.${nextSeqStr}`;
+            drawPin(ctx, {
+                no: liveNoStr,
+                category: document.getElementById('defectCategory')?.value || '구조체',
+                x: liveBoxImgX,
+                y: liveBoxImgY,
+                targetX: markTargetImgX,
+                targetY: markTargetImgY
+            });
+        }
+
         ctx.restore();
     }
 
@@ -607,73 +670,468 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawPin(ctx, defect) {
-        const x = defect.x || 100;
-        const y = defect.y || 100;
+        const boxX = defect.x || 100;
+        const boxY = defect.y || 100;
         const scale = state.pinSizeScale || 1.0;
+        const arrowScale = state.arrowSizeScale || 1.0;
+        const isBeingDragged = (activeDragPin && activeDragPin.id === defect.id);
 
+        // Leader Line & Tip Rendering
+        if (defect.targetX !== undefined && defect.targetY !== undefined) {
+            const targetX = defect.targetX;
+            const targetY = defect.targetY;
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(boxX, boxY);
+            ctx.lineTo(targetX, targetY);
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#38bdf8';
+            ctx.lineWidth = (isBeingDragged ? 3 : 2) * arrowScale;
+            ctx.setLineDash([4, 3]);
+            ctx.stroke();
+
+            ctx.fillStyle = isBeingDragged ? '#facc15' : '#38bdf8';
+            if (state.tipShape === 'circle') {
+                ctx.beginPath();
+                ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4.5) * arrowScale, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                const dx = targetX - boxX;
+                const dy = targetY - boxY;
+                const angle = Math.atan2(dy, dx);
+                const arrowLen = (isBeingDragged ? 13 : 10) * arrowScale;
+
+                ctx.beginPath();
+                ctx.moveTo(targetX, targetY);
+                ctx.lineTo(targetX - arrowLen * Math.cos(angle - Math.PI / 6), targetY - arrowLen * Math.sin(angle - Math.PI / 6));
+                ctx.lineTo(targetX - arrowLen * Math.cos(angle + Math.PI / 6), targetY - arrowLen * Math.sin(angle + Math.PI / 6));
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        // Pin Box Label
         ctx.save();
-        ctx.translate(x, y);
+        ctx.translate(boxX, boxY);
 
-        // Color based on category
         let color = '#ef4444';
         if (defect.category === '비구조체') color = '#3b82f6';
         if (defect.category === '마감재') color = '#f97316';
 
-        // Pin Box
         ctx.fillStyle = color;
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 6;
+        ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
 
         if (state.pinShape === 'circle') {
             ctx.beginPath();
             ctx.arc(0, 0, 16 * scale, 0, Math.PI * 2);
             ctx.fill();
+            if (isBeingDragged) {
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 3 * scale;
+                ctx.stroke();
+            }
         } else {
             ctx.fillRect(-18 * scale, -14 * scale, 36 * scale, 28 * scale);
+            if (isBeingDragged) {
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 3 * scale;
+                ctx.strokeRect(-18 * scale, -14 * scale, 36 * scale, 28 * scale);
+            }
         }
 
-        // Pin Text Label
         ctx.fillStyle = '#ffffff';
         ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(defect.no || '01-1', 0, 0);
+        ctx.fillText(defect.no || 'NO.01', 0, 0);
 
         ctx.restore();
     }
 
-    // Canvas Mouse / Touch Event Handlers for Pan & Marking
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
+    // --- Dynamic Defect Type Presets & Custom Adding ---
+    const categoryDefectPreset = {
+        '구조체': [
+            '균열 (Crack)', 
+            '누수 (Leakage)', 
+            '철근노출 (Rebar Exposure)', 
+            '백태/유출 (Efflorescence)', 
+            '박리/박락 (Spalling)', 
+            '신축이음/재료분리 손상', 
+            '기타'
+        ],
+        '비구조체': [
+            '조적벽체 균열', 
+            '조인트 이격/파손', 
+            '천장재 들뜸/탈락', 
+            '설비 배관 누수/손상', 
+            '창호/유리 이격', 
+            '기타'
+        ],
+        '마감재': [
+            '타일 들뜸/탈락', 
+            '몰탈 균열', 
+            '도장 페인트 변색/탈락', 
+            '방수층 손상/들뜸', 
+            '석재 팟칭/Crack', 
+            '기타'
+        ]
+    };
 
-    if (elements.planCanvas) {
-        elements.planCanvas.addEventListener('mousedown', (e) => {
-            const rect = elements.planCanvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
+    function updateDefectTypeDropdown(category, currentVal = null) {
+        const select = document.getElementById('defectType');
+        if (!select) return;
 
-            if (state.mode === 'MARK') {
-                const imgX = (mouseX - state.view.offsetX) / state.view.scale;
-                const imgY = (mouseY - state.view.offsetY) / state.view.scale;
-                openAddDefectModal(imgX, imgY);
-            } else {
-                isDragging = true;
-                startX = mouseX - state.view.offsetX;
-                startY = mouseY - state.view.offsetY;
+        if (!window.state.customDefectTypes) {
+            window.state.customDefectTypes = { '구조체': [], '비구조체': [], '마감재': [] };
+        }
+
+        const presetList = categoryDefectPreset[category] || categoryDefectPreset['구조체'];
+        const customList = window.state.customDefectTypes[category] || [];
+
+        let html = '';
+        presetList.forEach(item => {
+            const sel = (currentVal && currentVal === item) ? 'selected' : '';
+            html += `<option value="${item}" ${sel}>${item}</option>`;
+        });
+
+        customList.forEach(item => {
+            if (!presetList.includes(item)) {
+                const sel = (currentVal && currentVal === item) ? 'selected' : '';
+                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
             }
         });
 
-        window.addEventListener('mousemove', (e) => {
-            if (!isDragging || !elements.planCanvas) return;
-            const rect = elements.planCanvas.getBoundingClientRect();
-            state.view.offsetX = (e.clientX - rect.left) - startX;
-            state.view.offsetY = (e.clientY - rect.top) - startY;
+        html += `<option value="__ADD_CUSTOM__">➕ [결함 종류 직접 추가...]</option>`;
+        select.innerHTML = html;
+
+        if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
+            const customOpt = document.createElement('option');
+            customOpt.value = currentVal;
+            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.selected = true;
+            select.insertBefore(customOpt, select.lastElementChild);
+        }
+
+        // Trigger cause update for current defect type
+        updateDefectCauseDropdown(select.value);
+    }
+
+    // --- Dynamic Defect Cause Presets & Custom Adding ---
+    const defectCausePreset = {
+        '균열': ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '신축이음 불량', '온도변화/열응력', '기타'],
+        '누수': ['상부 방수층 파손', '수분침투', '배관 파손/연결부 누수', '지하수 유입', '균열부 틈새 유입', '기타'],
+        '철근노출': ['피복두께 부족', '콘크리트 중성화', '염해 손상', '시공 다짐불량', '기타'],
+        '백태': ['수분 유입 및 찌꺼기 용해', '방수 손상', '백태 현상(Efflorescence)', '기타'],
+        '박리': ['철근 부식 부팽창', '동결융해 팽창', '부착력 저하', '기타'],
+        '조적': ['기단부 침하', '지진/진동', '접합부 마감재 이격', '기타'],
+        '타일': ['부착 접착제 경화', '온도변화 열팽창', '습기 침투', '기타'],
+        '몰탈': ['건조수축', '초기 배합비 불량', '바탕재 부착불량', '기타'],
+        '도장': ['습기 유입', '자외선 노후화', '바탕면 시공불량', '기타'],
+        '방수': ['방수재 노후화', '시공 시 바탕재 미흡', '구조체 변형', '기타']
+    };
+
+    function getCauseKey(defectType) {
+        let key = '기타';
+        for (const k in defectCausePreset) {
+            if (defectType && defectType.includes(k)) {
+                key = k;
+                break;
+            }
+        }
+        return key;
+    }
+
+    function updateDefectCauseDropdown(defectType, currentVal = null) {
+        const select = document.getElementById('defectCause');
+        if (!select) return;
+
+        if (!window.state.customDefectCauses) {
+            window.state.customDefectCauses = {};
+        }
+
+        const key = getCauseKey(defectType);
+        const presetList = defectCausePreset[key] || ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '방수층 파손', '자연 노후화', '기타'];
+        const customList = window.state.customDefectCauses[key] || [];
+
+        let html = '';
+        presetList.forEach(item => {
+            const sel = (currentVal && currentVal === item) ? 'selected' : '';
+            html += `<option value="${item}" ${sel}>${item}</option>`;
+        });
+
+        customList.forEach(item => {
+            if (!presetList.includes(item)) {
+                const sel = (currentVal && currentVal === item) ? 'selected' : '';
+                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
+            }
+        });
+
+        html += `<option value="__ADD_CUSTOM_CAUSE__">➕ [결함 원인 직접 추가...]</option>`;
+        select.innerHTML = html;
+
+        if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
+            const customOpt = document.createElement('option');
+            customOpt.value = currentVal;
+            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.selected = true;
+            select.insertBefore(customOpt, select.lastElementChild);
+        }
+    }
+
+    // Category Change Listener & Custom Option Click
+    const defectCategorySelect = document.getElementById('defectCategory');
+    if (defectCategorySelect) {
+        defectCategorySelect.addEventListener('change', (e) => {
+            updateDefectTypeDropdown(e.target.value);
+        });
+    }
+
+    const defectTypeSelect = document.getElementById('defectType');
+    if (defectTypeSelect) {
+        defectTypeSelect.addEventListener('change', (e) => {
+            if (e.target.value === '__ADD_CUSTOM__') {
+                const newType = prompt('추가하실 결함 종류를 입력하세요 (예: 에어컨 배관 이격):');
+                const cat = document.getElementById('defectCategory')?.value || '구조체';
+                if (newType && newType.trim()) {
+                    const trimmed = newType.trim();
+                    if (!window.state.customDefectTypes) window.state.customDefectTypes = { '구조체': [], '비구조체': [], '마감재': [] };
+                    if (!window.state.customDefectTypes[cat]) window.state.customDefectTypes[cat] = [];
+                    if (!window.state.customDefectTypes[cat].includes(trimmed)) {
+                        window.state.customDefectTypes[cat].push(trimmed);
+                        saveStateToLocalStorage();
+                    }
+                    updateDefectTypeDropdown(cat, trimmed);
+                } else {
+                    updateDefectTypeDropdown(cat);
+                }
+            } else {
+                updateDefectCauseDropdown(e.target.value);
+            }
+        });
+    }
+
+    const defectCauseSelect = document.getElementById('defectCause');
+    if (defectCauseSelect) {
+        defectCauseSelect.addEventListener('change', (e) => {
+            if (e.target.value === '__ADD_CUSTOM_CAUSE__') {
+                const newCause = prompt('추가하실 결함 원인 추정 내용을 입력하세요 (예: 지하수관 수압 유입):');
+                const dType = document.getElementById('defectType')?.value || '균열';
+                const key = getCauseKey(dType);
+                if (newCause && newCause.trim()) {
+                    const trimmed = newCause.trim();
+                    if (!window.state.customDefectCauses) window.state.customDefectCauses = {};
+                    if (!window.state.customDefectCauses[key]) window.state.customDefectCauses[key] = [];
+                    if (!window.state.customDefectCauses[key].includes(trimmed)) {
+                        window.state.customDefectCauses[key].push(trimmed);
+                        saveStateToLocalStorage();
+                    }
+                    updateDefectCauseDropdown(dType, trimmed);
+                } else {
+                    updateDefectCauseDropdown(dType);
+                }
+            }
+        });
+    }
+
+    // Canvas Mouse & Touch Event Handlers with 1-second Long-Press Pin & Arrow Dragging
+    let isDragging = false;
+    let isMarkingDrag = false;
+    let longPressTimer = null;
+    let isDraggingPin = false;
+    let activeDragPin = null;
+    let activeDragPart = 'BOX'; // 'BOX' or 'TIP'
+
+    let markTargetImgX = 0;
+    let markTargetImgY = 0;
+    let liveBoxImgX = 0;
+    let liveBoxImgY = 0;
+
+    let startMouseX = 0;
+    let startMouseY = 0;
+    let initialOffsetX = 0;
+    let initialOffsetY = 0;
+
+    function findHitPinPart(imgX, imgY) {
+        const defects = getCurrentFloorDefects();
+        const scale = state.pinSizeScale || 1.0;
+        const arrowScale = state.arrowSizeScale || 1.0;
+
+        for (let i = defects.length - 1; i >= 0; i--) {
+            const d = defects[i];
+            
+            // 1. Check Hit on Arrowhead Tip (targetX, targetY)
+            if (d.targetX !== undefined && d.targetY !== undefined) {
+                const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
+                if (distTip <= 28 * arrowScale) {
+                    return { defect: d, part: 'TIP' };
+                }
+            }
+
+            // 2. Check Hit on Pin Box (x, y)
+            const bx = d.x || 100;
+            const by = d.y || 100;
+            const distBox = Math.hypot(imgX - bx, imgY - by);
+            if (distBox <= 32 * scale) {
+                return { defect: d, part: 'BOX' };
+            }
+        }
+        return null;
+    }
+
+    function handleDragStart(clientX, clientY) {
+        if (!elements.planCanvas) return;
+        const rect = elements.planCanvas.getBoundingClientRect();
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+        const imgX = (mouseX - state.view.offsetX) / state.view.scale;
+        const imgY = (mouseY - state.view.offsetY) / state.view.scale;
+
+        startMouseX = clientX;
+        startMouseY = clientY;
+        initialOffsetX = state.view.offsetX;
+        initialOffsetY = state.view.offsetY;
+
+        // Check if existing pin box or arrowhead tip was clicked
+        const hitInfo = findHitPinPart(imgX, imgY);
+        if (hitInfo) {
+            // Start 1-second (1000ms) long-press timer for moving box or tip
+            longPressTimer = setTimeout(() => {
+                isDraggingPin = true;
+                activeDragPin = hitInfo.defect;
+                activeDragPart = hitInfo.part;
+                elements.planCanvas.style.cursor = 'move';
+                drawCanvas();
+            }, 1000);
+            return;
+        }
+
+        if (state.mode === 'MARK') {
+            isMarkingDrag = true;
+            markTargetImgX = imgX;
+            markTargetImgY = imgY;
+            liveBoxImgX = markTargetImgX + 35;
+            liveBoxImgY = markTargetImgY - 35;
             drawCanvas();
+        } else {
+            isDragging = true;
+            elements.planCanvas.style.cursor = 'grabbing';
+        }
+    }
+
+    function handleDragMove(clientX, clientY) {
+        if (!elements.planCanvas) return;
+        const rect = elements.planCanvas.getBoundingClientRect();
+
+        if (longPressTimer && !isDraggingPin) {
+            const dx = clientX - startMouseX;
+            const dy = clientY - startMouseY;
+            if (Math.hypot(dx, dy) > 8) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+                if (state.mode !== 'MARK') {
+                    isDragging = true;
+                }
+            }
+        }
+
+        if (isDraggingPin && activeDragPin) {
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            const currentImgX = (mouseX - state.view.offsetX) / state.view.scale;
+            const currentImgY = (mouseY - state.view.offsetY) / state.view.scale;
+
+            if (activeDragPart === 'TIP') {
+                activeDragPin.targetX = currentImgX;
+                activeDragPin.targetY = currentImgY;
+            } else {
+                activeDragPin.x = currentImgX;
+                activeDragPin.y = currentImgY;
+            }
+            drawCanvas();
+        } else if (isMarkingDrag) {
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            liveBoxImgX = (mouseX - state.view.offsetX) / state.view.scale;
+            liveBoxImgY = (mouseY - state.view.offsetY) / state.view.scale;
+            drawCanvas();
+        } else if (isDragging) {
+            const dx = clientX - startMouseX;
+            const dy = clientY - startMouseY;
+            state.view.offsetX = initialOffsetX + dx;
+            state.view.offsetY = initialOffsetY + dy;
+            drawCanvas();
+        }
+    }
+
+    function handleDragEnd() {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+
+            // If released before 1-second long-press without dragging, open edit modal for existing pin
+            if (!isDraggingPin && elements.planCanvas) {
+                const rect = elements.planCanvas.getBoundingClientRect();
+                const mouseX = startMouseX - rect.left;
+                const mouseY = startMouseY - rect.top;
+                const imgX = (mouseX - state.view.offsetX) / state.view.scale;
+                const imgY = (mouseY - state.view.offsetY) / state.view.scale;
+                const hitInfo = findHitPinPart(imgX, imgY);
+                if (hitInfo) {
+                    openAddDefectModal(hitInfo.defect.x, hitInfo.defect.y, hitInfo.defect.targetX, hitInfo.defect.targetY, hitInfo.defect);
+                    return;
+                }
+            }
+        }
+
+        if (isDraggingPin) {
+            isDraggingPin = false;
+            activeDragPin = null;
+            saveStateToLocalStorage();
+            drawCanvas();
+        }
+
+        if (isMarkingDrag) {
+            isMarkingDrag = false;
+            openAddDefectModal(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
+        }
+
+        isDragging = false;
+        if (elements.planCanvas) {
+            elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : 'grab';
+        }
+    }
+
+    if (elements.planCanvas) {
+        // Mouse Events
+        elements.planCanvas.addEventListener('mousedown', (e) => {
+            if (e.button === 0) handleDragStart(e.clientX, e.clientY);
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('mouseup', () => {
-            isDragging = false;
+            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragEnd();
+        });
+
+        // Touch Events (Galaxy Tab & Smartphone Support)
+        elements.planCanvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 1) {
+                handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+            if ((isDragging || isMarkingDrag || isDraggingPin || longPressTimer) && e.touches.length === 1) {
+                handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchend', () => {
+            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragEnd();
         });
 
         // Wheel Zoom
@@ -686,24 +1144,77 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
     }
 
-    function openAddDefectModal(x, y) {
+    function closeDefectModal() {
+        if (elements.defectModal) {
+            elements.defectModal.style.display = 'none';
+            elements.defectModal.classList.remove('open');
+        }
+    }
+
+    function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         const defects = state.defects[key] || [];
-        const seq = defects.length + 1;
-        const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
-        const defectNoStr = `${state.currentFloor.replace('F','')}-${seqStr}`;
 
-        document.getElementById('defectPinId').value = '';
-        document.getElementById('defectNo').value = defectNoStr;
-        document.getElementById('defectSize').value = '';
-        document.getElementById('defectAction').value = '';
+        const pinIdEl = document.getElementById('defectPinId');
+        const noEl = document.getElementById('defectNo');
+        const catEl = document.getElementById('defectCategory');
+        const compEl = document.getElementById('defectComponent');
+        const sizeEl = document.getElementById('defectSize');
 
-        window._pendingPinCoords = { x, y };
+        if (existingPin) {
+            if (pinIdEl) pinIdEl.value = existingPin.id;
+            if (noEl) noEl.value = existingPin.no || 'NO.01';
+            if (catEl) catEl.value = existingPin.category || '구조체';
+            updateDefectTypeDropdown(existingPin.category || '구조체', existingPin.defectType);
+            updateDefectCauseDropdown(existingPin.defectType || '균열', existingPin.cause);
+            if (compEl) compEl.value = existingPin.component || '기둥';
+            if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
+            window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: existingPin.targetX, targetY: existingPin.targetY };
+        } else {
+            const seq = defects.length + 1;
+            const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
+            const defectNoStr = `NO.${seqStr}`;
+
+            if (pinIdEl) pinIdEl.value = '';
+            if (noEl) noEl.value = defectNoStr;
+            if (catEl) catEl.value = '구조체';
+            updateDefectTypeDropdown('구조체');
+            updateDefectCauseDropdown('균열 (Crack)');
+            if (sizeEl) sizeEl.value = '';
+
+            window._pendingPinCoords = { 
+                x: boxX, 
+                y: boxY, 
+                targetX: targetX !== undefined ? targetX : (boxX - 35), 
+                targetY: targetY !== undefined ? targetY : (boxY + 35) 
+            };
+        }
 
         if (elements.defectModal) {
             elements.defectModal.style.display = 'flex';
             elements.defectModal.classList.add('open');
         }
+    }
+
+    const btnCloseDefectModal = document.getElementById('btnCloseDefectModal');
+    if (btnCloseDefectModal) {
+        btnCloseDefectModal.addEventListener('click', closeDefectModal);
+    }
+
+    const btnCancelDefect = document.getElementById('btnCancelDefect');
+    if (btnCancelDefect) {
+        btnCancelDefect.addEventListener('click', closeDefectModal);
+    }
+
+    const btnDeleteDefect = document.getElementById('btnDeleteDefect');
+    if (btnDeleteDefect) {
+        btnDeleteDefect.addEventListener('click', () => {
+            const pinId = document.getElementById('defectPinId').value;
+            if (pinId) {
+                window.deleteDefectById(pinId);
+            }
+            closeDefectModal();
+        });
     }
 
     const btnSaveDefect = document.getElementById('btnSaveDefect');
@@ -713,28 +1224,40 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = `${state.currentBuildingId}_${state.currentFloor}`;
             if (!state.defects[key]) state.defects[key] = [];
 
-            const coords = window._pendingPinCoords || { x: 200, y: 200 };
-            const newDefect = {
-                id: 'pin-' + Date.now(),
-                no: document.getElementById('defectNo').value,
-                category: document.getElementById('defectCategory').value,
-                component: document.getElementById('defectComponent').value,
-                defectType: document.getElementById('defectType').value,
-                size: document.getElementById('defectSize').value || 'W=0.2mm',
-                grade: document.getElementById('defectGrade').value,
-                action: document.getElementById('defectAction').value || '에폭시 주입',
-                x: coords.x,
-                y: coords.y
-            };
+            const pinId = document.getElementById('defectPinId').value;
+            const coords = window._pendingPinCoords || { x: 200, y: 200, targetX: 165, targetY: 235 };
 
-            state.defects[key].push(newDefect);
-            saveStateToLocalStorage();
-
-            if (elements.defectModal) {
-                elements.defectModal.style.display = 'none';
-                elements.defectModal.classList.remove('open');
+            if (pinId) {
+                // Update existing defect
+                const idx = state.defects[key].findIndex(d => d.id === pinId);
+                if (idx !== -1) {
+                    state.defects[key][idx].no = document.getElementById('defectNo')?.value || 'NO.01';
+                    state.defects[key][idx].category = document.getElementById('defectCategory')?.value || '구조체';
+                    state.defects[key][idx].component = document.getElementById('defectComponent')?.value || '기둥';
+                    state.defects[key][idx].defectType = document.getElementById('defectType')?.value || '균열';
+                    state.defects[key][idx].cause = document.getElementById('defectCause')?.value || '건조수축';
+                    state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
+                }
+            } else {
+                // Add new defect
+                const newDefect = {
+                    id: 'pin-' + Date.now(),
+                    no: document.getElementById('defectNo')?.value || 'NO.01',
+                    category: document.getElementById('defectCategory')?.value || '구조체',
+                    component: document.getElementById('defectComponent')?.value || '기둥',
+                    defectType: document.getElementById('defectType')?.value || '균열',
+                    cause: document.getElementById('defectCause')?.value || '건조수축',
+                    size: document.getElementById('defectSize')?.value || 'W=0.2mm',
+                    x: coords.x,
+                    y: coords.y,
+                    targetX: coords.targetX,
+                    targetY: coords.targetY
+                };
+                state.defects[key].push(newDefect);
             }
 
+            saveStateToLocalStorage();
+            closeDefectModal();
             drawCanvas();
         });
     }
@@ -829,6 +1352,15 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Arrow Size Adjuster Slider
+    if (elements.arrowSizeRange) {
+        elements.arrowSizeRange.addEventListener('input', (e) => {
+            state.arrowSizeScale = parseFloat(e.target.value);
+            if (elements.arrowSizeLabel) elements.arrowSizeLabel.textContent = `${Math.round(state.arrowSizeScale * 100)}%`;
+            drawCanvas();
+        });
+    }
+
     // --- 10. SURVEY TABLE & ALBUM RENDERING ---
 
     function renderSurveyTable() {
@@ -848,7 +1380,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <td>${d.component}</td>
                 <td>${d.defectType}</td>
                 <td>${d.size}</td>
-                <td><span class="grade-badge grade-${(d.grade || 'C').toLowerCase()}">${d.grade || 'C'}등급</span></td>
+                <td><span class="grade-badge" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); font-size: 0.78rem; padding: 0.25rem 0.6rem; border-radius: 12px; font-weight: 700;">🔍 ${d.cause || '건조수축'}</span></td>
                 <td>${d.action}</td>
                 <td>📷 사진 미첨부</td>
                 <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="deleteDefectById('${d.id}')">삭제</button></td>
@@ -872,7 +1404,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     📷 현장 사진 (${d.component} ${d.defectType})
                 </div>
                 <div style="margin-top: 0.6rem; font-size: 0.88rem; font-weight: 700;">
-                    [${d.no}] ${d.component} ${d.defectType} (${d.grade}등급)
+                    [${d.no}] ${d.component} ${d.defectType} (원인: ${d.cause || '건조수축'})
                 </div>
             </div>
         `).join('');
