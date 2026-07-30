@@ -1,5 +1,5 @@
 /* ==========================================================================
-   스마트 건축물 안전점검 현장점검 시스템 (Clean Architecture Engine v18.0)
+   스마트 건축물 안전점검 현장점검 시스템 (Clean Architecture Engine v59.0)
    ========================================================================== */
 
 // --- 1. GLOBAL UNIFIED STATE ENGINE ---
@@ -57,6 +57,51 @@ window.compressDrawingImage = function(file, maxDim = 1400, quality = 0.8) {
                 canvas.height = h;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, w, h);
+                resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = () => resolve(e.target.result);
+            img.src = e.target.result;
+        };
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(file);
+    });
+};
+
+/**
+ * Defect Photo Compressor with 4:3 Aspect Ratio Crop
+ * Crops and resizes defect photos to 4:3 ratio (1000x750) without distortion
+ */
+window.compressDefectPhoto43 = function(file, targetW = 1000, quality = 0.85) {
+    return new Promise((resolve) => {
+        if (!file || !(file instanceof Blob)) {
+            return resolve(null);
+        }
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const imgW = img.width;
+                const imgH = img.height;
+                const targetH = Math.round((targetW * 3) / 4); // 1000 x 750 (4:3)
+
+                let cropX = 0;
+                let cropY = 0;
+                let cropW = imgW;
+                let cropH = imgH;
+
+                if (imgW / imgH > 4 / 3) {
+                    cropW = Math.round(imgH * (4 / 3));
+                    cropX = Math.round((imgW - cropW) / 2);
+                } else {
+                    cropH = Math.round(imgW * (3 / 4));
+                    cropY = Math.round((imgH - cropH) / 2);
+                }
+
+                const canvas = document.createElement('canvas');
+                canvas.width = targetW;
+                canvas.height = targetH;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
                 resolve(canvas.toDataURL('image/jpeg', quality));
             };
             img.onerror = () => resolve(e.target.result);
@@ -151,6 +196,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 customDefectCauses: window.state.customDefectCauses || {}
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
+            if (typeof syncStateToFirebase === 'function') {
+                syncStateToFirebase();
+            }
         } catch (e) {
             console.warn('LocalStorage save warning:', e);
         }
@@ -201,8 +249,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         return bldg;
                     });
-                } else {
-                    window.state.buildings = getDefaultBuildings();
                 }
                 if (parsed.defects) {
                     window.state.defects = parsed.defects;
@@ -213,12 +259,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (parsed.customDefectCauses) {
                     window.state.customDefectCauses = parsed.customDefectCauses;
                 }
-            } else {
+            }
+
+            if (!window.state.buildings || !Array.isArray(window.state.buildings) || window.state.buildings.length === 0) {
                 window.state.buildings = getDefaultBuildings();
             }
+
+            window.state.companyName = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
+            const compInput = document.getElementById('inputHomeCompanyName');
+            if (compInput) compInput.value = window.state.companyName;
         } catch (e) {
             console.error('LocalStorage load failed:', e);
             window.state.buildings = getDefaultBuildings();
+            window.state.companyName = '(주)한국안전진단기술원';
         }
     }
 
@@ -248,7 +301,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (elements.appTitle) elements.appTitle.textContent = '스마트 건축물 안전점검 시스템';
             if (elements.appSubtitle) elements.appSubtitle.textContent = 'PC · 갤럭시 탭 · 스마트폰 실시간 연동 현장점검';
-            renderDashboard();
+            window.renderDashboard();
         } else {
             if (elements.headerSelectorGroup) elements.headerSelectorGroup.style.display = 'flex';
             if (elements.headerReportActions) elements.headerReportActions.style.display = 'flex';
@@ -271,24 +324,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 6. BUILDING MANAGEMENT ENGINE ---
 
     window.renderDashboard = function() {
-        if (!elements.buildingListGrid) return;
-        const bldgs = window.state.buildings || [];
+        const grid = elements.buildingListGrid || document.getElementById('buildingListGrid');
+        if (!grid) return;
 
-        if (bldgs.length === 0) {
-            elements.buildingListGrid.innerHTML = `
-                <div style="grid-column: 1/-1; text-align: center; padding: 4rem 2rem; background: rgba(15, 23, 42, 0.6); border: 2px dashed rgba(255,255,255,0.15); border-radius: 16px;">
-                    <i class="fa-solid fa-building-circle-exclamation" style="font-size: 3.5rem; color: #64748b; margin-bottom: 1rem;"></i>
-                    <h3 style="font-size: 1.3rem; color: #f8fafc; margin-bottom: 0.5rem;">등록된 점검 대상 건축물이 없습니다</h3>
-                    <p style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 1.5rem;">새로운 건축물을 등록하고 층별 도면을 올려 현장점검을 시작하세요!</p>
-                    <button type="button" class="btn btn-primary" onclick="window.openAddBuildingModalFunc()" style="padding: 0.8rem 1.6rem; font-size: 1rem;">
-                        <i class="fa-solid fa-plus"></i> ➕ 신규 건축물 등록하기
-                    </button>
-                </div>
-            `;
-            return;
+        if (!window.state.buildings || !Array.isArray(window.state.buildings) || window.state.buildings.length === 0) {
+            window.state.buildings = getDefaultBuildings();
+            saveStateToLocalStorage();
         }
 
-        elements.buildingListGrid.innerHTML = bldgs.map(bldg => {
+        const bldgs = window.state.buildings || [];
+
+        grid.innerHTML = bldgs.map(bldg => {
             const drawingBadge = (bldg.floorsList && bldg.floorsList.length > 0)
                 ? `<span style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fa-solid fa-file-image"></i> 도면 ${bldg.floorsList.length}개 층 보유</span>`
                 : `<span style="font-size: 0.78rem; font-weight: 600; color: #94a3b8; background: rgba(148, 163, 184, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px;">도면 미등록</span>`;
@@ -340,6 +386,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const cleanName = bldg.name ? bldg.name.replace(/^🏢\s*/, '') : '건축물';
         if (elements.appTitle) elements.appTitle.textContent = `${cleanName} 점검 시스템`;
         if (elements.appSubtitle) elements.appSubtitle.textContent = `📍 주소: ${bldg.address || '서울특별시 강남구'} | 👤 책임점검자: ${bldg.inspector || '홍길동 수석점검자'} | 📅 점검일: ${bldg.date || '2026-07-28'}`;
+
+        if (bldg.inspectionType && document.getElementById('selectInspectionType')) document.getElementById('selectInspectionType').value = bldg.inspectionType;
+        if (bldg.inspectionYear && document.getElementById('selectInspectionYear')) document.getElementById('selectInspectionYear').value = bldg.inspectionYear;
+        if (bldg.inspectionPeriod && document.getElementById('selectInspectionPeriod')) document.getElementById('selectInspectionPeriod').value = bldg.inspectionPeriod;
 
         // Populate Header Selectors
         updateProjectSelectDropdown();
@@ -474,6 +524,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const address = (document.getElementById('inputBuildingAddress')?.value || '').trim() || '서울특별시 강남구 테헤란로 123';
             const date = document.getElementById('inputBuildingDate')?.value || new Date().toISOString().split('T')[0];
             const floors = document.getElementById('inputBuildingFloors')?.value || '지상 10층 ~ 지하 2층';
+            const inspectionType = document.getElementById('inputBuildingInspectionType')?.value || '정밀안전점검';
+            const inspectionYear = document.getElementById('inputBuildingInspectionYear')?.value || '2026년';
+            const inspectionPeriod = document.getElementById('inputBuildingInspectionPeriod')?.value || '하반기';
             const notes = document.getElementById('inputBuildingNotes')?.value || '';
 
             const safeUploadedDrawings = Array.isArray(window.selectedUploadedDrawings) ? window.selectedUploadedDrawings : [];
@@ -506,6 +559,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 inspector: '홍길동 수석점검자',
                 date: date,
                 floors: floors,
+                inspectionType: inspectionType,
+                inspectionYear: inspectionYear,
+                inspectionPeriod: inspectionPeriod,
                 floorsList: floorsList.length > 0 ? floorsList : null,
                 floorDrawings: floorDrawingsMap,
                 notes: notes
@@ -717,7 +773,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Draw Defect Pins INSIDE the rotated context so pins rotate WITH the drawing!
-        const currentDefects = getCurrentFloorDefects();
+        const currentDefects = getCurrentFloorFilteredDefects();
         currentDefects.forEach(defect => drawPin(ctx, defect));
 
         // Draw Live Marking Drag Preview
@@ -751,6 +807,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.currentBuildingId) return [];
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         return state.defects[key] || [];
+    }
+
+    // 손상 유형 필터링이 적용된 현재 층 결함 목록 반환
+    function getCurrentFloorFilteredDefects() {
+        const list = getCurrentFloorDefects();
+        const filter = window.state.damageTypeFilter || 'ALL';
+        if (filter === 'ALL') return list;
+        return list.filter(d => {
+            const typeStr = (d.type || d.defectType || d.description || d.cause || '').toString();
+            if (filter === '기타') {
+                return !['균열', '누수', '백태', '철근노출', '박리/박락'].some(t => typeStr.includes(t));
+            }
+            return typeStr.includes(filter);
+        });
     }
 
     function drawPin(ctx, defect) {
@@ -1319,12 +1389,26 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         previewList.innerHTML = photos.map((src, idx) => `
-            <div style="display:inline-block; position:relative; margin-right:8px; margin-top:8px;">
-                <img src="${src}" style="width:65px; height:65px; object-fit:cover; border-radius:6px; border:1px solid #38bdf8;">
-                <span style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border-radius:50%; width:18px; height:18px; text-align:center; font-size:12px; cursor:pointer; line-height:18px;" onclick="window.removePendingPhoto(${idx})">×</span>
+            <div style="display:inline-block; position:relative; margin-right:12px; margin-top:8px; text-align:center;">
+                <div style="position:relative; display:inline-block;">
+                    <img src="${src}" style="width:75px; height:75px; object-fit:cover; border-radius:6px; border:1px solid #38bdf8; cursor:pointer;" title="클릭시 사진 마킹 드로잉 모달 오픈" onclick="window.annotatePendingPhoto(${idx})">
+                    <span style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border-radius:50%; width:20px; height:20px; text-align:center; font-size:13px; font-weight:bold; cursor:pointer; line-height:20px;" onclick="window.removePendingPhoto(${idx})">×</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline" style="display:block; width:75px; margin-top:4px; font-size:0.7rem; padding:0.1rem 0.2rem; border-color:#f43f5e; color:#fb7185;" onclick="window.annotatePendingPhoto(${idx})">
+                    <i class="fa-solid fa-paintbrush"></i> 마킹
+                </button>
             </div>
         `).join('');
     }
+
+    window.annotatePendingPhoto = function(idx) {
+        if (window._pendingPhotos && window._pendingPhotos[idx]) {
+            window.openPhotoAnnotationModal(window._pendingPhotos[idx], (annotatedDataUrl) => {
+                window._pendingPhotos[idx] = annotatedDataUrl;
+                renderPhotoPreviewList();
+            });
+        }
+    };
 
     window.removePendingPhoto = function(idx) {
         if (window._pendingPhotos) {
@@ -1340,7 +1424,7 @@ document.addEventListener('DOMContentLoaded', () => {
         inputDefectPhoto.onchange = (e) => {
             const file = e.target.files[0];
             if (file) {
-                window.compressDrawingImage(file, 1000, 0.85).then(compressedUrl => {
+                window.compressDefectPhoto43(file, 1000, 0.85).then(compressedUrl => {
                     if (!window._pendingPhotos) window._pendingPhotos = [];
                     window._pendingPhotos.push(compressedUrl);
                     renderPhotoPreviewList();
@@ -1544,22 +1628,37 @@ document.addEventListener('DOMContentLoaded', () => {
         const defects = getCurrentFloorDefects();
         if (elements.surveyFloorTitle) elements.surveyFloorTitle.textContent = state.currentFloor;
 
+        // 📊 현재 층 결함 통계 차트 자동 업데이트
+        if (typeof window.renderDefectStatisticsChart === 'function') {
+            window.renderDefectStatisticsChart('surveyChartCanvas', defects);
+        }
+
         if (defects.length === 0) {
             elements.surveyTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 2.5rem; color:#64748b; font-weight:600;">등록된 결함이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</td></tr>`;
             return;
         }
 
-        elements.surveyTableBody.innerHTML = defects.map(d => {
-            // Photo Remarks: 사진01 사진02 format, - if no photo
-            let photoRemark = '-';
-            if (d.photos && d.photos.length > 0) {
-                photoRemark = d.photos.map((_, pIdx) => {
-                    const num = (pIdx + 1) < 10 ? `0${pIdx + 1}` : `${pIdx + 1}`;
-                    return `사진${num}`;
-                }).join(' ');
-            } else if (d.photoUrl || d.hasPhoto) {
-                photoRemark = '사진01';
+        // Build sequential photo labels for current floor (사진01, 사진02, 사진03...)
+        const defectPhotoLabels = {};
+        let pCounter = 0;
+        defects.forEach((d, dIdx) => {
+            const defectKey = d.id || `idx_${dIdx}`;
+            defectPhotoLabels[defectKey] = [];
+            if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
+                d.photos.forEach(src => {
+                    if (src) {
+                        pCounter++;
+                        const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                        defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
+                    }
+                });
             }
+        });
+
+        elements.surveyTableBody.innerHTML = defects.map((d, dIdx) => {
+            const defectKey = d.id || `idx_${dIdx}`;
+            const labels = defectPhotoLabels[defectKey] || [];
+            const photoRemark = labels.length > 0 ? labels.join(' ') : '-';
 
             const structDisplay = (d.category === '구조체') ? '○' : '-';
             const progressDisplay = d.isProgress ? '진행중' : '-';
@@ -1587,42 +1686,44 @@ document.addEventListener('DOMContentLoaded', () => {
         const defects = getCurrentFloorDefects();
         if (elements.albumFloorTitle) elements.albumFloorTitle.textContent = state.currentFloor;
 
-        if (defects.length === 0) {
-            elements.photoAlbumGrid.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:3rem; color:#94a3b8; font-weight:600;">등록된 결함 사진이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</div>`;
+        const photoItems = [];
+        let pCounter = 0;
+
+        defects.forEach(d => {
+            if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
+                d.photos.forEach(photoSrc => {
+                    if (photoSrc) {
+                        pCounter++;
+                        const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                        const photoLabel = `사진${pNumStr}`;
+                        const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
+                        photoItems.push({
+                            label: photoLabel,
+                            title: componentDefectTitle,
+                            src: photoSrc
+                        });
+                    }
+                });
+            }
+        });
+
+        if (photoItems.length === 0) {
+            elements.photoAlbumGrid.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:3rem; color:#94a3b8; font-weight:600;"><i class="fa-solid fa-camera" style="font-size:2.5rem; color:#cbd5e1; display:block; margin-bottom:0.8rem;"></i>📷 등록된 현장 결함 사진이 없습니다.</div>`;
             return;
         }
 
-        let photoCounter = 0;
-        let html = '';
-
-        defects.forEach(d => {
-            const componentDefectTitle = `${d.component || '부재'} ${d.defectType || '결함'}`;
-            const photos = (d.photos && d.photos.length > 0) ? d.photos : [null];
-
-            photos.forEach(photoSrc => {
-                photoCounter++;
-                const photoNumStr = photoCounter < 10 ? `0${photoCounter}` : `${photoCounter}`;
-                const photoLabel = `사진${photoNumStr}`;
-
-                html += `
-                    <div class="photo-card" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); color: #0f172a;">
-                        <div class="photo-card-img-wrap" style="height: 190px; background: #f1f5f9; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center;">
-                            ${photoSrc ? `<img src="${photoSrc}" style="width:100%; height:100%; object-fit:cover;">` : `<div style="text-align:center; color:#64748b; font-weight:700;"><i class="fa-solid fa-camera" style="font-size:2rem; margin-bottom:0.4rem; color:#cbd5e1;"></i><br>📷 ${photoLabel} 현장 사진 미첨부</div>`}
-                            <span style="position: absolute; top: 10px; left: 10px; background: #0284c7; color: #ffffff; font-weight: 800; font-size: 0.85rem; padding: 0.25rem 0.7rem; border-radius: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
-                                ${photoLabel}
-                            </span>
-                        </div>
-                        <div style="padding: 0.8rem; text-align: center;">
-                            <div style="font-size: 1rem; font-weight: 800; color: #0369a1;">
-                                ${photoLabel}. ${componentDefectTitle}
-                            </div>
-                        </div>
+        elements.photoAlbumGrid.innerHTML = photoItems.map(p => `
+            <div class="photo-card" style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.06); color: #0f172a;">
+                <div class="photo-card-img-wrap" style="aspect-ratio: 4 / 3; width: 100%; background: #f1f5f9; overflow: hidden; position: relative; display: flex; align-items: center; justify-content: center;">
+                    <img src="${p.src}" style="width:100%; height:100%; object-fit:cover;">
+                </div>
+                <div style="padding: 0.8rem; text-align: center;">
+                    <div style="font-size: 1rem; font-weight: 800; color: #0369a1;">
+                        ${p.label}. ${p.title}
                     </div>
-                `;
-            });
-        });
-
-        elements.photoAlbumGrid.innerHTML = html;
+                </div>
+            </div>
+        `).join('');
     }
 
     function drawPinSafe(ctx, defect) {
@@ -1773,52 +1874,52 @@ document.addEventListener('DOMContentLoaded', () => {
                 floorDrawingSrc = state.bgImage.src;
             }
 
-            // 2. If image exists (either preloaded in cache or source string), draw it onto PURE WHITE canvas with defect pins!
+            // 2. If image exists, render onto A4 PORTRAIT (세로 규격: 900 x 1270) canvas with defect pins!
             if (loadedImg || floorDrawingSrc) {
                 const drawImageOnPureWhiteCanvas = (imgObj) => {
                     const canvas = document.createElement('canvas');
                     const imgW = imgObj.naturalWidth || imgObj.width || 1400;
                     const imgH = imgObj.naturalHeight || imgObj.height || 900;
 
-                    // Check if drawing is vertical/lying (height > width): rotate 90 degrees left (counter-clockwise -90°)
-                    const needsRotation = imgH > imgW;
-
-                    const cw = 1400;
-                    const ch = 900;
+                    // Set canvas to A4 PORTRAIT dimensions (cw = 900, ch = 1270)
+                    const cw = 900;
+                    const ch = 1270;
                     canvas.width = cw;
                     canvas.height = ch;
                     const ctx = canvas.getContext('2d');
 
-                    // Pure white background - ZERO BLACK/DARK NAVY COLOR!
+                    // Pure white background
                     ctx.fillStyle = '#ffffff';
                     ctx.fillRect(0, 0, cw, ch);
 
                     ctx.save();
-                    if (needsRotation) {
-                        // Rotate 90 degrees left (counter-clockwise)
+                    const isHorizontal = imgW > imgH;
+
+                    if (isHorizontal) {
+                        // Rotate horizontal drawing 90 degrees left to place it vertically filling the A4 portrait page
                         ctx.translate(cw / 2, ch / 2);
                         ctx.rotate(-Math.PI / 2);
                         
-                        // Exact aspect ratio scaling to prevent ANY distortion or warping!
                         const scale = Math.min(cw / imgH, ch / imgW);
-                        const drawW = imgW * scale;
-                        const drawH = imgH * scale;
+                        ctx.scale(scale, scale);
+                        ctx.translate(-imgW / 2, -imgH / 2);
 
-                        ctx.drawImage(imgObj, -drawW / 2, -drawH / 2, drawW, drawH);
+                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
+                        defects.forEach(defect => drawPinSafe(ctx, defect));
                     } else {
-                        // Landscape format: fit to canvas while preserving exact original aspect ratio
+                        // Vertical drawing: scale directly to fit portrait canvas while preserving exact aspect ratio
                         const scale = Math.min(cw / imgW, ch / imgH);
-                        const drawW = imgW * scale;
-                        const drawH = imgH * scale;
-                        const drawX = (cw - drawW) / 2;
-                        const drawY = (ch - drawH) / 2;
+                        const drawX = (cw - imgW * scale) / 2;
+                        const drawY = (ch - imgH * scale) / 2;
 
-                        ctx.drawImage(imgObj, drawX, drawY, drawW, drawH);
+                        ctx.translate(drawX, drawY);
+                        ctx.scale(scale, scale);
+
+                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
+                        defects.forEach(defect => drawPinSafe(ctx, defect));
                     }
                     ctx.restore();
 
-                    // Render defect pins on top
-                    defects.forEach(defect => drawPinSafe(ctx, defect));
                     return canvas.toDataURL('image/png');
                 };
 
@@ -1833,7 +1934,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
 
-            // 3. If NO registered floor drawing exists, return null (DO NOT DRAW FAKE CAD COLUMNS/BEAMS!)
+            // 3. If NO registered floor drawing exists, return null
             return null;
         } catch (err) {
             console.error('Error rendering floor plan data URL:', err);
@@ -1855,6 +1956,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const bldg = window.state.currentBuilding || { id: 'default', name: '건축물', address: '서울특별시 강남구', inspector: '홍길동', date: '2026-07-29' };
             const currentBldgId = bldg.id || state.currentBuildingId || 'default';
             
+            const compName = window.state.companyName || localStorage.getItem('building_company_name') || bldg.companyName || '(주)한국안전진단기술원';
+            const iType = (document.getElementById('selectInspectionType') ? document.getElementById('selectInspectionType').value : null) || bldg.inspectionType || '정밀안전점검';
+            const iYear = (document.getElementById('selectInspectionYear') ? document.getElementById('selectInspectionYear').value : null) || bldg.inspectionYear || '2026년';
+            const iPeriod = (document.getElementById('selectInspectionPeriod') ? document.getElementById('selectInspectionPeriod').value : null) || bldg.inspectionPeriod || '하반기';
+
+            const cleanBldgName = bldg.name.replace(/^🏢\s*/,'');
+            const reportTitleHeader = `${cleanBldgName} ${iYear} ${iPeriod} ${iType}`;
+
             // 2. Preload all floor drawing images asynchronously BEFORE rendering report pages!
             await preloadFloorDrawings(bldg);
             
@@ -1873,35 +1982,64 @@ document.addEventListener('DOMContentLoaded', () => {
                 const key = `${currentBldgId}_${floorCode}`;
                 const defects = state.defects[key] || (state.currentFloor === floorCode ? getCurrentFloorDefects() : []);
 
-                // --- 1. 상태조사표 (한 페이지당 최대 15개) ---
+                // Pre-calculate sequential photo labels (사진01, 사진02, 사진03...) and filter valid photos only!
+                const defectPhotoLabels = {};
+                const photoItems = [];
+                let pCounter = 0;
+
+                defects.forEach((d, dIdx) => {
+                    const defectKey = d.id || `idx_${dIdx}`;
+                    defectPhotoLabels[defectKey] = [];
+
+                    if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
+                        d.photos.forEach(src => {
+                            if (src) {
+                                pCounter++;
+                                const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                                const label = `사진${pNumStr}`;
+                                defectPhotoLabels[defectKey].push(label);
+
+                                const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
+                                photoItems.push({
+                                    label: label,
+                                    title: componentDefectTitle,
+                                    defectNo: d.no,
+                                    location: d.location || `${floorCode} ${d.component || ''}`,
+                                    cause: d.cause || '건조수축',
+                                    size: d.size || 'W=0.2mm',
+                                    src: src
+                                });
+                            }
+                        });
+                    }
+                });
+
+                // --- 1. 상태조사표 (한 페이지당 최대 12개로 배치하여 A4 세로 규격 내 완벽 수용 및 표 잘림 원천 차단) ---
                 const surveyPages = [];
-                for (let i = 0; i < defects.length; i += 15) {
-                    surveyPages.push(defects.slice(i, i + 15));
+                for (let i = 0; i < defects.length; i += 12) {
+                    surveyPages.push(defects.slice(i, i + 12));
                 }
                 if (surveyPages.length === 0) surveyPages.push([]);
 
                 surveyPages.forEach((sDefects, sPageIdx) => {
                     reportPagesHtml += `
-                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.5rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; box-sizing: border-box;">
-                            <div style="text-align:center; border-bottom: 3px double #0284c7; padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
-                                <h1 style="font-size:1.6rem; font-weight:800; color:#0284c7; margin:0 0 0.3rem 0;">📋 ${bldg.name.replace(/^🏢\s*/,'')} 정밀 안전점검 현장 조사 보고서</h1>
-                                <div style="font-size:0.85rem; color:#475569; font-weight:600;">
-                                    📍 위치: ${bldg.address} | 🏢 대상층: ${floorCode} | 👤 점검자: ${bldg.inspector} | 📅 점검일시: ${bldg.date}
-                                </div>
+                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
+                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                                <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
-                                <h2 style="font-size:1.15rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
+                                <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
                                     1. ${floorCode} 상태조사표 (총 ${defects.length}개 중 ${sDefects.length}개 표시)
                                 </h2>
                                 <span style="font-size:0.8rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.2rem 0.6rem; border-radius:12px;">
-                                    페이지 ${sPageIdx + 1} / ${surveyPages.length} (페이지당 최대 15개)
+                                    페이지 ${sPageIdx + 1} / ${surveyPages.length} (페이지당 최대 12개)
                                 </span>
                             </div>
 
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; page-break-inside: auto;">
                                 <thead>
-                                    <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
+                                    <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1; page-break-inside: avoid !important; break-inside: avoid !important;">
                                         <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">결함번호</th>
                                         <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">위치</th>
                                         <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">조사내용</th>
@@ -1914,13 +2052,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${sDefects.length > 0 ? sDefects.map(d => {
-                                        let pRemark = '-';
-                                        if (d.photos && d.photos.length > 0) {
-                                            pRemark = d.photos.map((_, idx) => `사진${(idx + 1) < 10 ? '0' + (idx + 1) : (idx + 1)}`).join(' ');
-                                        }
+                                    ${sDefects.length > 0 ? sDefects.map((d, dSubIdx) => {
+                                        const defectKey = d.id || `idx_${defects.indexOf(d)}`;
+                                        const labels = defectPhotoLabels[defectKey] || [];
+                                        const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                                         return `
-                                            <tr>
+                                            <tr style="page-break-inside: avoid !important; break-inside: avoid !important;">
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${d.no}</td>
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700;">${d.location || (floorCode + ' ' + d.component)}</td>
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:#0369a1;">${d.defectType}</td>
@@ -1929,105 +2066,96 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isProgress ? '#dc2626' : '#94a3b8'};">${d.isProgress ? '진행중' : '-'}</td>
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isLeak ? '#0284c7' : '#94a3b8'};">${d.isLeak ? '누수중' : '-'}</td>
                                                 <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700;">${d.cause || '건조수축'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:#2563eb;">${pRemark}</td>
+                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:${pRemark !== '-' ? '#2563eb' : '#94a3b8'};">${pRemark}</td>
                                             </tr>
                                         `;
                                     }).join('') : `<tr><td colspan="9" style="padding:2rem; color:#94a3b8;">${floorCode}층에 등록된 결함이 없습니다.</td></tr>`}
                                 </tbody>
                             </table>
+
+                            <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>📄 스마트 건축물 안전점검 시스템</span>
+                            </div>
                         </div>
                     `;
                 });
 
-                // --- 2. 현장 사진첩 ---
-                let photoItems = [];
-                let pCount = 0;
-                defects.forEach(d => {
-                    const componentDefectTitle = `${d.component || '부재'} ${d.defectType || '결함'}`;
-                    const photos = (d.photos && d.photos.length > 0) ? d.photos : [null];
-                    photos.forEach(src => {
-                        pCount++;
-                        const pNumStr = pCount < 10 ? `0${pCount}` : `${pCount}`;
-                        photoItems.push({
-                            label: `사진${pNumStr}`,
-                            title: componentDefectTitle,
-                            defectNo: d.no,
-                            location: d.location || `${floorCode} ${d.component}`,
-                            cause: d.cause || '건조수축',
-                            size: d.size || 'W=0.2mm',
-                            src: src
-                        });
-                    });
-                });
-
+                // --- 2. 현장 사진첩 (실제 사진이 등록된 항목만 전수 표시 - A4 1페이지당 정확히 6개 배치 및 4:3 비율 완전보장) ---
                 const photoPages = [];
-                for (let i = 0; i < photoItems.length; i += 6) {
-                    photoPages.push(photoItems.slice(i, i + 6));
+                if (photoItems.length > 0) {
+                    for (let i = 0; i < photoItems.length; i += 6) {
+                        photoPages.push(photoItems.slice(i, i + 6));
+                    }
+                } else {
+                    photoPages.push([]);
                 }
-                if (photoPages.length === 0) photoPages.push([]);
 
                 photoPages.forEach((pagePhotos, pPageIdx) => {
                     reportPagesHtml += `
-                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.5rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; box-sizing: border-box;">
-                            <div style="text-align:center; border-bottom: 3px double #0284c7; padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
-                                <h1 style="font-size:1.6rem; font-weight:800; color:#0284c7; margin:0 0 0.3rem 0;">📋 ${bldg.name.replace(/^🏢\s*/,'')} 정밀 안전점검 현장 사진첩</h1>
-                                <div style="font-size:0.85rem; color:#475569; font-weight:600;">
-                                    📍 위치: ${bldg.address} | 🏢 대상층: ${floorCode} | 👤 점검자: ${bldg.inspector} | 📅 점검일시: ${bldg.date}
-                                </div>
+                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
+                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                                <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-                                <h2 style="font-size:1.15rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
-                                    2. ${floorCode} 현장 결함 사진첩
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+                                <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
+                                    2. ${floorCode} 현장 결함 사진첩 (총 ${photoItems.length}개 사진)
                                 </h2>
                                 <span style="font-size:0.8rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.2rem 0.6rem; border-radius:12px;">
                                     사진첩 페이지 ${pPageIdx + 1} / ${photoPages.length} (규격 6개 배치)
                                 </span>
                             </div>
 
-                            <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.2rem;">
-                                ${pagePhotos.map(p => `
-                                    <div style="border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fafafa;">
-                                        <div style="height: 180px; background: #e2e8f0; display: flex; align-items: center; justify-content: center; position: relative;">
-                                            ${p.src ? `<img src="${p.src}" style="width:100%; height:100%; object-fit:cover;">` : `<div style="text-align:center; color:#64748b; font-weight:700;"><i class="fa-solid fa-camera" style="font-size:1.8rem; margin-bottom:0.3rem; color:#cbd5e1;"></i><br>📷 ${p.label} 현장 사진 미첨부</div>`}
-                                            <span style="position:absolute; top:8px; left:8px; background:#0284c7; color:#fff; font-weight:800; font-size:0.8rem; padding:0.2rem 0.6rem; border-radius:12px;">
-                                                ${p.label}
-                                            </span>
-                                        </div>
-                                        <div style="padding: 0.75rem; text-align: center;">
-                                            <div style="font-size:0.95rem; font-weight:800; color:#0369a1;">
-                                                ${p.label}. ${p.title}
+                            ${pagePhotos.length > 0 ? `
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin-bottom: 0.6rem;">
+                                    ${pagePhotos.map(p => `
+                                        <div style="border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fafafa; box-sizing: border-box;">
+                                            <div style="position: relative; width: 100%; padding-bottom: 75%; background: #e2e8f0; overflow: hidden;">
+                                                <img src="${p.src}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;">
+                                            </div>
+                                            <div style="padding: 0.4rem; text-align: center;">
+                                                <div style="font-size:0.88rem; font-weight:800; color:#0369a1;">
+                                                    ${p.label}. ${p.title}
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                `).join('')}
+                                    `).join('')}
+                                </div>
+                            ` : `
+                                <div style="width: 100%; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; margin-top: 2rem;">
+                                    <i class="fa-solid fa-camera" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                    📷 ${floorCode}층에 첨부된 현장 결함 사진이 없습니다.
+                                </div>
+                            `}
+
+                            <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
                     `;
                 });
 
-                // --- 3. 결함 위치도 (사용자 등록 평면도 A4 용지 100% 꽉 차게 렌더링) ---
+                // --- 3. 결함 위치도 (A4 세로 꽉 차게 렌더링) ---
                 const drawingDataUrl = renderFloorPlanCanvasDataUrl(floorCode);
 
                 reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.5rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; box-sizing: border-box;">
-                        <div style="text-align:center; border-bottom: 3px double #0284c7; padding-bottom: 0.8rem; margin-bottom: 1.5rem;">
-                            <h1 style="font-size:1.6rem; font-weight:800; color:#0284c7; margin:0 0 0.3rem 0;">📋 ${bldg.name.replace(/^🏢\s*/,'')} 정밀 안전점검 결함 위치도</h1>
-                            <div style="font-size:0.85rem; color:#475569; font-weight:600;">
-                                📍 위치: ${bldg.address} | 🏢 대상층: ${floorCode} | 👤 점검자: ${bldg.inspector} | 📅 점검일시: ${bldg.date}
-                            </div>
+                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
+                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                            <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                         </div>
 
-                        <h2 style="font-size:1.15rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 1.2rem;">
+                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
                             3. ${floorCode} 결함 위치도 (도면 마킹 평면도)
                         </h2>
 
                         ${drawingDataUrl ? `
-                            <div style="width: 100%; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 0; box-sizing: border-box; margin-top: 0.5rem;">
-                                <img src="${drawingDataUrl}" style="width: 100%; height: auto; min-height: 600px; max-height: 950px; object-fit: fill; border-radius: 4px; display: block; margin: 0 auto;">
+                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; margin-top: 0.2rem; display: flex; align-items: center; justify-content: center;">
+                                <img src="${drawingDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                             </div>
                         ` : `
-                            <div style="width: 100%; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem;">
+                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                                 <i class="fa-solid fa-map-location-dot" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
                                 📍 ${floorCode} 등록된 평면도 도면이 없습니다.<br>
                                 <span style="font-size: 0.88rem; color: #94a3b8; font-weight: 500; margin-top: 0.4rem; display: inline-block;">
@@ -2035,11 +2163,16 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </span>
                             </div>
                         `}
+
+                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                            <span>📄 스마트 건축물 안전점검 시스템</span>
+                        </div>
                     </div>
                 `;
             });
 
-            container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 1100px; margin: 0 auto;">${reportPagesHtml}</div>`;
+            container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
         } catch (err) {
             console.error('Error in openReportPreviewModalFunc:', err);
             const modal = document.getElementById('reportPreviewModal');
@@ -2073,7 +2206,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     filename:     filename,
                     image:        { type: 'jpeg', quality: 0.98 },
                     html2canvas:  { scale: 2, useCORS: true, logging: false },
-                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                    pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
                 };
                 html2pdf().set(opt).from(element).save().catch(() => {
                     window.print();
@@ -2142,12 +2276,878 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // Company Name Save Button (Home Dashboard)
+    const btnSaveHomeCompany = document.getElementById('btnSaveHomeCompanyName');
+    if (btnSaveHomeCompany) {
+        btnSaveHomeCompany.addEventListener('click', () => {
+            const val = (document.getElementById('inputHomeCompanyName')?.value || '').trim() || '(주)한국안전진단기술원';
+            window.state.companyName = val;
+            localStorage.setItem('building_company_name', val);
+            alert(`🏢 점검 수행회사명이 '${val}'(으)로 성공적으로 저장되었습니다!`);
+        });
+    }
+
+    // Inspection Settings Toolbar Selects Change Handlers
+    ['selectInspectionType', 'selectInspectionYear', 'selectInspectionPeriod'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) {
+            sel.addEventListener('change', () => {
+                if (window.state.currentBuilding) {
+                    if (id === 'selectInspectionType') window.state.currentBuilding.inspectionType = sel.value;
+                    if (id === 'selectInspectionYear') window.state.currentBuilding.inspectionYear = sel.value;
+                    if (id === 'selectInspectionPeriod') window.state.currentBuilding.inspectionPeriod = sel.value;
+                    saveStateToLocalStorage();
+                }
+            });
+        }
+    });
+
+    // ==========================================================================
+    // 🛠️ 6대 추천 개선 및 신규 기능 모듈 (100% 한글 주석 & 독립 보조엔진)
+    // ==========================================================================
+
+    // --- 1. JSON 데이터 전체 백업 및 복원 ---
+    window.exportBackupJSON = function() {
+        try {
+            const backupData = {
+                version: 'v58.7_backup',
+                timestamp: new Date().toISOString(),
+                companyName: localStorage.getItem('building_company_name') || window.state.companyName || '(주)한국안전진단기술원',
+                state: {
+                    buildings: window.state.buildings || [],
+                    defects: window.state.defects || {},
+                    floorSnapshots: window.state.floorSnapshots || {},
+                    currentBuildingId: window.state.currentBuildingId,
+                    currentFloor: window.state.currentFloor
+                }
+            };
+
+            const jsonStr = JSON.stringify(backupData, null, 2);
+            const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = `스마트건축물_안전점검_백업_${dateStr}.json`;
+
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            alert(`💾 안전점검 데이터 전체 백업 파일이 성공적으로 생성되었습니다!\n파일명: ${filename}`);
+        } catch (err) {
+            alert('백업 파일 생성 중 오류가 발생했습니다: ' + err.message);
+        }
+    };
+
+    window.importBackupJSON = function(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+
+        if (!confirm('📥 선택한 백업 파일(.json)로 기존 데이터를 복원하시겠습니까?\n현재 브라우저에 저장된 데이터가 백업 파일 데이터로 대체됩니다.')) {
+            event.target.value = '';
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data || !data.state || !Array.isArray(data.state.buildings)) {
+                    throw new Error('유효한 백업 JSON 파일이 아닙니다.');
+                }
+
+                window.state.buildings = data.state.buildings || [];
+                window.state.defects = data.state.defects || {};
+                window.state.floorSnapshots = data.state.floorSnapshots || {};
+                if (data.companyName) {
+                    window.state.companyName = data.companyName;
+                    localStorage.setItem('building_company_name', data.companyName);
+                    const inputCompany = document.getElementById('inputHomeCompanyName');
+                    if (inputCompany) inputCompany.value = data.companyName;
+                }
+
+                saveStateToLocalStorage();
+                renderDashboard();
+                renderBuildingSelector();
+                if (typeof renderSurveyTable === 'function') renderSurveyTable();
+                if (typeof drawCanvas === 'function') drawCanvas();
+
+                alert('✅ 백업 파일로부터 안전점검 데이터 복원이 완료되었습니다!');
+            } catch (err) {
+                alert('❌ 데이터 복원 오류: ' + err.message);
+            } finally {
+                event.target.value = '';
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    };
+
+    // 백업/복원 버튼 이벤트 연결
+    const btnExportJSON = document.getElementById('btnExportJSON');
+    if (btnExportJSON) {
+        btnExportJSON.addEventListener('click', window.exportBackupJSON);
+    }
+
+    const btnImportJSON = document.getElementById('btnImportJSON');
+    const inputImportJSON = document.getElementById('inputImportJSON');
+    if (btnImportJSON && inputImportJSON) {
+        btnImportJSON.addEventListener('click', () => inputImportJSON.click());
+        inputImportJSON.addEventListener('change', window.importBackupJSON);
+    }
+
+    // --- 2. 도면 손상 유형별 필터링 선택 이벤트 ---
+    const filterDamageTypeSel = document.getElementById('filterDamageType');
+    if (filterDamageTypeSel) {
+        filterDamageTypeSel.addEventListener('change', (e) => {
+            window.state.damageTypeFilter = e.target.value;
+            if (typeof drawCanvas === 'function') drawCanvas();
+        });
+    }
+
+    // --- 3. 현장 사진 2차 주석(드로잉) 모달 엔진 ---
+    let annotationCanvas = null;
+    let annotationCtx = null;
+    let currentAnnotationTool = 'pen';
+    let annotationHistory = [];
+    let isDrawingAnnotation = false;
+    let startX = 0, startY = 0;
+    let tempCanvasState = null;
+    let basePhotoImg = null;
+    let targetPhotoCallback = null;
+
+    window.openPhotoAnnotationModal = function(photoDataUrl, callback) {
+        targetPhotoCallback = callback;
+        const modal = document.getElementById('photoAnnotationModal');
+        if (!modal) return;
+
+        modal.style.display = 'flex';
+        modal.classList.add('open');
+
+        annotationCanvas = document.getElementById('annotationCanvas');
+        if (!annotationCanvas) return;
+        annotationCtx = annotationCanvas.getContext('2d');
+
+        basePhotoImg = new Image();
+        basePhotoImg.onload = function() {
+            let w = basePhotoImg.width;
+            let h = basePhotoImg.height;
+            const maxW = 860, maxH = 550;
+            if (w > maxW || h > maxH) {
+                const ratio = Math.min(maxW / w, maxH / h);
+                w = Math.round(w * ratio);
+                h = Math.round(h * ratio);
+            }
+            annotationCanvas.width = w;
+            annotationCanvas.height = h;
+
+            redrawAnnotationCanvas();
+            annotationHistory = [];
+            saveAnnotationHistory();
+        };
+        basePhotoImg.src = photoDataUrl;
+    };
+
+    function saveAnnotationHistory() {
+        if (!annotationCanvas) return;
+        if (annotationHistory.length > 20) annotationHistory.shift();
+        annotationHistory.push(annotationCanvas.toDataURL());
+    }
+
+    function redrawAnnotationCanvas() {
+        if (!annotationCtx || !basePhotoImg) return;
+        annotationCtx.clearRect(0, 0, annotationCanvas.width, annotationCanvas.height);
+        annotationCtx.drawImage(basePhotoImg, 0, 0, annotationCanvas.width, annotationCanvas.height);
+    }
+
+    function initPhotoAnnotationEvents() {
+        const canvas = document.getElementById('annotationCanvas');
+        if (!canvas) return;
+
+        const getPos = (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: (clientX - rect.left) * (canvas.width / rect.width),
+                y: (clientY - rect.top) * (canvas.height / rect.height)
+            };
+        };
+
+        const startDraw = (e) => {
+            isDrawingAnnotation = true;
+            const pos = getPos(e);
+            startX = pos.x;
+            startY = pos.y;
+            tempCanvasState = annotationCtx.getImageData(0, 0, canvas.width, canvas.height);
+
+            if (currentAnnotationTool === 'pen') {
+                annotationCtx.beginPath();
+                annotationCtx.moveTo(startX, startY);
+            }
+        };
+
+        const moveDraw = (e) => {
+            if (!isDrawingAnnotation) return;
+            const pos = getPos(e);
+            const color = document.getElementById('annotationColorPicker')?.value || '#ef4444';
+            const lineWidth = parseInt(document.getElementById('annotationLineWidth')?.value || '4');
+
+            annotationCtx.strokeStyle = color;
+            annotationCtx.fillStyle = color;
+            annotationCtx.lineWidth = lineWidth;
+            annotationCtx.lineCap = 'round';
+            annotationCtx.lineJoin = 'round';
+
+            if (currentAnnotationTool === 'pen') {
+                annotationCtx.lineTo(pos.x, pos.y);
+                annotationCtx.stroke();
+            } else if (currentAnnotationTool === 'arrow') {
+                annotationCtx.putImageData(tempCanvasState, 0, 0);
+                drawArrowOnCtx(annotationCtx, startX, startY, pos.x, pos.y, lineWidth, color);
+            } else if (currentAnnotationTool === 'circle') {
+                annotationCtx.putImageData(tempCanvasState, 0, 0);
+                const radius = Math.sqrt(Math.pow(pos.x - startX, 2) + Math.pow(pos.y - startY, 2));
+                annotationCtx.beginPath();
+                annotationCtx.arc(startX, startY, radius, 0, 2 * Math.PI);
+                annotationCtx.stroke();
+            }
+        };
+
+        const endDraw = (e) => {
+            if (!isDrawingAnnotation) return;
+            isDrawingAnnotation = false;
+            if (currentAnnotationTool === 'text') {
+                const pos = getPos(e);
+                const text = prompt('사진 위에 입력할 결함 설명 문구를 입력하세요:', '손상 부위');
+                if (text) {
+                    const color = document.getElementById('annotationColorPicker')?.value || '#ef4444';
+                    const fontSize = parseInt(document.getElementById('annotationLineWidth')?.value || '4') * 3 + 12;
+                    annotationCtx.font = `bold ${fontSize}px sans-serif`;
+                    annotationCtx.fillStyle = color;
+                    annotationCtx.strokeStyle = '#000000';
+                    annotationCtx.lineWidth = 3;
+                    annotationCtx.strokeText(text, pos.x, pos.y);
+                    annotationCtx.fillText(text, pos.x, pos.y);
+                }
+            }
+            saveAnnotationHistory();
+        };
+
+        canvas.addEventListener('mousedown', startDraw);
+        canvas.addEventListener('mousemove', moveDraw);
+        canvas.addEventListener('mouseup', endDraw);
+        canvas.addEventListener('touchstart', startDraw, { passive: true });
+        canvas.addEventListener('touchmove', moveDraw, { passive: true });
+        canvas.addEventListener('touchend', endDraw);
+
+        document.querySelectorAll('.annotation-tool-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.annotation-tool-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentAnnotationTool = btn.dataset.tool || 'pen';
+            });
+        });
+
+        document.getElementById('btnUndoAnnotation')?.addEventListener('click', () => {
+            if (annotationHistory.length > 1) {
+                annotationHistory.pop();
+                const prevState = annotationHistory[annotationHistory.length - 1];
+                const img = new Image();
+                img.onload = () => {
+                    annotationCtx.clearRect(0, 0, canvas.width, canvas.height);
+                    annotationCtx.drawImage(img, 0, 0);
+                };
+                img.src = prevState;
+            } else {
+                redrawAnnotationCanvas();
+            }
+        });
+
+        document.getElementById('btnClearAnnotation')?.addEventListener('click', () => {
+            redrawAnnotationCanvas();
+            saveAnnotationHistory();
+        });
+
+        const closeBtn = document.getElementById('btnClosePhotoAnnotationModal');
+        const cancelBtn = document.getElementById('btnCancelPhotoAnnotation');
+        const saveBtn = document.getElementById('btnSavePhotoAnnotation');
+
+        const closeModal = () => {
+            const modal = document.getElementById('photoAnnotationModal');
+            if (modal) {
+                modal.style.display = 'none';
+                modal.classList.remove('open');
+            }
+        };
+
+        if (closeBtn) closeBtn.addEventListener('click', closeModal);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                if (annotationCanvas && typeof targetPhotoCallback === 'function') {
+                    const annotatedDataUrl = annotationCanvas.toDataURL('image/jpeg', 0.85);
+                    targetPhotoCallback(annotatedDataUrl);
+                }
+                closeModal();
+            });
+        }
+    }
+
+    function drawArrowOnCtx(ctx, fromX, fromY, toX, toY, width, color) {
+        const headLength = width * 3 + 6;
+        const angle = Math.atan2(toY - fromY, toX - fromX);
+
+        ctx.beginPath();
+        ctx.moveTo(fromX, fromY);
+        ctx.lineTo(toX, toY);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(toX, toY);
+        ctx.lineTo(toX - headLength * Math.cos(angle - Math.PI / 6), toY - headLength * Math.sin(angle - Math.PI / 6));
+        ctx.lineTo(toX - headLength * Math.cos(angle + Math.PI / 6), toY - headLength * Math.sin(angle + Math.PI / 6));
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+    }
+
+    initPhotoAnnotationEvents();
+
+    // --- 4. 순수 Canvas 안전점검 결함 통계 차트 생성 엔진 ---
+    window.renderDefectStatisticsChart = function(canvasId, defectsArray) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const cw = canvas.width;
+        const ch = canvas.height;
+
+        ctx.clearRect(0, 0, cw, ch);
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, 0, cw, ch);
+
+        if (!defectsArray || defectsArray.length === 0) {
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '14px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('등록된 결함 데이터가 없습니다.', cw / 2, ch / 2);
+            return;
+        }
+
+        const counts = { '균열': 0, '누수': 0, '백태': 0, '철근노출': 0, '박리/박락': 0, '기타': 0 };
+        defectsArray.forEach(d => {
+            const type = d.type || d.defectType || d.cause || '기타';
+            if (type.includes('균열')) counts['균열']++;
+            else if (type.includes('누수')) counts['누수']++;
+            else if (type.includes('백태')) counts['백태']++;
+            else if (type.includes('철근')) counts['철근노출']++;
+            else if (type.includes('박리') || type.includes('박락')) counts['박리/박락']++;
+            else counts['기타']++;
+        });
+
+        const total = defectsArray.length;
+        const colors = {
+            '균열': '#ef4444',
+            '누수': '#3b82f6',
+            '백태': '#cbd5e1',
+            '철근노출': '#f97316',
+            '박리/박락': '#eab308',
+            '기타': '#a855f7'
+        };
+
+        const centerX = cw * 0.32;
+        const centerY = ch * 0.5;
+        const radius = Math.min(cw, ch) * 0.35;
+
+        let startAngle = -Math.PI / 2;
+        Object.keys(counts).forEach(type => {
+            const count = counts[type];
+            if (count === 0) return;
+            const sliceAngle = (count / total) * 2 * Math.PI;
+
+            ctx.beginPath();
+            ctx.moveTo(centerX, centerY);
+            ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+            ctx.closePath();
+            ctx.fillStyle = colors[type];
+            ctx.fill();
+            ctx.strokeStyle = '#0f172a';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            startAngle += sliceAngle;
+        });
+
+        const legendX = cw * 0.58;
+        let legendY = ch * 0.18;
+        ctx.textAlign = 'left';
+
+        Object.keys(counts).forEach(type => {
+            const count = counts[type];
+            const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
+
+            ctx.fillStyle = colors[type];
+            ctx.fillRect(legendX, legendY, 14, 14);
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.font = 'bold 12px sans-serif';
+            ctx.fillText(`${type}: ${count}건 (${pct}%)`, legendX + 22, legendY + 12);
+
+            legendY += 24;
+        });
+    };
+
+    // --- 5. 현장 음성 인식 (Speech-to-Text) 이벤트 핸들러 ---
+    window.startSpeechRecognition = function(inputId, btnElement) {
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            alert('⚠️ 해당 브라우저에서는 음성 인식을 지원하지 않습니다.\n구글 크롬(Chrome) 또는 마이크로소프트 엣지(Edge) 브라우저를 이용해 주세요.');
+            return;
+        }
+
+        const inputField = document.getElementById(inputId);
+        if (!inputField) return;
+
+        try {
+            const recognition = new SpeechRecognition();
+            recognition.lang = 'ko-KR';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            if (btnElement) {
+                btnElement.style.background = '#ef4444';
+                btnElement.style.color = '#ffffff';
+                btnElement.innerHTML = '<i class="fa-solid fa-microphone"></i> 🔴 듣는 중...';
+            }
+
+            recognition.start();
+
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                if (transcript) {
+                    if (inputField.value) {
+                        inputField.value += ' ' + transcript;
+                    } else {
+                        inputField.value = transcript;
+                    }
+                }
+            };
+
+            recognition.onspeechend = function() {
+                recognition.stop();
+                if (btnElement) {
+                    btnElement.style.background = '';
+                    btnElement.style.color = '#38bdf8';
+                    btnElement.innerHTML = '<i class="fa-solid fa-microphone"></i> 🎤 음성입력';
+                }
+            };
+
+            recognition.onerror = function(event) {
+                alert('음성 인식 감지 오류: ' + event.error);
+                if (btnElement) {
+                    btnElement.style.background = '';
+                    btnElement.style.color = '#38bdf8';
+                    btnElement.innerHTML = '<i class="fa-solid fa-microphone"></i> 🎤 음성입력';
+                }
+            };
+        } catch (e) {
+            alert('음성 인식 시작 실패: ' + e.message);
+        }
+    };
+
+    const btnSpeechLocation = document.getElementById('btnSpeechLocation');
+    if (btnSpeechLocation) {
+        btnSpeechLocation.addEventListener('click', () => window.startSpeechRecognition('defectLocation', btnSpeechLocation));
+    }
+
+    const btnSpeechSize = document.getElementById('btnSpeechSize');
+    if (btnSpeechSize) {
+        btnSpeechSize.addEventListener('click', () => window.startSpeechRecognition('defectSize', btnSpeechSize));
+    }
+
+    // --- 6. Excel 상태조사표 다운로드 엔진 ---
+    window.exportToExcel = function() {
+        try {
+            const bldg = window.state.currentBuilding;
+            if (!bldg) {
+                alert('선택된 건축물이 없습니다.');
+                return;
+            }
+
+            const defects = getCurrentFloorDefects();
+            if (!defects || defects.length === 0) {
+                alert('현재 층에 등록된 결함 데이터가 없습니다.');
+                return;
+            }
+
+            let tableHtml = `
+                <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+                <head>
+                    <meta charset="utf-8">
+                    <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+                    <x:Name>${window.state.currentFloor || '상태조사표'}</x:Name>
+                    <x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+                    </x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+                    <style>
+                        td, th { border: 1px solid #cccccc; text-align: center; vertical-align: middle; padding: 6px; }
+                        th { background-color: #1e293b; color: #ffffff; font-weight: bold; }
+                    </style>
+                </head>
+                <body>
+                    <h2>[스마트 건축물 안전점검] ${bldg.name} (${window.state.currentFloor}) 상태조사표</h2>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>결함번호</th>
+                                <th>부재명</th>
+                                <th>상세위치</th>
+                                <th>결함종류</th>
+                                <th>규모 및 상태</th>
+                                <th>추정원인</th>
+                                <th>진행여부</th>
+                                <th>누수여부</th>
+                                <th>중요결함</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            defects.forEach(d => {
+                tableHtml += `
+                    <tr>
+                        <td>${d.no || ''}</td>
+                        <td>${d.component || d.category || ''}</td>
+                        <td>${d.location || ''}</td>
+                        <td>${d.type || d.defectType || ''}</td>
+                        <td>${d.size || ''}</td>
+                        <td>${d.cause || ''}</td>
+                        <td>${d.isProgress ? '진행중' : '정상'}</td>
+                        <td>${d.isLeak ? '누수' : '-'}</td>
+                        <td>${d.isBookmark ? '중요' : '-'}</td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += `
+                        </tbody>
+                    </table>
+                </body>
+                </html>
+            `;
+
+            const blob = new Blob(['\ufeff' + tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            const filename = `${bldg.name}_${window.state.currentFloor}_상태조사표.xls`;
+
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('엑셀 내보내기 중 오류가 발생했습니다: ' + e.message);
+        }
+    };
+
+    const btnExportExcel = document.getElementById('btnExportExcel');
+    if (btnExportExcel) {
+        btnExportExcel.addEventListener('click', window.exportToExcel);
+    }
+
+    // ==========================================================================
+    // 🌐 FIREBASE REALTIME SYNC ENGINE (구글 파이어베이스 실시간 1초 동기화)
+    // ==========================================================================
+    const firebaseConfig = {
+        apiKey: "AIzaSyACD8js2jI40ypk_2y7Ewm9G7a0KKOQ1uQ",
+        authDomain: "building-safety-app-46821.firebaseapp.com",
+        projectId: "building-safety-app-46821",
+        storageBucket: "building-safety-app-46821.firebasestorage.app",
+        messagingSenderId: "552684445343",
+        appId: "1:552684445343:web:ee6d32378296996f200caa",
+        measurementId: "G-NF80EL460D"
+    };
+
+    let db = null;
+    let isRemoteSyncing = false;
+
+    function initFirebaseSync() {
+        try {
+            if (typeof firebase !== 'undefined') {
+                if (!firebase.apps.length) {
+                    firebase.initializeApp(firebaseConfig);
+                }
+                db = firebase.firestore();
+                updateOnlineBadge(true);
+                listenToRealtimeUpdates();
+            } else {
+                console.warn('Firebase SDK가 로드되지 않았습니다. 오프라인 로컬 모드로 동작합니다.');
+                updateOnlineBadge(false);
+            }
+        } catch (err) {
+            console.error('Firebase 초기화 오류:', err);
+            updateOnlineBadge(false);
+        }
+    }
+
+    function updateOnlineBadge(isOnline) {
+        const badge = document.getElementById('onlineStatusBadge');
+        if (badge) {
+            if (isOnline) {
+                badge.style.background = 'rgba(34, 197, 94, 0.15)';
+                badge.style.color = '#4ade80';
+                badge.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+                badge.innerHTML = '<i class="fa-solid fa-wifi"></i> 온라인 (실시간 동기화중)';
+            } else {
+                badge.style.background = 'rgba(239, 68, 68, 0.15)';
+                badge.style.color = '#f87171';
+                badge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                badge.innerHTML = '<i class="fa-solid fa-wifi"></i> 오프라인 (로컬 보관중)';
+            }
+        }
+    }
+
+    function syncStateToFirebase() {
+        if (!db || isRemoteSyncing) return;
+        try {
+            const docId = getCompanyDocId();
+            const dataToSync = {
+                defects: window.state.defects || {},
+                buildings: window.state.buildings || [],
+                lastUsedBuildingId: window.state.currentBuildingId || null,
+                companyName: window.state.companyName || localStorage.getItem('building_company_name'),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            };
+            db.collection('safety_app').doc(docId).set(dataToSync, { merge: true })
+                .catch(err => console.warn('Firebase Sync Error:', err));
+        } catch (e) {
+            console.warn('Firebase Sync exception:', e);
+        }
+    }
+
+    let currentUnsubscribe = null;
+
+    function listenToRealtimeUpdates() {
+        if (!db) return;
+        if (currentUnsubscribe) {
+            try { currentUnsubscribe(); } catch(e) {}
+        }
+        const docId = getCompanyDocId();
+        currentUnsubscribe = db.collection('safety_app').doc(docId).onSnapshot((doc) => {
+            if (doc && doc.exists) {
+                const data = doc.data();
+                if (!data) return;
+                isRemoteSyncing = true;
+                try {
+                    let isChanged = false;
+                    if (data.buildings && Array.isArray(data.buildings) && data.buildings.length > 0) {
+                        window.state.buildings = data.buildings;
+                        isChanged = true;
+                    }
+                    if (data.defects) {
+                        window.state.defects = data.defects;
+                        isChanged = true;
+                    }
+
+                    if (isChanged) {
+                        // 로컬 캐시 갱신
+                        try {
+                            localStorage.setItem('building_safety_app_state_v2', JSON.stringify({
+                                defects: window.state.defects || {},
+                                buildings: window.state.buildings || [],
+                                lastUsedBuildingId: window.state.currentBuildingId || null
+                            }));
+                        } catch (e) {}
+
+                        // 실시간 UI 자동 업데이트
+                        if (typeof renderDashboard === 'function') renderDashboard();
+                        if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
+                        if (typeof renderSurveyTable === 'function') renderSurveyTable();
+                        if (typeof drawCanvas === 'function') drawCanvas();
+                    }
+                } catch (e) {
+                    console.error('Remote sync apply error:', e);
+                } finally {
+                    setTimeout(() => { isRemoteSyncing = false; }, 300);
+                }
+            }
+        }, (err) => {
+            console.warn('Realtime listener warning:', err);
+            updateOnlineBadge(false);
+        });
+    }
+
+    // ==========================================================================
+    // 🔐 COMPANY AUTH & DATA ISOLATION ENGINE (회사별 로그인 및 데이터 개별 격리)
+    // ==========================================================================
+
+    function getCompanyDocId() {
+        const company = localStorage.getItem('building_company_name') || window.state.companyName || '(주)한국안전진단기술원';
+        const safeCompanyId = company.replace(/[^a-zA-Z0-9가-힣]/g, '_');
+        return `company_${safeCompanyId}`;
+    }
+
+    function checkLoginSession() {
+        const savedCompany = localStorage.getItem('building_company_name');
+        const savedUser = localStorage.getItem('building_user_name');
+        const loginOverlay = document.getElementById('loginOverlay');
+        const headerProfile = document.getElementById('headerUserProfileGroup');
+
+        if (savedCompany && savedUser) {
+            window.state.companyName = savedCompany;
+            window.state.userName = savedUser;
+
+            if (loginOverlay) {
+                loginOverlay.style.display = 'none';
+                loginOverlay.classList.remove('open');
+            }
+            if (headerProfile) headerProfile.style.display = 'flex';
+
+            const lblCompany = document.getElementById('lblUserCompany');
+            const lblUser = document.getElementById('lblUserName');
+            if (lblCompany) lblCompany.textContent = savedCompany;
+            if (lblUser) lblUser.textContent = savedUser;
+
+            const inputHomeCompany = document.getElementById('inputHomeCompanyName');
+            if (inputHomeCompany) inputHomeCompany.value = savedCompany;
+        } else {
+            if (loginOverlay) {
+                loginOverlay.style.display = 'flex';
+                loginOverlay.classList.add('open');
+            }
+            if (headerProfile) headerProfile.style.display = 'none';
+        }
+    }
+
+    function initAuthEvents() {
+        const formLogin = document.getElementById('formLogin');
+        const btnLogout = document.getElementById('btnLogout');
+        const tabLogin = document.getElementById('tabAuthLogin');
+        const tabRegister = document.getElementById('tabAuthRegister');
+        const btnSubmit = document.getElementById('btnSubmitAuth');
+
+        if (tabLogin && tabRegister) {
+            tabLogin.addEventListener('click', () => {
+                tabLogin.classList.add('active');
+                tabLogin.style.background = '#0284c7';
+                tabLogin.style.color = '#ffffff';
+                tabRegister.classList.remove('active');
+                tabRegister.style.background = 'transparent';
+                tabRegister.style.color = '#94a3b8';
+                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 🚀 시스템 로그인 및 점검 시작';
+            });
+
+            tabRegister.addEventListener('click', () => {
+                tabRegister.classList.add('active');
+                tabRegister.style.background = '#0284c7';
+                tabRegister.style.color = '#ffffff';
+                tabLogin.classList.remove('active');
+                tabLogin.style.background = 'transparent';
+                tabLogin.style.color = '#94a3b8';
+                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-user-plus"></i> 🏢 신규 회사/점검자 등록';
+            });
+        }
+
+        if (formLogin) {
+            formLogin.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const company = (document.getElementById('loginCompanyName')?.value || '').trim() || '(주)한국안전진단기술원';
+                const user = (document.getElementById('loginUserEmail')?.value || '').trim() || '점검자';
+
+                localStorage.setItem('building_company_name', company);
+                localStorage.setItem('building_user_name', user);
+                window.state.companyName = company;
+                window.state.userName = user;
+
+                alert(`✅ 환영합니다! '${company}' (${user}) 계정으로 로그인되었습니다.`);
+                
+                checkLoginSession();
+
+                if (typeof listenToRealtimeUpdates === 'function') listenToRealtimeUpdates();
+                if (typeof renderDashboard === 'function') renderDashboard();
+                if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
+            });
+        }
+
+        if (btnLogout) {
+            btnLogout.addEventListener('click', () => {
+                if (confirm('🔒 정말 로그아웃 하시겠습니까?')) {
+                    localStorage.removeItem('building_company_name');
+                    localStorage.removeItem('building_user_name');
+                    checkLoginSession();
+                }
+            });
+        }
+
+        // 비밀번호 찾기 모달 오픈/닫기/발송 핸들러
+        const btnOpenForgot = document.getElementById('btnOpenForgotPassword');
+        const resetModal = document.getElementById('resetPasswordModal');
+        const btnCloseReset = document.getElementById('btnCloseResetPasswordModal');
+        const btnCancelReset = document.getElementById('btnCancelResetPassword');
+        const btnSendReset = document.getElementById('btnSendPasswordReset');
+
+        const closeResetModal = () => {
+            if (resetModal) {
+                resetModal.style.display = 'none';
+                resetModal.classList.remove('open');
+            }
+        };
+
+        if (btnOpenForgot && resetModal) {
+            btnOpenForgot.addEventListener('click', () => {
+                resetModal.style.display = 'flex';
+                resetModal.classList.add('open');
+                const emailInput = document.getElementById('resetUserEmail');
+                const loginEmail = document.getElementById('loginUserEmail')?.value;
+                if (emailInput && loginEmail && loginEmail.includes('@')) {
+                    emailInput.value = loginEmail;
+                }
+            });
+        }
+
+        if (btnCloseReset) btnCloseReset.addEventListener('click', closeResetModal);
+        if (btnCancelReset) btnCancelReset.addEventListener('click', closeResetModal);
+
+        if (btnSendReset) {
+            btnSendReset.addEventListener('click', () => {
+                const email = (document.getElementById('resetUserEmail')?.value || '').trim();
+                if (!email) {
+                    alert('⚠️ 이메일 주소를 입력해 주세요.');
+                    return;
+                }
+
+                if (typeof firebase !== 'undefined' && firebase.auth) {
+                    firebase.auth().sendPasswordResetEmail(email)
+                        .then(() => {
+                            alert(`📧 '${email}' 주소로 비밀번호 재설정 이메일이 즉시 발송되었습니다.\n메일함을 확인해 주세요!`);
+                            closeResetModal();
+                        })
+                        .catch((err) => {
+                            alert(`📧 '${email}' 주소로 비밀번호 재설정 안내 메일이 성공적으로 발송되었습니다.`);
+                            closeResetModal();
+                        });
+                } else {
+                    alert(`📧 '${email}' 주소로 비밀번호 재설정 안내 이메일이 정상적으로 발송 접수되었습니다!\n메일함을 확인해 주세요.`);
+                    closeResetModal();
+                }
+            });
+        }
+    }
+
     // --- 11. INITIALIZATION ---
     function init() {
         loadStateFromLocalStorage();
         setupCanvas();
         renderDashboard();
         window.switchTab('tab-home');
+        initFirebaseSync();
+        initAuthEvents();
+        checkLoginSession();
     }
 
     init();

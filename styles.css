@@ -1033,6 +1033,11 @@ body {
 
 /* Print Styles (@media print) */
 @media print {
+    @page {
+        size: A4 portrait;
+        margin: 8mm;
+    }
+
     .app-header, .main-tabs, .map-toolbar, .header-actions, .canvas-hint, .btn, .modal-overlay, .app-content {
         display: none !important;
     }
