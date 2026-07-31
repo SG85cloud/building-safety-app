@@ -29,7 +29,7 @@ if (!window.state) {
 window.appState = window.state;
 
 // --- GLOBAL AUTH & SESSION ENGINE ---
-window.performLogin = function(e) {
+window.dismissLoginModal = function(e) {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
 
     const compIn = document.getElementById('loginCompanyName');
@@ -40,20 +40,33 @@ window.performLogin = function(e) {
     if (!company) company = existingCompany;
 
     let user = (userEmailInput && userEmailInput.value) ? userEmailInput.value.trim() : '';
-    if (!user) user = '점검자';
+    if (!user) user = localStorage.getItem('building_user_name') || '홍길동 수석점검자';
 
     localStorage.setItem('building_company_name', company);
     localStorage.setItem('building_user_name', user);
+    sessionStorage.setItem('building_safety_logged_in', 'true');
 
     if (window.state) {
         window.state.companyName = company;
         window.state.userName = user;
     }
 
+    if (typeof loadStateFromLocalStorage === 'function') {
+        loadStateFromLocalStorage();
+    }
+
+    if (!window.state.buildings || !Array.isArray(window.state.buildings) || window.state.buildings.length === 0) {
+        if (typeof getDefaultBuildings === 'function') window.state.buildings = getDefaultBuildings();
+    } else if (typeof getDefaultBuildings === 'function') {
+        const hasCheomdan = window.state.buildings.some(b => b.id === 'bldg-cheomdan-hospital' || (b.name && b.name.includes('첨단병원')));
+        if (!hasCheomdan) {
+            window.state.buildings.unshift(getDefaultBuildings()[0]);
+        }
+    }
+
     const loginOverlay = document.getElementById('loginOverlay');
     if (loginOverlay) {
-        loginOverlay.style.setProperty('display', 'none', 'important');
-        loginOverlay.style.visibility = 'hidden';
+        loginOverlay.style.cssText = "display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important;";
         loginOverlay.classList.remove('open');
     }
 
@@ -68,26 +81,17 @@ window.performLogin = function(e) {
     const inputHomeCompany = document.getElementById('inputHomeCompanyName');
     if (inputHomeCompany) inputHomeCompany.value = company;
 
-    if (typeof checkLoginSession === 'function') checkLoginSession();
     if (typeof listenToRealtimeUpdates === 'function') listenToRealtimeUpdates();
     if (typeof renderDashboard === 'function') renderDashboard();
     if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
-
-    alert(`✅ 환영합니다! '${company}' (${user}) 계정으로 정상 로그인되었습니다.`);
 };
 
-window.checkLoginSession = function() {
-    let savedCompany = localStorage.getItem('building_company_name');
-    let savedUser = localStorage.getItem('building_user_name');
+window.performLogin = window.dismissLoginModal;
 
-    if (!savedCompany) {
-        savedCompany = '(주)한국안전진단기술원';
-        localStorage.setItem('building_company_name', savedCompany);
-    }
-    if (!savedUser) {
-        savedUser = '점검자';
-        localStorage.setItem('building_user_name', savedUser);
-    }
+window.checkLoginSession = function() {
+    const isLoggedIn = sessionStorage.getItem('building_safety_logged_in') === 'true';
+    let savedCompany = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
+    let savedUser = localStorage.getItem('building_user_name') || '홍길동 수석점검자';
 
     if (window.state) {
         window.state.companyName = savedCompany;
@@ -97,12 +101,21 @@ window.checkLoginSession = function() {
     const loginOverlay = document.getElementById('loginOverlay');
     const headerProfile = document.getElementById('headerUserProfileGroup');
 
-    if (loginOverlay) {
-        loginOverlay.style.setProperty('display', 'none', 'important');
-        loginOverlay.style.visibility = 'hidden';
-        loginOverlay.classList.remove('open');
+    if (isLoggedIn) {
+        if (loginOverlay) {
+            loginOverlay.style.setProperty('display', 'none', 'important');
+            loginOverlay.style.visibility = 'hidden';
+            loginOverlay.classList.remove('open');
+        }
+        if (headerProfile) headerProfile.style.display = 'flex';
+    } else {
+        if (loginOverlay) {
+            loginOverlay.style.display = 'flex';
+            loginOverlay.style.visibility = 'visible';
+            loginOverlay.classList.add('open');
+        }
+        if (headerProfile) headerProfile.style.display = 'none';
     }
-    if (headerProfile) headerProfile.style.display = 'flex';
 
     const lblCompany = document.getElementById('lblUserCompany');
     const lblUser = document.getElementById('lblUserName');
@@ -1235,21 +1248,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // Draw Grid Lines Overlay (v60.0)
         drawGridOverlay(ctx, imgW, imgH);
 
-        // Filter NDT Pins based on active drawing category group:
-        // Group A: '실측', '강도', '탄산화' -> drawn together on same combined drawing map
-        // Group B: '기울기' -> drawn on separate tilt drawing map
-        // Group C: '변위' -> drawn on separate differential settlement (vertical displacement) drawing map
-        const allNdtItems = getCurrentFloorNdtData();
-        let allowedCats = ['실측', '강도', '탄산화'];
-        if (currentNdtCategory === '기울기') {
-            allowedCats = ['기울기'];
-        } else if (currentNdtCategory === '변위') {
-            allowedCats = ['변위'];
-        } else if (currentNdtCategory === 'ALL') {
-            allowedCats = ['실측', '강도', '탄산화', '기울기', '변위'];
+        // Filter NDT pins by current active category tab
+        let ndtItems = getCurrentFloorNdtData();
+        const currentCat = currentNdtCategory || '실측';
+        if (currentCat === '기울기') {
+            ndtItems = ndtItems.filter(item => item.category === '기울기');
+        } else if (currentCat === '변위') {
+            ndtItems = ndtItems.filter(item => item.category === '변위');
+        } else {
+            ndtItems = ndtItems.filter(item => ['실측', '강도', '탄산화'].includes(item.category));
         }
-
-        const ndtItems = allNdtItems.filter(item => allowedCats.includes(item.category));
         ndtItems.forEach(item => drawNdtPin(ctx, item));
 
         ctx.restore();
@@ -1259,15 +1267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const tblTitleEl = document.getElementById('lblNdtTableTitle');
         const flLabel = state.currentFloor || '1F';
         if (flTitleEl) flTitleEl.textContent = `지상 ${flLabel}`;
-        if (tblTitleEl) {
-            if (currentNdtCategory === '기울기') {
-                tblTitleEl.textContent = `지상 ${flLabel} 외벽 기울기`;
-            } else if (currentNdtCategory === '변위') {
-                tblTitleEl.textContent = `지상 ${flLabel} 부동침하 (수직변위)`;
-            } else {
-                tblTitleEl.textContent = `지상 ${flLabel} 비파괴 장비 조사 (부재실측·강도·탄산화)`;
-            }
-        }
+        if (tblTitleEl) tblTitleEl.textContent = `지상 ${flLabel}`;
     }
 
     function drawNdtPin(ctx, item) {
@@ -1362,18 +1362,17 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.font = 'bold 13px monospace';
             ctx.fillText(noStr, -boxW / 2 + col1W / 2, 0);
 
-            // Column 2: Top "변 위 량", Bottom "기 울 기"
+            // Column 2: Top "변 위 량", Bottom "변위방향"
             ctx.font = 'bold 11px sans-serif';
             ctx.fillText('변 위 량', -boxW / 2 + col1W + col2W / 2, -boxH / 4);
-            ctx.fillText('기 울 기', -boxW / 2 + col1W + col2W / 2, boxH / 4);
+            ctx.fillText('변위방향', -boxW / 2 + col1W + col2W / 2, boxH / 4);
 
-            // Column 3: Top tiltVal (e.g. 4.0mm), Bottom tiltRatio (e.g. 1/750)
-            const ratioStr = item.tiltRatio || window.calculateTiltRatioAndGrade(item.height, item.avgValue).ratioText;
+            // Column 3: Top tiltVal (e.g. 3mm), Bottom dispDir (e.g. ←)
             ctx.font = 'bold 12px sans-serif';
             ctx.fillText(tiltVal, -boxW / 2 + col1W + col2W + col3W / 2, -boxH / 4);
 
-            ctx.font = 'bold 12px monospace';
-            ctx.fillText(ratioStr, -boxW / 2 + col1W + col2W + col3W / 2, boxH / 4);
+            ctx.font = 'bold 16px sans-serif';
+            ctx.fillText(dispDir, -boxW / 2 + col1W + col2W + col3W / 2, boxH / 4);
 
             ctx.restore();
             return;
@@ -1654,75 +1653,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderNdtSummaryTable() {
         const tbody = document.getElementById('ndtTableBody');
+        const thead = document.querySelector('#ndtSummaryTable thead tr');
         if (!tbody) return;
 
-        const tableEl = tbody.closest('table');
-        const thead = tableEl ? tableEl.querySelector('thead') : null;
+        const currentCat = currentNdtCategory || '실측';
+        let items = getCurrentFloorNdtData();
 
-        let allowedCats = ['실측', '강도', '탄산화'];
-        if (currentNdtCategory === '기울기') {
-            allowedCats = ['기울기'];
-        } else if (currentNdtCategory === '변위') {
-            allowedCats = ['변위'];
-        } else if (currentNdtCategory === 'ALL') {
-            allowedCats = ['실측', '강도', '탄산화', '기울기', '변위'];
-        }
-
-        const allItems = getCurrentFloorNdtData();
-        const items = allItems.filter(x => allowedCats.includes(x.category));
-
-        if (items.length === 0) {
+        if (currentCat === '기울기') {
+            items = items.filter(x => x.category === '기울기');
             if (thead) {
-                if (currentNdtCategory === '기울기') {
-                    thead.innerHTML = `<tr><th>관리번호</th><th>측정위치 (높이)</th><th>변위량</th><th>기울기 (δ/H)</th><th>평가등급</th><th>관리</th></tr>`;
-                } else if (currentNdtCategory === '변위') {
-                    thead.innerHTML = `<tr><th>관리번호</th><th>측정위치</th><th>부재명</th><th>수직변위량 (mm)</th><th>변위 상태</th><th>관리</th></tr>`;
-                } else {
-                    thead.innerHTML = `<tr><th>번호</th><th>조사 항목</th><th>측정 위치</th><th>부재명</th><th>측정 수치 / 결과</th><th>평균 / 판정</th><th>상태</th><th>관리</th></tr>`;
-                }
-            }
-            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #94a3b8; padding: 1.5rem;">선택하신 비파괴 조사 항목의 등록된 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
-            return;
-        }
-
-        const isTiltView = (currentNdtCategory === '기울기');
-        const isVertView = (currentNdtCategory === '변위');
-
-        if (isTiltView && thead) {
-            thead.innerHTML = `
-                <tr>
-                    <th>관리번호</th>
-                    <th>측정위치 (높이)</th>
-                    <th>변위량</th>
-                    <th>기울기 (δ/H)</th>
-                    <th>평가등급 (시설물 세부지침)</th>
-                    <th>관리</th>
-                </tr>
-            `;
-        } else if (isVertView && thead) {
-            thead.innerHTML = `
-                <tr>
-                    <th>관리번호</th>
+                thead.innerHTML = `
+                    <th>조사번호</th>
                     <th>측정위치</th>
                     <th>부재명</th>
-                    <th>수직변위량 (mm)</th>
-                    <th>변위 상태</th>
+                    <th>변위량(mm)</th>
+                    <th>기울기</th>
+                    <th>안전 등급</th>
                     <th>관리</th>
-                </tr>
-            `;
-        } else if (thead) {
-            thead.innerHTML = `
-                <tr>
-                    <th>번호</th>
-                    <th>조사 항목</th>
-                    <th>측정 위치</th>
+                `;
+            }
+        } else if (currentCat === '변위') {
+            items = items.filter(x => x.category === '변위');
+            if (thead) {
+                thead.innerHTML = `
+                    <th>조사번호</th>
+                    <th>측정위치</th>
                     <th>부재명</th>
-                    <th>측정 수치 / 결과</th>
-                    <th>평균 / 판정</th>
-                    <th>상태</th>
+                    <th>변위량(mm)</th>
+                    <th>상태판정</th>
                     <th>관리</th>
-                </tr>
-            `;
+                `;
+            }
+        } else {
+            items = items.filter(x => ['실측', '강도', '탄산화'].includes(x.category));
+            if (thead) {
+                thead.innerHTML = `
+                    <th>조사번호</th>
+                    <th>조사항목</th>
+                    <th>측정위치</th>
+                    <th>부재명</th>
+                    <th>측정수치</th>
+                    <th>평균결과</th>
+                    <th>상태판정</th>
+                    <th>관리</th>
+                `;
+            }
+        }
+
+        if (items.length === 0) {
+            const colSpan = (currentCat === '기울기' || currentCat === '변위') ? 7 : 8;
+            tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 ${currentCat} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
+            return;
         }
 
         const catBadges = {
@@ -1739,52 +1720,31 @@ document.addEventListener('DOMContentLoaded', () => {
             '보강필요': '<span class="badge badge-danger">🔴 보강필요</span>'
         };
 
-        const getGradeBadge = (item) => {
-            const g = (item.grade || window.calculateTiltRatioAndGrade(item.height, item.avgValue).gradeText || 'a등급').toLowerCase();
-            if (g.includes('a')) return '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a등급 (양호)</span>';
-            if (g.includes('b')) return '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (양호)</span>';
-            if (g.includes('c')) return '<span class="badge" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4); font-weight:800;">c등급 (주의)</span>';
-            if (g.includes('d')) return '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d등급 (보강필요)</span>';
-            if (g.includes('e')) return '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (불량)</span>';
-            return `<span class="badge badge-good">${g}</span>`;
+        const gradeBadges = {
+            'a등급': '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a등급 (1/750이상)</span>',
+            'b등급': '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (1/500이하)</span>',
+            'c등급': '<span class="badge" style="background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4); font-weight:800;">c등급 (1/250이하)</span>',
+            'd등급': '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d등급 (1/150이하)</span>',
+            'e등급': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (1/150초과)</span>'
         };
 
-        tbody.innerHTML = items.map((item, idx) => {
-            if (item.category === '기울기' && isTiltView) {
-                const ratio = item.tiltRatio || window.calculateTiltRatioAndGrade(item.height, item.avgValue).ratioText;
-                const locText = `${item.location || '위치 미지정'} ${item.height ? '(' + item.height + ')' : ''}`;
-                return `
-                    <tr>
-                        <td style="font-weight:800; color:#38bdf8;">${item.no || (idx + 1)}</td>
-                        <td style="font-weight:700;">${locText}</td>
-                        <td style="font-weight:800; color:#4ade80;">${item.avgValue || '-'}</td>
-                        <td style="font-family:monospace; font-weight:800; color:#c084fc;">${ratio}</td>
-                        <td>${getGradeBadge(item)}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
-                            <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
-                        </td>
-                    </tr>
-                `;
-            }
-
-            if (item.category === '변위' && isVertView) {
-                return `
-                    <tr>
-                        <td style="font-weight:800; color:#38bdf8;">${item.no || (idx + 1)}</td>
-                        <td style="font-weight:700;">${item.location || '위치 미지정'}</td>
-                        <td>${item.component || '슬래브'}</td>
-                        <td style="font-weight:800; color:#4ade80;">${item.avgValue || '-'}</td>
-                        <td>${statusBadges[item.status] || '🟢 양호'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
-                            <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
-                        </td>
-                    </tr>
-                `;
-            }
-
-            return `
+        if (currentCat === '기울기') {
+            tbody.innerHTML = items.map((item, idx) => `
+                <tr>
+                    <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700;">${item.location || '위치미지정'}</td>
+                    <td>${item.component || '기둥'}</td>
+                    <td style="font-weight:800; color:#f8fafc;">${item.avgValue || '-'}</td>
+                    <td style="font-weight:800; color:#c084fc;">${item.tiltRatio || '1/750'}</td>
+                    <td>${gradeBadges[item.grade] || gradeBadges['a등급']}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
+                    </td>
+                </tr>
+            `).join('');
+        } else {
+            tbody.innerHTML = items.map((item, idx) => `
                 <tr>
                     <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
                     <td>${catBadges[item.category] || item.category}</td>
@@ -1798,8 +1758,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
                     </td>
                 </tr>
-            `;
-        }).join('');
+            `).join('');
+        }
     }
 
     window.editNdtItem = function(id) {
@@ -1841,51 +1801,6 @@ document.addEventListener('DOMContentLoaded', () => {
         URL.revokeObjectURL(url);
     };
 
-    window.calculateTiltRatioAndGrade = function(heightInput, dispInput) {
-        const h = parseFloat(String(heightInput || '').replace(/[^0-9.]/g, ''));
-        const d = parseFloat(String(dispInput || '').replace(/[^0-9.]/g, ''));
-
-        if (isNaN(h) || h <= 0 || isNaN(d) || d < 0) {
-            return { ratioText: '-', gradeText: 'a등급', gradeLetter: 'a', ratioVal: 0 };
-        }
-
-        if (d === 0) {
-            return { ratioText: '0 (변위없음)', gradeText: 'a등급', gradeLetter: 'a', ratioVal: 0 };
-        }
-
-        const denom = Math.round(h / d);
-        const ratioText = `1/${denom}`;
-        const ratioVal = d / h;
-
-        let gradeText = 'a등급';
-        let gradeLetter = 'a';
-
-        // 사용자 명시 판정 기준:
-        // - 1/750 이하 (denom >= 750): a등급 (1/750은 a등급)
-        // - 1/750 초과 ~ 1/500 이하 (500 <= denom < 750): b등급 (1/500은 b등급)
-        // - 1/500 초과 ~ 1/250 이하 (250 <= denom < 500): c등급 (1/250은 c등급)
-        // - 1/250 초과 ~ 1/150 이하 (150 <= denom < 250): d등급 (1/150은 d등급)
-        // - 1/150 초과 (denom < 150): e등급
-        if (denom >= 750) {
-            gradeText = 'a등급';
-            gradeLetter = 'a';
-        } else if (denom >= 500) {
-            gradeText = 'b등급';
-            gradeLetter = 'b';
-        } else if (denom >= 250) {
-            gradeText = 'c등급';
-            gradeLetter = 'c';
-        } else if (denom >= 150) {
-            gradeText = 'd등급';
-            gradeLetter = 'd';
-        } else {
-            gradeText = 'e등급';
-            gradeLetter = 'e';
-        }
-
-        return { ratioText, gradeText, gradeLetter, ratioVal };
-    };
-
     window.toggleNdtModalFields = function() {
         const cat = document.getElementById('ndtCategory')?.value || '강도';
         const stdGrp = document.getElementById('groupNdtStandardFields');
@@ -1893,31 +1808,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusGrp = document.getElementById('groupNdtStatus');
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
-        const locLbl = document.getElementById('lblNdtLocation');
-        const locInput = document.getElementById('ndtLocation');
 
-        if (cat === '기울기') {
-            if (stdGrp) stdGrp.style.display = 'flex';
+        if (cat === '기울기' || cat === '변위') {
+            if (stdGrp) stdGrp.style.display = 'none';
             if (statusGrp) statusGrp.style.display = 'none';
             if (tiltGrp) tiltGrp.style.display = 'flex';
-            if (locLbl) locLbl.textContent = '📍 측정 위치 (사용자 직접 입력) *';
-            if (locInput) locInput.placeholder = '예: 동측 외벽 A열 (직접 입력)';
-            if (valTitle) valTitle.textContent = '📊 현장 측정값 (입력 시 변위량/기울기/등급 자동 연산)';
-            if (avgTitle) avgTitle.textContent = '⚡ 변위량 (δ, mm)';
-        } else if (cat === '변위') {
-            if (stdGrp) stdGrp.style.display = 'flex';
-            if (statusGrp) statusGrp.style.display = 'flex';
-            if (tiltGrp) tiltGrp.style.display = 'none';
-            if (locLbl) locLbl.textContent = '📍 그리드 측정 위치 *';
-            if (locInput) locInput.placeholder = '예: X1~X2 / Y3';
             if (valTitle) valTitle.textContent = '📊 현장 측정값 (1~3회 입력 시 변위량 자동 연산)';
-            if (avgTitle) avgTitle.textContent = '⚡ 변위량 (mm)';
+            if (avgTitle) avgTitle.textContent = '⚡ 변위량 (예: 3.2mm)';
         } else {
             if (stdGrp) stdGrp.style.display = 'flex';
             if (statusGrp) statusGrp.style.display = 'flex';
             if (tiltGrp) tiltGrp.style.display = 'none';
-            if (locLbl) locLbl.textContent = '📍 그리드 측정 위치 *';
-            if (locInput) locInput.placeholder = '예: X1~X2 / Y3';
             if (valTitle) valTitle.textContent = '📊 현장 측정값 (1~3회 입력 시 평균 자동 연산)';
             if (avgTitle) avgTitle.textContent = '⚡ 평균 / 종합 결과값';
         }
@@ -1933,8 +1834,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const compEl = document.getElementById('ndtComponent');
         const locEl = document.getElementById('ndtLocation');
         const heightEl = document.getElementById('ndtHeight');
-        const tiltRatioEl = document.getElementById('ndtTiltRatio');
-        const gradeEl = document.getElementById('ndtGrade');
+        const dispDirEl = document.getElementById('ndtDispDirection');
         const v1El = document.getElementById('ndtVal1');
         const v2El = document.getElementById('ndtVal2');
         const v3El = document.getElementById('ndtVal3');
@@ -1947,9 +1847,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (catEl) catEl.value = existingItem.category || '강도';
             if (compEl) compEl.value = existingItem.component || '기둥';
             if (locEl) locEl.value = existingItem.location || '';
-            if (heightEl) heightEl.value = existingItem.height || '3,000mm';
-            if (tiltRatioEl) tiltRatioEl.value = existingItem.tiltRatio || window.calculateTiltRatioAndGrade(existingItem.height, existingItem.avgValue).ratioText;
-            if (gradeEl) gradeEl.value = existingItem.grade || window.calculateTiltRatioAndGrade(existingItem.height, existingItem.avgValue).gradeText;
+            if (heightEl) heightEl.value = existingItem.height || 'H = 3,000mm';
+            if (dispDirEl) dispDirEl.value = existingItem.dispDirection || '←';
             if (v1El) v1El.value = existingItem.v1 || '';
             if (v2El) v2El.value = existingItem.v2 || '';
             if (v3El) v3El.value = existingItem.v3 || '';
@@ -1974,13 +1873,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (catEl) catEl.value = cat;
             if (compEl) compEl.value = '기둥';
             if (cat === '기울기') {
-                if (locEl) locEl.value = ''; // 사용자가 직접적게끔 그리드 자동입력 안 함
+                if (locEl) locEl.value = '';
             } else {
                 if (locEl) locEl.value = calculateGridLocationString(imgX, imgY, '기둥');
             }
-            if (heightEl) heightEl.value = '3,000mm';
-            if (tiltRatioEl) tiltRatioEl.value = '';
-            if (gradeEl) gradeEl.value = 'a등급';
+            if (heightEl) heightEl.value = 'H = 3,000mm';
+            if (dispDirEl) dispDirEl.value = extraOpts?.dispDirection || '←';
             if (v1El) v1El.value = '';
             if (v2El) v2El.value = '';
             if (v3El) v3El.value = '';
@@ -2032,23 +1930,36 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         function calcTiltAuto() {
-            const cat = document.getElementById('ndtCategory')?.value;
-            if (cat === '기울기') {
-                const hVal = document.getElementById('ndtHeight')?.value || '';
-                const dVal = document.getElementById('ndtAvgValue')?.value || '';
-                const { ratioText, gradeText } = window.calculateTiltRatioAndGrade(hVal, dVal);
-                const rEl = document.getElementById('ndtTiltRatio');
-                const gEl = document.getElementById('ndtGrade');
-                if (rEl && ratioText && ratioText !== '-') rEl.value = ratioText;
-                if (gEl && gradeText) gEl.value = gradeText;
+            const cat = document.getElementById('ndtCategory')?.value || '강도';
+            if (cat !== '기울기') return;
+
+            const hStr = (heightEl?.value || '').replace(/[^0-9.]/g, '');
+            const deltaStr = (avgEl?.value || '').replace(/[^0-9.]/g, '');
+            const h = parseFloat(hStr) || 3000;
+            const delta = parseFloat(deltaStr) || 0;
+
+            const tiltRatioEl = document.getElementById('ndtTiltRatio');
+            const gradeEl = document.getElementById('ndtGrade');
+
+            if (delta > 0 && h > 0) {
+                const ratioInv = Math.round(h / delta);
+                const ratioStr = `1/${ratioInv}`;
+                if (tiltRatioEl) tiltRatioEl.value = ratioStr;
+
+                let grade = 'a등급';
+                if (ratioInv >= 750) grade = 'a등급';
+                else if (ratioInv >= 500) grade = 'b등급';
+                else if (ratioInv >= 250) grade = 'c등급';
+                else if (ratioInv >= 150) grade = 'd등급';
+                else grade = 'e등급';
+
+                if (gradeEl) gradeEl.value = grade;
             }
         }
 
-        [v1El, v2El, v3El].forEach(el => {
+        [v1El, v2El, v3El, heightEl].forEach(el => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
-        if (avgEl) avgEl.addEventListener('input', calcTiltAuto);
-        if (heightEl) heightEl.addEventListener('input', calcTiltAuto);
 
         function closeNdtModal() {
             if (modal) {
@@ -2071,8 +1982,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const comp = document.getElementById('ndtComponent')?.value || '기둥';
                 const loc = document.getElementById('ndtLocation')?.value || '';
                 const heightStr = document.getElementById('ndtHeight')?.value || '';
-                const tiltRatioStr = document.getElementById('ndtTiltRatio')?.value || window.calculateTiltRatioAndGrade(heightStr, document.getElementById('ndtAvgValue')?.value).ratioText;
-                const gradeStr = document.getElementById('ndtGrade')?.value || window.calculateTiltRatioAndGrade(heightStr, document.getElementById('ndtAvgValue')?.value).gradeText;
+                const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
                 const v1 = document.getElementById('ndtVal1')?.value || '';
                 const v2 = document.getElementById('ndtVal2')?.value || '';
                 const v3 = document.getElementById('ndtVal3')?.value || '';
@@ -2093,8 +2003,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             component: comp,
                             location: loc,
                             height: heightStr,
-                            tiltRatio: tiltRatioStr,
-                            grade: gradeStr,
+                            dispDirection: dispDir,
                             targetX: extra.targetX,
                             targetY: extra.targetY,
                             boxX: extra.boxX,
@@ -2113,8 +2022,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         component: comp,
                         location: loc,
                         height: heightStr,
-                        tiltRatio: tiltRatioStr,
-                        grade: gradeStr,
+                        dispDirection: dispDir,
                         targetX: extra.targetX,
                         targetY: extra.targetY,
                         boxX: extra.boxX,
@@ -3485,61 +3393,10 @@ document.addEventListener('DOMContentLoaded', () => {
             // 3. If NO registered floor drawing exists, return null
             return null;
         } catch (err) {
+            console.error('Error rendering floor plan data URL:', err);
             return null;
         }
-    };
-
-    window.renderNdtCanvasSnapshotForCategories = function(floorCode, allowedCategories) {
-        const canvas = document.getElementById('ndtCanvas');
-        if (!canvas) return null;
-
-        const offCanvas = document.createElement('canvas');
-        offCanvas.width = canvas.width || 1200;
-        offCanvas.height = canvas.height || 700;
-        const ctx = offCanvas.getContext('2d');
-
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, offCanvas.width, offCanvas.height);
-
-        ctx.save();
-        ctx.translate(ndtView.offsetX, ndtView.offsetY);
-        ctx.scale(ndtView.scale, ndtView.scale);
-
-        const imgW = ndtBgImage ? (ndtBgImage.naturalWidth || ndtBgImage.width || 1200) : 1200;
-        const imgH = ndtBgImage ? (ndtBgImage.naturalHeight || ndtBgImage.height || 700) : 700;
-
-        ctx.save();
-        if (ndtRotationAngle === 90) {
-            ctx.translate(imgH, 0);
-            ctx.rotate((90 * Math.PI) / 180);
-        } else if (ndtRotationAngle === 180) {
-            ctx.translate(imgW, imgH);
-            ctx.rotate((180 * Math.PI) / 180);
-        } else if (ndtRotationAngle === 270) {
-            ctx.translate(0, imgW);
-            ctx.rotate((270 * Math.PI) / 180);
-        }
-
-        if (ndtBgImage) {
-            ctx.drawImage(ndtBgImage, 0, 0);
-        }
-
-        drawGridOverlay(ctx, imgW, imgH);
-
-        const key = `${state.currentBuildingId}_${floorCode}`;
-        const allItems = state.ndtData ? (state.ndtData[key] || []) : [];
-        const targetItems = allItems.filter(item => allowedCategories.includes(item.category));
-        targetItems.forEach(item => drawNdtPin(ctx, item));
-
-        ctx.restore();
-        ctx.restore();
-
-        try {
-            return offCanvas.toDataURL('image/png');
-        } catch(e) {
-            return null;
-        }
-    };
+    }
 
     // --- REPORT PREVIEW MODAL (Instant Modal Open & Pure White Paper Theme) ---
     window.openReportPreviewModalFunc = async function() {
@@ -3769,12 +3626,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                 `;
+
+                // --- 4. 🔬 비파괴 장비 조사 결과표 & NDT 측정 위치도 ---
                 const ndtKey = `${currentBldgId}_${floorCode}`;
                 const ndtItems = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
 
-                // 4-1. 비파괴 장비 조사 (부재실측·강도·탄산화) 통합 결과표 및 위치도
-                const stdNdtUrl = window.renderNdtCanvasSnapshotForCategories(floorCode, ['실측', '강도', '탄산화']);
-                const stdItems = ndtItems.filter(x => ['실측', '강도', '탄산화'].includes(x.category));
+                let ndtDrawingDataUrl = null;
+                const ndtCanvasEl = document.getElementById('ndtCanvas');
+                if (ndtCanvasEl && state.currentFloor === floorCode) {
+                    try {
+                        ndtDrawingDataUrl = ndtCanvasEl.toDataURL('image/png');
+                    } catch(e){}
+                }
 
                 reportPagesHtml += `
                     <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
@@ -3783,7 +3646,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
 
                         <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
-                            4. ${floorCode} 비파괴 장비 조사 (부재실측·강도·탄산화) 결과표 및 위치도
+                            4. ${floorCode} 비파괴 장비 조사 측정 결과표 및 위치도
                         </h2>
 
                         <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; margin-bottom: 1rem;">
@@ -3791,213 +3654,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
                                     <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">관리번호</th>
                                     <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">조사항목</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">부재명</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치 (높이)</th>
                                     <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정수치 (1~3회)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">평균 / 결과</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">상태</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위량 / 평균</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위방향 / 상태</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${stdItems.length > 0 ? stdItems.map(item => `
+                                ${ndtItems.length > 0 ? ndtItems.map(item => `
                                     <tr>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.category}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.component || '기둥'}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.category || '기울기'}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || item.height || '-'}</td>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-family:monospace;">${item.valuesText || '-'}</td>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800;">${item.status || '양호'}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#ea580c;">${item.dispDirection ? item.dispDirection + ' (' + (item.status || '양호') + ')' : (item.status || '양호')}</td>
                                     </tr>
                                 `).join('') : `
-                                    <tr>
-                                        <td colspan="7" style="padding: 1rem; color: #94a3b8;">등록된 비파괴 장비 조사(실측·강도·탄산화) 측정 데이터가 없습니다.</td>
-                                    </tr>
-                                `}
-                            </tbody>
-                        </table>
-
-                        <h3 style="font-size:0.92rem; font-weight:800; color:#0369a1; margin-bottom: 0.4rem;">
-                            🔬 ${floorCode} 비파괴 장비 조사 (부재실측·강도·탄산화) 통합 측정 위치도
-                        </h3>
-
-                        ${stdNdtUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 520px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
-                                <img src="${stdNdtUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
-                            </div>
-                        ` : `
-                            <div style="width: 100%; flex: 1; min-height: 400px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <i class="fa-solid fa-microscope" style="font-size: 2.5rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
-                                📍 비파괴 장비 조사 탭에서 도면에 마킹하시면 통합 위치도가 보고서에 자동으로 첨부됩니다.
-                            </div>
-                        `}
-
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
-                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
-                            <span>📄 스마트 건축물 안전점검 시스템</span>
-                        </div>
-                    </div>
-                `;
-
-                // 4-2. 📐 외벽 기울기 조사 결과표 및 위치도 (독립 위치도)
-                const tiltNdtUrl = window.renderNdtCanvasSnapshotForCategories(floorCode, ['기울기']);
-                const tiltItems = ndtItems.filter(x => x.category === '기울기');
-
-                reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
-                            <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
-                        </div>
-
-                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
-                            5. ${floorCode} 외벽 기울기 조사 결과표 및 위치도
-                        </h2>
-
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; margin-bottom: 1rem;">
-                            <thead>
-                                <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">관리번호</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치 (높이)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위량</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">기울기 (δ/H)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">평가등급 (시설물 세부지침)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tiltItems.length > 0 ? tiltItems.map(item => {
-                                    const ratio = item.tiltRatio || window.calculateTiltRatioAndGrade(item.height, item.avgValue).ratioText;
-                                    const grade = item.grade || window.calculateTiltRatioAndGrade(item.height, item.avgValue).gradeText;
-                                    const locStr = `${item.location || '동측 외벽'} ${item.height ? '(' + item.height + ')' : ''}`;
-                                    return `
-                                        <tr>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${locStr}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea; font-family:monospace;">${ratio}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${grade}</td>
-                                        </tr>
-                                    `;
-                                }).join('') : `
-                                    <tr>
-                                        <td colspan="5" style="padding: 1rem; color: #94a3b8;">등록된 외벽 기울기 조사 측정 데이터가 없습니다.</td>
-                                    </tr>
-                                `}
-                            </tbody>
-                        </table>
-
-                        <h3 style="font-size:0.92rem; font-weight:800; color:#0369a1; margin-bottom: 0.4rem;">
-                            📐 ${floorCode} 외벽 기울기 측정 위치도 (독립 위치도)
-                        </h3>
-
-                        ${tiltNdtUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 520px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
-                                <img src="${tiltNdtUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
-                            </div>
-                        ` : `
-                            <div style="width: 100%; flex: 1; min-height: 400px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <i class="fa-solid fa-ruler-combined" style="font-size: 2.5rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
-                                📍 비파괴 장비 조사 탭에서 외벽 기울기를 마킹하시면 전용 위치도가 보고서에 자동으로 첨부됩니다.
-                            </div>
-                        `}
-
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
-                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
-                            <span>📄 스마트 건축물 안전점검 시스템</span>
-                        </div>
-                    </div>
-                `;
-
-                // 4-3. 📉 부동침하 (수직변위) 조사 결과표 및 위치도 (독립 위치도)
-                const vertNdtUrl = window.renderNdtCanvasSnapshotForCategories(floorCode, ['변위']);
-                const vertItems = ndtItems.filter(x => x.category === '변위');
-
-                reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
-                            <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
-                        </div>
-
-                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
-                            6. ${floorCode} 부동침하 (수직변위) 조사 결과표 및 위치도
-                        </h2>
-
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; margin-bottom: 1rem;">
-                            <thead>
-                                <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">관리번호</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">부재명</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">수직변위량 (mm)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위 상태</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${vertItems.length > 0 ? vertItems.map(item => `
-                                    <tr>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.location || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.component || '슬래브'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800;">${item.status || '양호'}</td>
-                                    </tr>
-                                `).join('') : `
-                                    <tr>
-                                        <td colspan="5" style="padding: 1rem; color: #94a3b8;">등록된 부동침하 (수직변위) 조사 측정 데이터가 없습니다.</td>
-                                    </tr>
-                                `}
-                            </tbody>
-                        </table>
-
-                        <h3 style="font-size:0.92rem; font-weight:800; color:#0369a1; margin-bottom: 0.4rem;">
-                            📉 ${floorCode} 부동침하 (수직변위) 측정 위치도 (독립 위치도)
-                        </h3>
-
-                        ${vertNdtUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 520px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
-                                <img src="${vertNdtUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
-                            </div>
-                        ` : `
-                            <div style="width: 100%; flex: 1; min-height: 400px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <i class="fa-solid fa-chart-line" style="font-size: 2.5rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
-                                📍 비파괴 장비 조사 탭에서 부동침하(수직변위)를 마킹하시면 전용 위치도가 보고서에 자동으로 첨부됩니다.
-                            </div>
-                        `}
-
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
-                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
-                            <span>📄 스마트 건축물 안전점검 시스템</span>
-                        </div>
-                    </div>
-                `;</td>
-                                                    <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${locStr}</td>
-                                                    <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                                    <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea; font-family:monospace;">${ratio}</td>
-                                                    <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${grade}</td>
-                                                </tr>
-                                            `;
-                                        }
-                                        return `
-                                            <tr>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">📐 기울기</td>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0;">${locStr}</td>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea; font-family:monospace;">${ratio}</td>
-                                                <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${grade}</td>
-                                            </tr>
-                                        `;
-                                    }
-                                    return `
-                                        <tr>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.category || '강도'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || '-'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-family:monospace;">${item.valuesText || '-'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                            <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#ea580c;">${item.status || '양호'}</td>
-                                        </tr>
-                                    `;
-                                }).join('') : `
                                     <tr>
                                         <td colspan="6" style="padding: 1rem; color: #94a3b8;">등록된 비파괴 장비 조사 측정 데이터가 없습니다.</td>
                                     </tr>
@@ -4848,51 +4521,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return `company_${safeCompanyId}`;
     }
 
-    function checkLoginSession() {
-        const savedCompany = localStorage.getItem('building_company_name');
-        const savedUser = localStorage.getItem('building_user_name');
-        const loginOverlay = document.getElementById('loginOverlay');
-        const headerProfile = document.getElementById('headerUserProfileGroup');
-
-        if (savedCompany && savedUser) {
-            window.state.companyName = savedCompany;
-            window.state.userName = savedUser;
-
-            if (loginOverlay) {
-                loginOverlay.style.display = 'none';
-                loginOverlay.classList.remove('open');
-            }
-            if (headerProfile) headerProfile.style.display = 'flex';
-
-            const lblCompany = document.getElementById('lblUserCompany');
-            const lblUser = document.getElementById('lblUserName');
-            if (lblCompany) lblCompany.textContent = savedCompany;
-            if (lblUser) lblUser.textContent = savedUser;
-
-            const inputHomeCompany = document.getElementById('inputHomeCompanyName');
-            if (inputHomeCompany) inputHomeCompany.value = savedCompany;
-        } else {
-            if (loginOverlay) {
-                loginOverlay.style.display = 'flex';
-                loginOverlay.classList.add('open');
-            }
-            if (headerProfile) headerProfile.style.display = 'none';
-        }
-    }
-
     function initAuthEvents() {
         const formLogin = document.getElementById('formLogin');
         const btnLogout = document.getElementById('btnLogout');
         const tabLogin = document.getElementById('tabAuthLogin');
         const tabRegister = document.getElementById('tabAuthRegister');
         const btnSubmit = document.getElementById('btnSubmitAuth');
-
-        const groupCompany = document.getElementById('groupLoginCompany');
-        const companyInput = document.getElementById('loginCompanyName');
-        
-        // Auto fill saved company name if exists!
-        const savedCompName = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
-        if (companyInput) companyInput.value = savedCompName;
 
         if (tabLogin && tabRegister) {
             tabLogin.addEventListener('click', () => {
@@ -4901,9 +4535,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 tabLogin.style.color = '#ffffff';
                 tabRegister.classList.remove('active');
                 tabRegister.style.background = 'transparent';
-                tabRegister.style.color = '#64748b';
-                if (groupCompany) groupCompany.style.display = 'none';
-                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 🚀 로그인 및 점검 시작';
+                tabRegister.style.color = '#94a3b8';
+                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 🚀 시스템 로그인 및 점검 시작';
             });
 
             tabRegister.addEventListener('click', () => {
@@ -4912,74 +4545,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 tabRegister.style.color = '#ffffff';
                 tabLogin.classList.remove('active');
                 tabLogin.style.background = 'transparent';
-                tabLogin.style.color = '#64748b';
-                if (groupCompany) groupCompany.style.display = 'block';
+                tabLogin.style.color = '#94a3b8';
                 if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-user-plus"></i> 🏢 신규 회사/점검자 등록';
             });
         }
 
-        window.performLogin = function(e) {
-            if (e && typeof e.preventDefault === 'function') e.preventDefault();
-
-            const compIn = document.getElementById('loginCompanyName');
-            const userEmailInput = document.getElementById('loginUserEmail');
-
-            const existingCompany = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
-            let company = (compIn && compIn.value) ? compIn.value.trim() : existingCompany;
-            if (!company) company = existingCompany;
-
-            let user = (userEmailInput?.value || '').trim();
-            if (!user) user = '점검자';
-
-            localStorage.setItem('building_company_name', company);
-            localStorage.setItem('building_user_name', user);
-            window.state.companyName = company;
-            window.state.userName = user;
-
-            const loginOverlay = document.getElementById('loginOverlay');
-            if (loginOverlay) {
-                loginOverlay.style.display = 'none';
-                loginOverlay.style.visibility = 'hidden';
-                loginOverlay.classList.remove('open');
-            }
-
-            const headerProfile = document.getElementById('headerUserProfileGroup');
-            if (headerProfile) headerProfile.style.display = 'flex';
-
-            const lblCompany = document.getElementById('lblUserCompany');
-            const lblUser = document.getElementById('lblUserName');
-            if (lblCompany) lblCompany.textContent = company;
-            if (lblUser) lblUser.textContent = user;
-
-            const inputHomeCompany = document.getElementById('inputHomeCompanyName');
-            if (inputHomeCompany) inputHomeCompany.value = company;
-
-            alert(`✅ 환영합니다! '${company}' (${user}) 계정으로 정상 로그인되었습니다.`);
-
-            try {
-                checkLoginSession();
-                if (typeof listenToRealtimeUpdates === 'function') listenToRealtimeUpdates();
-                if (typeof renderDashboard === 'function') renderDashboard();
-                if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
-            } catch (err) {
-                console.warn('Post-login refresh warning:', err);
-            }
-        };
-
         if (formLogin) {
-            formLogin.addEventListener('submit', window.performLogin);
+            formLogin.addEventListener('submit', window.dismissLoginModal);
         }
-
         if (btnSubmit) {
-            btnSubmit.addEventListener('click', window.performLogin);
+            btnSubmit.addEventListener('click', window.dismissLoginModal);
         }
 
         if (btnLogout) {
             btnLogout.addEventListener('click', () => {
                 if (confirm('🔒 정말 로그아웃 하시겠습니까?')) {
-                    localStorage.removeItem('building_company_name');
-                    localStorage.removeItem('building_user_name');
-                    checkLoginSession();
+                    sessionStorage.removeItem('building_safety_logged_in');
+                    window.checkLoginSession();
                 }
             });
         }
