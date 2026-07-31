@@ -82,8 +82,8 @@
         <button type="button" class="tab-btn" data-tab="tab-survey" onclick="window.switchTab('tab-survey')">
             <i class="fa-solid fa-clipboard-list"></i> 📋 층별 상태조사표
         </button>
-        <button type="button" class="tab-btn" data-tab="tab-album" onclick="window.switchTab('tab-album')">
-            <i class="fa-solid fa-images"></i> 📷 현장 사진첩
+        <button type="button" class="tab-btn" data-tab="tab-ndt" onclick="window.switchTab('tab-ndt')">
+            <i class="fa-solid fa-microscope"></i> 🔬 비파괴 장비 조사
         </button>
     </nav>
 
@@ -251,6 +251,12 @@
                 </div>
                 
                 <div class="toolbar-action-group">
+                    <button type="button" id="btnOpenGridModal" class="btn-rotate-hero" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #38bdf8;" title="도면 3초 스마트 그리드(열) 설정">
+                        <i class="fa-solid fa-ruler-combined"></i> 📐 3초 그리드 설정
+                    </button>
+                    <button type="button" id="btnToggleGridOverlay" class="btn-rotate-hero" style="background: rgba(255,255,255,0.08); border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="그리드선 표시/숨김">
+                        <i class="fa-solid fa-border-all"></i> 🌐 그리드 보기
+                    </button>
                     <button type="button" id="btnRotateDrawing" class="btn-rotate-hero" title="세로 도면 가로로 90도 회전">
                         <i class="fa-solid fa-rotate-right"></i> 🔄 도면 90° 가로회전
                     </button>
@@ -264,7 +270,7 @@
             </div>
 
             <!-- Canvas Viewport -->
-            <div class="canvas-container" id="canvasContainer" style="min-height: 520px;">
+            <div class="canvas-container" id="canvasContainer">
                 <div class="canvas-hint" id="canvasHintText">
                     <i class="fa-solid fa-hand-pointer"></i> 
                     <span>[✋ 화면 이동 모드] 손가락으로 도면 자유 이동 및 확대/축소 | 핀을 찍으려면 <strong>📍[결함 위치 마킹]</strong> 버튼 클릭</span>
@@ -320,23 +326,99 @@
             </div>
         </section>
 
-        <!-- TAB 3: 현장 사진첩 (Photo Album Grid) -->
-        <section id="tab-album" class="tab-content">
-            <div class="section-header">
-                <h2>📷 <span id="albumFloorTitle">지상 1층 (1F)</span> 현장 점검 사진첩</h2>
-                <div class="actions">
-                    <label>필터: </label>
-                    <select id="albumFilterComponent" class="styled-select">
-                        <option value="ALL">전체 보기</option>
-                        <option value="기둥">기둥</option>
-                        <option value="보">보</option>
-                        <option value="슬래브">슬래브</option>
-                        <option value="벽체">벽체</option>
-                    </select>
+        <!-- TAB 3: 🔬 비파괴 장비 조사 (NDT Field Inspection & Measurement) -->
+        <section id="tab-ndt" class="tab-content">
+            <div class="section-header" style="flex-wrap: wrap; gap: 0.8rem;">
+                <h2>🔬 <span id="ndtFloorTitle">지상 1층 (1F)</span> 비파괴 장비 조사 현장점검</h2>
+                <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+                    <label class="btn btn-primary" style="background: linear-gradient(135deg, #0284c7, #0369a1); font-size: 0.85rem; padding: 0.4rem 0.8rem; cursor: pointer;">
+                        <i class="fa-solid fa-file-image"></i> 🖼️ NDT 전용 도면 불러오기
+                        <input type="file" id="inputNdtDrawing" accept="image/*" style="display: none;">
+                    </label>
+                    <button type="button" id="btnNdtSyncFloorDrawing" class="btn btn-outline" style="border-color: #38bdf8; color: #38bdf8; font-size: 0.85rem; padding: 0.4rem 0.8rem;">
+                        <i class="fa-solid fa-rotate"></i> 🔄 층별 원본 도면 연동
+                    </button>
                 </div>
             </div>
 
-            <div class="photo-album-grid" id="photoAlbumGrid"></div>
+            <!-- NDT Category Filter Chips Toolbar -->
+            <div class="map-controls-toolbar" style="margin-bottom: 0.8rem; background: var(--bg-secondary); padding: 0.6rem 0.9rem; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="filter-group" style="width: 100%;">
+                    <span class="filter-label" style="font-weight: 800; color: #38bdf8;"><i class="fa-solid fa-vial"></i> 비파괴 조사 항목:</span>
+                    <button type="button" id="btnNdtCatDim" class="chip active" onclick="window.setNdtCategory('실측')">📏 부재 실측</button>
+                    <button type="button" id="btnNdtCatStrength" class="chip" onclick="window.setNdtCategory('강도')">🔨 콘크리트 강도 (슈미트)</button>
+                    <button type="button" id="btnNdtCatCarb" class="chip" onclick="window.setNdtCategory('탄산화')">🧪 콘크리트 탄산화</button>
+                    <button type="button" id="btnNdtCatTilt" class="chip" onclick="window.setNdtCategory('기울기')">📐 외벽 기울기</button>
+                    <button type="button" id="btnNdtCatVert" class="chip" onclick="window.setNdtCategory('변위')">📉 바닥 수직변위</button>
+                </div>
+            </div>
+
+            <!-- NDT Top Canvas Controls Toolbar -->
+            <div class="canvas-top-toolbar">
+                <div class="toolbar-mode-group">
+                    <button type="button" id="btnNdtModePan" class="mode-btn active" onclick="window.setNdtMode('PAN')">
+                        <i class="fa-solid fa-hand"></i> ✋ 화면 자유 이동
+                    </button>
+                    <button type="button" id="btnNdtModeMark" class="mode-btn btn-mark-mode" onclick="window.setNdtMode('MARK')" style="background: linear-gradient(135deg, #0284c7, #0369a1);">
+                        <i class="fa-solid fa-location-dot"></i> 📍 [NDT 위치 마킹]
+                    </button>
+                </div>
+
+                <div class="toolbar-action-group">
+                    <button type="button" id="btnRotateNdtDrawing" class="btn-rotate-hero" onclick="window.rotateNdtDrawing()">
+                        <i class="fa-solid fa-rotate-right"></i> 🔄 도면 90° 회전
+                    </button>
+                    <div class="zoom-pill-group">
+                        <button id="btnNdtZoomIn" class="zoom-pill-btn" onclick="window.zoomNdtCanvas(1.2)"><i class="fa-solid fa-plus"></i></button>
+                        <span id="ndtZoomScaleText" class="zoom-pill-badge">100%</span>
+                        <button id="btnNdtZoomOut" class="zoom-pill-btn" onclick="window.zoomNdtCanvas(0.83)"><i class="fa-solid fa-minus"></i></button>
+                        <button id="btnNdtZoomFit" class="zoom-pill-btn text-btn" onclick="window.fitNdtCanvas()"><i class="fa-solid fa-expand"></i> 맞춤</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NDT Canvas Viewport -->
+            <div class="canvas-container" id="ndtCanvasContainer">
+                <div class="canvas-hint" id="ndtCanvasHintText">
+                    <i class="fa-solid fa-vial"></i> 
+                    <span>[📍 NDT 위치 마킹] 5대 비파괴 조사 측정 위치를 도면 상에 핀으로 표시하세요</span>
+                </div>
+                <canvas id="ndtCanvas"></canvas>
+            </div>
+
+            <!-- NDT Summary Measurement Results Table -->
+            <div style="margin-top: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; flex-wrap: wrap; gap: 0.5rem;">
+                    <h3 style="font-size: 1.05rem; font-weight: 800; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fa-solid fa-table-list"></i> 📊 <span id="lblNdtTableTitle">지상 1층 (1F)</span> 비파괴 장비 조사 측정 결과표
+                    </h3>
+                    <button type="button" class="btn btn-sm btn-outline" style="border-color: #38bdf8; color: #38bdf8;" onclick="window.exportNdtTableExcel()">
+                        <i class="fa-solid fa-file-excel"></i> NDT 결과 엑셀 다운로드
+                    </button>
+                </div>
+                
+                <div class="table-responsive" style="background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px solid var(--border-color); padding: 0.5rem;">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>번호</th>
+                                <th>조사 항목</th>
+                                <th>측정 위치 (그리드)</th>
+                                <th>부재명</th>
+                                <th>측정 수치 / 결과</th>
+                                <th>평균 / 판정</th>
+                                <th>상태</th>
+                                <th>관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ndtTableBody">
+                            <tr>
+                                <td colspan="8" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 비파괴 장비 조사 측정 데이터가 없습니다. 도면 상에 위치를 마킹해 주세요.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </section>
 
     </main>
@@ -371,11 +453,13 @@
                         <div class="form-group">
                             <label class="form-label">부재 명칭 *</label>
                             <select id="defectComponent" class="form-select">
-                                <option value="기둥">기둥 (C)</option>
-                                <option value="보">보 (G/B)</option>
-                                <option value="슬래브">슬래브 (S)</option>
-                                <option value="벽체">벽체 (W)</option>
-                                <option value="계단">계단 (ST)</option>
+                                <option value="기둥">기둥 (C - Column)</option>
+                                <option value="큰보">큰보 (G - Girder)</option>
+                                <option value="작은보">작은보 (b - Sub-Beam)</option>
+                                <option value="슬래브">슬래브 (S - Slab)</option>
+                                <option value="벽체">벽체 (W - Wall)</option>
+                                <option value="조적벽체">조적벽체 (MW - Masonry Wall)</option>
+                                <option value="계단">계단 (ST - Stairs)</option>
                                 <option value="기타">기타 부재</option>
                             </select>
                         </div>
@@ -443,10 +527,19 @@
                     <!-- Photo Attachment Section -->
                     <div class="form-group">
                         <label class="form-label">📷 현장 결함 사진 첨부</label>
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                            <button type="button" id="btnTriggerCamera" class="btn" style="flex: 1; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; font-weight: 700; padding: 0.65rem 0.5rem; border-radius: 8px; border: 1px solid #38bdf8; font-size: 0.88rem;">
+                                <i class="fa-solid fa-camera"></i> 📷 즉시 카메라 촬영
+                            </button>
+                            <button type="button" id="btnTriggerGallery" class="btn" style="flex: 1; background: rgba(255,255,255,0.08); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-weight: 700; padding: 0.65rem 0.5rem; border-radius: 8px; font-size: 0.88rem;">
+                                <i class="fa-solid fa-images"></i> 🖼️ 갤러리/앨범 선택
+                            </button>
+                        </div>
                         <div class="photo-upload-area" id="photoUploadArea">
                             <i class="fa-solid fa-camera"></i>
-                            <span>클릭하여 사진 추가 (또는 스마트폰 카메라 연동)</span>
+                            <span>터치하여 카메라 촬영 또는 갤러리 사진 추가</span>
                             <input type="file" id="inputDefectPhoto" accept="image/*" style="display:none;">
+                            <input type="file" id="inputDefectCamera" accept="image/*" capture="environment" style="display:none;">
                         </div>
                         <div class="photo-preview-list" id="photoPreviewList"></div>
                     </div>
@@ -463,6 +556,188 @@
                 <div>
                     <button class="btn btn-outline" id="btnCancelDefect">취소</button>
                     <button class="btn btn-primary" id="btnSaveDefect"><i class="fa-solid fa-check"></i> 저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 3-Second Smart Grid Calibration Modal (v60.0) -->
+    <div class="modal-overlay" id="gridCalibModal">
+        <div class="modal-card" style="max-width: 580px; width: 94%;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #0369a1, #0f172a); border-bottom: 1px solid #38bdf8;">
+                <h3><i class="fa-solid fa-ruler-combined" style="color: #38bdf8;"></i> 📐 3초 스마트 그리드(X1~Xn / Y1~Yn) 설정</h3>
+                <button type="button" class="modal-close" id="btnCloseGridModal">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto;">
+                <div class="alert alert-info" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); color: #7dd3fc; font-size: 0.85rem; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.2rem;">
+                    <i class="fa-solid fa-lightbulb"></i> <strong>3초 간편 설정 팁:</strong> 도면의 X축/Y축 열 개수 지정 후 <strong>[🎯 2점 터치로 3초 자동 간격 세팅]</strong> 버튼을 눌러 도면 좌측 상단(X1,Y1)과 우측 하단(Xn,Yn)을 터치하면 3초 만에 그리드가 완벽하게 배치됩니다.
+                </div>
+
+                <div class="form-row" style="display: flex; gap: 0.8rem; flex-wrap: wrap;">
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label class="form-label">↔️ X축 그리드 (가로열)</label>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <span style="font-size: 0.85rem; color: #94a3b8;">접두사:</span>
+                            <input type="text" id="gridXPrefix" class="form-control" value="X" style="width: 55px; text-align: center; font-weight: 700;">
+                            <span style="font-size: 0.85rem; color: #94a3b8;">개수:</span>
+                            <input type="number" id="gridXCount" class="form-control" min="1" max="30" value="6" style="width: 65px; font-weight: 700;">
+                        </div>
+                    </div>
+                    <div class="form-group" style="flex: 1; min-width: 200px;">
+                        <label class="form-label">↕️ Y축 그리드 (세로열)</label>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <span style="font-size: 0.85rem; color: #94a3b8;">접두사:</span>
+                            <input type="text" id="gridYPrefix" class="form-control" value="Y" style="width: 55px; text-align: center; font-weight: 700;">
+                            <span style="font-size: 0.85rem; color: #94a3b8;">개수:</span>
+                            <input type="number" id="gridYCount" class="form-control" min="1" max="30" value="4" style="width: 65px; font-weight: 700;">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">🎯 간격 및 위치 맞춤 조작</label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button type="button" id="btnGridTouchCalib" class="btn" style="flex: 1.2; min-width: 210px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; font-weight: 700; padding: 0.65rem 0.6rem; border-radius: 8px;">
+                            <i class="fa-solid fa-crosshairs"></i> 🎯 도면 2점 터치 3초 캘리브레이션
+                        </button>
+                        <button type="button" id="btnGridResetEqual" class="btn btn-outline" style="flex: 1; min-width: 140px; border-color: #64748b; color: #cbd5e1; font-weight: 700;">
+                            <i class="fa-solid fa-arrows-split-up-and-left"></i> 🔄 균등 분할 리셋
+                        </button>
+                    </div>
+                </div>
+
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="checkbox-chip" style="font-size: 0.9rem; font-weight: 700; color: #38bdf8; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3);">
+                        <input type="checkbox" id="checkEnableGrid" checked> 🌐 도면 상에 옥색 그리드 오버레이선 항상 표시
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" class="btn btn-danger-outline" id="btnClearGridConfig"><i class="fa-solid fa-trash-can"></i> 그리드 해제</button>
+                <div>
+                    <button type="button" class="btn btn-outline" id="btnCancelGridModal">취소</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveGridConfig" style="background: linear-gradient(135deg, #0284c7, #0369a1);"><i class="fa-solid fa-check"></i> 저장 및 적용</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Add/Edit NDT Measurement Details Modal (v60.0) -->
+    <div class="modal-overlay" id="ndtModal">
+        <div class="modal-card" style="max-width: 580px; width: 94%;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #0284c7, #0f172a); border-bottom: 1px solid #38bdf8;">
+                <h3><i class="fa-solid fa-vial" style="color: #38bdf8;"></i> 🔬 비파괴 장비 조사 측정 결과 등록</h3>
+                <button type="button" class="modal-close" id="btnCloseNdtModal">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto;">
+                <input type="hidden" id="ndtPinId">
+                <div class="form-row" style="display: flex; gap: 0.8rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">📌 측정 관리번호 *</label>
+                        <input type="text" id="ndtNo" class="form-control" value="강도-01" readonly style="font-weight: 800; color: #38bdf8;">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">🔬 비파괴 조사 항목 *</label>
+                        <select id="ndtCategory" class="form-select">
+                            <option value="실측">📏 부재 실측 (규격)</option>
+                            <option value="강도">🔨 콘크리트 강도 (슈미트)</option>
+                            <option value="탄산화">🧪 콘크리트 탄산화 (중성화)</option>
+                            <option value="기울기">📐 외벽 기울기 (변위)</option>
+                            <option value="변위">📉 바닥 수직변위 (처짐)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Standard NDT Fields Group (Component, Location) -->
+                <div id="groupNdtStandardFields" class="form-row" style="display: flex; gap: 0.8rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">부재 구분 *</label>
+                        <select id="ndtComponent" class="form-select">
+                            <option value="기둥">기둥 (C)</option>
+                            <option value="큰보">큰보 (G)</option>
+                            <option value="작은보">작은보 (b)</option>
+                            <option value="슬래브">슬래브 (S)</option>
+                            <option value="벽체">벽체 (W)</option>
+                            <option value="조적벽체">조적벽체 (MW)</option>
+                            <option value="기타">기타</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label" id="lblNdtLocation">📍 그리드 측정 위치 *</label>
+                        <input type="text" id="ndtLocation" class="form-control" placeholder="예: X1~X2 / Y3">
+                    </div>
+                </div>
+
+                <!-- Dedicated Exterior Wall Tilt Fields Group (Measurement Height, Tilt Ratio, Grade) -->
+                <div id="groupNdtTiltFields" class="form-row" style="display: none; flex-direction: column; gap: 0.8rem;">
+                    <div style="display: flex; gap: 0.8rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">📏 측정 높이 (H) *</label>
+                            <input type="text" id="ndtHeight" class="form-control" placeholder="예: 3,000mm (또는 3000)">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">📐 기울기 (δ/H) *</label>
+                            <input type="text" id="ndtTiltRatio" class="form-control" placeholder="자동 연산 또는 직접 입력 (예: 1/750)" style="font-weight: 800; color: #c084fc;">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.8rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">🏷️ 평가 등급 (시설물 세부지침 기준) *</label>
+                            <select id="ndtGrade" class="form-select" style="font-weight: 800; color: #38bdf8;">
+                                <option value="a등급">a등급 (1/750 이하 - 양호)</option>
+                                <option value="b등급">b등급 (1/750 초과 ~ 1/500 - 양호)</option>
+                                <option value="c등급">c등급 (1/500 초과 ~ 1/250 - 주의)</option>
+                                <option value="d등급">d등급 (1/250 초과 ~ 1/150 - 보강필요)</option>
+                                <option value="e등급">e등급 (1/150 초과 - 불량)</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label" id="lblNdtValueTitle">📊 현장 측정값 (1~3회 입력 시 변위량/평균 자동 연산)</label>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <input type="text" id="ndtVal1" class="form-control" placeholder="1회 (예: 3.0mm)" style="flex: 1; min-width: 100px;">
+                        <input type="text" id="ndtVal2" class="form-control" placeholder="2회 (예: 3.5mm)" style="flex: 1; min-width: 100px;">
+                        <input type="text" id="ndtVal3" class="form-control" placeholder="3회 (예: 3.0mm)" style="flex: 1; min-width: 100px;">
+                    </div>
+                </div>
+
+                <div class="form-row" style="display: flex; gap: 0.8rem;">
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label" id="lblNdtAvgTitle">⚡ 변위량 / 종합 결과값</label>
+                        <input type="text" id="ndtAvgValue" class="form-control" placeholder="자동 계산 또는 직접 입력 (예: 3.2mm)" style="font-weight: 800; color: #4ade80;">
+                    </div>
+                    <div class="form-group" id="groupNdtStatus" style="flex: 1;">
+                        <label class="form-label">🟢 상태 판정 결과</label>
+                        <select id="ndtStatus" class="form-select">
+                            <option value="양호">🟢 양호 (Pass)</option>
+                            <option value="주의">🟡 주의 (Caution)</option>
+                            <option value="보강필요">🔴 보강필요 (Action)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">📷 NDT 장비 측정 현장 사진</label>
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.4rem;">
+                        <button type="button" id="btnTriggerNdtCamera" class="btn" style="flex: 1; background: linear-gradient(135deg, #0284c7, #0369a1); color: white; font-size: 0.85rem;">
+                            <i class="fa-solid fa-camera"></i> 📷 즉시 촬영
+                        </button>
+                        <button type="button" id="btnTriggerNdtGallery" class="btn btn-outline" style="flex: 1; border-color: #38bdf8; color: #38bdf8; font-size: 0.85rem;">
+                            <i class="fa-solid fa-images"></i> 🖼️ 갤러리 선택
+                        </button>
+                        <input type="file" id="inputNdtPhoto" accept="image/*" style="display:none;">
+                        <input type="file" id="inputNdtCamera" accept="image/*" capture="environment" style="display:none;">
+                    </div>
+                    <div id="ndtPhotoPreviewList" style="display: flex; gap: 0.5rem; flex-wrap: wrap;"></div>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" class="btn btn-danger-outline" id="btnDeleteNdt"><i class="fa-solid fa-trash"></i> 삭제</button>
+                <div>
+                    <button type="button" class="btn btn-outline" id="btnCancelNdt">취소</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveNdt" style="background: linear-gradient(135deg, #0284c7, #0369a1);"><i class="fa-solid fa-check"></i> 저장</button>
                 </div>
             </div>
         </div>
@@ -702,87 +977,87 @@
         </div>
     </div>
 
-    <!-- MODAL: Premium Glassmorphism Login & Registration Overlay -->
-    <div class="modal-overlay" id="loginOverlay" style="display: flex; z-index: 9999; background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);">
-        <div class="modal-card" style="max-width: 440px; width: 92%; background: rgba(15, 23, 42, 0.88); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid rgba(255, 255, 255, 0.18); border-radius: 18px; box-shadow: 0 25px 60px rgba(0, 0, 0, 0.7); padding: 2.2rem 1.8rem; color: #ffffff;">
+    <!-- MODAL: Premium Light Mode (White Tone) Login & Registration Overlay -->
+    <div class="modal-overlay" id="loginOverlay" style="display: none; z-index: 9999; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);">
+        <div class="modal-card" style="max-width: 440px; width: 92%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.12); padding: 2.4rem 2rem; color: #0f172a;">
             
             <!-- Brand Logo Header -->
-            <div style="text-align: center; margin-bottom: 1.5rem;">
-                <div style="display: inline-flex; align-items: center; justify-content: center; width: 68px; height: 68px; border-radius: 18px; background: linear-gradient(135deg, #0284c7, #6366f1); margin-bottom: 0.8rem; box-shadow: 0 8px 25px rgba(99, 102, 241, 0.35);">
+            <div style="text-align: center; margin-bottom: 1.6rem;">
+                <div style="display: inline-flex; align-items: center; justify-content: center; width: 68px; height: 68px; border-radius: 18px; background: linear-gradient(135deg, #0284c7, #2563eb); margin-bottom: 0.8rem; box-shadow: 0 8px 25px rgba(2, 132, 199, 0.25);">
                     <i class="fa-solid fa-building-shield" style="font-size: 32px; color: #ffffff;"></i>
                 </div>
-                <h2 style="font-size: 1.4rem; font-weight: 800; color: #ffffff; margin: 0; letter-spacing: -0.5px;">스마트 건축물 안전점검</h2>
-                <p style="font-size: 0.82rem; color: #94a3b8; margin: 0.3rem 0 0 0;">점검 수행회사 전용 실시간 안전점검 시스템</p>
+                <h2 style="font-size: 1.45rem; font-weight: 800; color: #0f172a; margin: 0; letter-spacing: -0.5px;">스마트 건축물 안전점검</h2>
+                <p style="font-size: 0.83rem; color: #64748b; margin: 0.35rem 0 0 0; font-weight: 500;">점검 수행회사 전용 실시간 안전점검 시스템</p>
             </div>
 
             <!-- Login / Register Tab Selector -->
-            <div style="display: flex; background: rgba(255, 255, 255, 0.06); padding: 4px; border-radius: 10px; margin-bottom: 1.4rem; border: 1px solid rgba(255, 255, 255, 0.1);">
-                <button type="button" id="tabAuthLogin" class="auth-tab-btn active" style="flex: 1; padding: 0.5rem; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 700; color: #ffffff; background: #0284c7; cursor: pointer; transition: all 0.2s;">
+            <div style="display: flex; background: #f1f5f9; padding: 4px; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid #e2e8f0;">
+                <button type="button" id="tabAuthLogin" class="auth-tab-btn active" style="flex: 1; padding: 0.55rem; border: none; border-radius: 9px; font-size: 0.85rem; font-weight: 700; color: #ffffff; background: #0284c7; cursor: pointer; transition: all 0.2s;">
                     <i class="fa-solid fa-key"></i> 기존 계정 로그인
                 </button>
-                <button type="button" id="tabAuthRegister" class="auth-tab-btn" style="flex: 1; padding: 0.5rem; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 700; color: #94a3b8; background: transparent; cursor: pointer; transition: all 0.2s;">
+                <button type="button" id="tabAuthRegister" class="auth-tab-btn" style="flex: 1; padding: 0.55rem; border: none; border-radius: 9px; font-size: 0.85rem; font-weight: 700; color: #64748b; background: transparent; cursor: pointer; transition: all 0.2s;">
                     <i class="fa-solid fa-user-plus"></i> 신규 가입
                 </button>
             </div>
 
             <!-- Login & Registration Form -->
-            <form id="formLogin" style="display: flex; flex-direction: column; gap: 1rem;">
-                <div class="form-group">
-                    <label class="form-label" style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-building"></i> 점검 수행회사명 *
+            <form id="formLogin" style="display: flex; flex-direction: column; gap: 1.1rem;">
+                <div class="form-group" id="groupLoginCompany" style="display: none;">
+                    <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
+                        <i class="fa-solid fa-building" style="color: #0284c7;"></i> 점검 수행회사명 등록 *
                     </label>
-                    <input type="text" id="loginCompanyName" class="form-control" placeholder="예: (주)한국안전진단기술원" value="(주)한국안전진단기술원" required style="background: rgba(15, 23, 42, 0.9); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="text" id="loginCompanyName" class="form-control" placeholder="예: (주)한국안전진단기술원" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label" style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-user"></i> 점검자 성함 / 이메일 *
+                    <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
+                        <i class="fa-solid fa-user" style="color: #0284c7;"></i> 아이디 / 점검자 성함
                     </label>
-                    <input type="text" id="loginUserEmail" class="form-control" placeholder="예: 홍길동 수석점검자 (또는 이메일)" value="홍길동 수석점검자" required style="background: rgba(15, 23, 42, 0.9); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="text" id="loginUserEmail" class="form-control" placeholder="아이디 또는 성함 입력" value="" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label" style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-lock"></i> 접속 비밀번호 *
+                    <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
+                        <i class="fa-solid fa-lock" style="color: #0284c7;"></i> 접속 비밀번호
                     </label>
-                    <input type="password" id="loginUserPassword" class="form-control" placeholder="비밀번호 입력 (기본: 1234)" value="1234" required style="background: rgba(15, 23, 42, 0.9); color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="password" id="loginUserPassword" class="form-control" placeholder="비밀번호 입력" value="" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
 
-                <button type="submit" id="btnSubmitAuth" class="btn" style="width: 100%; padding: 0.75rem; background: linear-gradient(135deg, #0284c7, #4f46e5); color: #ffffff; font-weight: 800; font-size: 0.95rem; border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.4); margin-top: 0.4rem; transition: transform 0.2s;">
+                <button type="button" id="btnSubmitAuth" onclick="window.performLogin(event)" class="btn" style="width: 100%; padding: 0.8rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; font-weight: 800; font-size: 0.95rem; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3); margin-top: 0.4rem; transition: all 0.2s;">
                     <i class="fa-solid fa-right-to-bracket"></i> 🚀 시스템 로그인 및 점검 시작
                 </button>
             </form>
 
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.2rem; font-size: 0.8rem;">
-                <button type="button" id="btnOpenForgotPassword" style="background: none; border: none; color: #38bdf8; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.4rem; font-size: 0.8rem;">
+                <button type="button" id="btnOpenForgotPassword" style="background: none; border: none; color: #0284c7; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline;">
                     <i class="fa-solid fa-key"></i> 🔒 비밀번호를 잊으셨나요?
                 </button>
-                <span style="color: #64748b; font-size: 0.76rem;"><i class="fa-solid fa-shield-halved"></i> 보안 접속</span>
+                <span style="color: #94a3b8; font-size: 0.78rem;"><i class="fa-solid fa-shield-halved"></i> 보안 접속</span>
             </div>
         </div>
     </div>
 
-    <!-- MODAL: Password Reset Modal -->
-    <div class="modal-overlay" id="resetPasswordModal" style="display: none; z-index: 10000;">
-        <div class="modal-card" style="max-width: 420px; width: 90%; background: #0f172a; border: 1px solid rgba(255,255,255,0.2); border-radius: 14px; padding: 1.8rem; color: #ffffff;">
-            <div class="modal-header" style="background: transparent; padding: 0 0 1rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                <h3 style="margin:0; font-size: 1.15rem; color: #38bdf8;"><i class="fa-solid fa-unlock-keyhole"></i> 🔒 비밀번호 재설정 (찾기)</h3>
-                <button type="button" class="modal-close" id="btnCloseResetPasswordModal">&times;</button>
+    <!-- MODAL: White Tone Password Reset Modal -->
+    <div class="modal-overlay" id="resetPasswordModal" style="display: none; z-index: 10000; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(4px);">
+        <div class="modal-card" style="max-width: 420px; width: 90%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.8rem; color: #0f172a; box-shadow: 0 20px 50px rgba(0,0,0,0.15);">
+            <div class="modal-header" style="background: transparent; padding: 0 0 1rem 0; border-bottom: 1px solid #e2e8f0;">
+                <h3 style="margin:0; font-size: 1.15rem; color: #0284c7;"><i class="fa-solid fa-unlock-keyhole"></i> 🔒 비밀번호 재설정 (찾기)</h3>
+                <button type="button" class="modal-close" id="btnCloseResetPasswordModal" style="color: #64748b;">&times;</button>
             </div>
             <div class="modal-body" style="padding: 1.2rem 0;">
-                <p style="font-size: 0.85rem; color: #cbd5e1; margin-top: 0; line-height: 1.5;">
+                <p style="font-size: 0.85rem; color: #475569; margin-top: 0; line-height: 1.5;">
                     가입 시 사용하신 <strong>이메일 주소</strong>를 입력하시면 비밀번호 재설정 이메일(링크)을 즉시 발송해 드립니다.
                 </p>
                 <div class="form-group" style="margin-top: 1rem;">
-                    <label class="form-label" style="font-size: 0.82rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.4rem; display: block;">
+                    <label class="form-label" style="font-size: 0.82rem; font-weight: 700; color: #0284c7; margin-bottom: 0.4rem; display: block;">
                         📧 가입 이메일 주소 *
                     </label>
-                    <input type="email" id="resetUserEmail" class="form-control" placeholder="예: user@company.com" style="background: #1e293b; color: #ffffff; border: 1px solid #38bdf8; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="email" id="resetUserEmail" class="form-control" placeholder="예: user@company.com" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
             </div>
             <div class="modal-footer" style="background: transparent; padding: 0.8rem 0 0 0; justify-content: space-between;">
-                <button type="button" class="btn btn-outline" id="btnCancelResetPassword">취소</button>
-                <button type="button" class="btn btn-primary" id="btnSendPasswordReset" style="background: linear-gradient(135deg, #0284c7, #4f46e5); font-weight: 700;">
+                <button type="button" class="btn btn-outline" id="btnCancelResetPassword" style="border-color: #cbd5e1; color: #475569;">취소</button>
+                <button type="button" class="btn btn-primary" id="btnSendPasswordReset" style="background: linear-gradient(135deg, #0284c7, #2563eb); font-weight: 700;">
                     <i class="fa-solid fa-paper-plane"></i> 재설정 이메일 발송
                 </button>
             </div>
