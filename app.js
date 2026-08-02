@@ -12,7 +12,7 @@ if (!window.state) {
         currentFloor: '1F',
         defects: {}, // { 'bldg-id_1F': [ ...defects ] }
         grids: {},   // { 'bldg-id_1F': { enabled: true, xPrefix: 'X', xCount: 6, yPrefix: 'Y', yCount: 4, xStart: 0.08, xEnd: 0.92, yStart: 0.08, yEnd: 0.92 } }
-        showGridOverlay: false,
+        showGridOverlay: true,
         view: { offsetX: 0, offsetY: 0, scale: 1.0 },
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
@@ -790,23 +790,50 @@ document.addEventListener('DOMContentLoaded', () => {
     function getDefaultBlueprintSvgDataUrl(floorName) {
         const svg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850">
-                <rect width="1400" height="850" fill="#0f172a"/>
-                <!-- Clean Blueprint Background Grid -->
-                <g stroke="rgba(56, 189, 248, 0.08)" stroke-width="1">
+                <rect width="1400" height="850" fill="#0b1329"/>
+                <!-- CAD Grid Lines -->
+                <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1">
                     ${Array.from({length: 35}).map((_, i) => `<line x1="${i*40}" y1="0" x2="${i*40}" y2="850"/>`).join('')}
                     ${Array.from({length: 22}).map((_, i) => `<line x1="0" y1="${i*40}" x2="1400" y2="${i*40}"/>`).join('')}
                 </g>
-                <!-- Outer Border -->
-                <rect x="60" y="60" width="1280" height="730" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="2" stroke-dasharray="6 4"/>
+                <!-- Building Outer Boundary & Walls -->
+                <rect x="120" y="90" width="1160" height="670" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <rect x="135" y="105" width="1130" height="640" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="2" stroke-dasharray="8 4"/>
                 
-                <!-- Center Notice Text -->
-                <text x="700" y="400" fill="#94a3b8" font-size="22" font-weight="bold" text-anchor="middle">📷 현장 도면(CAD/이미지)을 업로드하여 점검을 시작하세요</text>
-                <text x="700" y="435" fill="#64748b" font-size="16" text-anchor="middle">[상단 📂 도면 업로드] 버튼으로 평면도 이미지를 등록할 수 있습니다</text>
+                <!-- Internal Structural Rooms & Walls -->
+                <rect x="150" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="520" y="120" width="360" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="910" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                
+                <rect x="150" y="430" width="530" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="710" y="430" width="540" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+
+                <!-- Structural Columns (C1, C2, C3) -->
+                ${[[150,120],[490,120],[520,120],[880,120],[910,120],[1250,120],
+                   [150,400],[490,400],[520,400],[880,400],[910,400],[1250,400],
+                   [150,430],[680,430],[710,430],[1250,430],
+                   [150,730],[680,730],[710,730],[1250,730]].map(([cx, cy]) => `
+                    <rect x="${cx-10}" y="${cy-10}" width="20" height="20" fill="#f43f5e" stroke="#fff" stroke-width="1.5"/>
+                `).join('')}
+
+                <!-- Dimension Lines -->
+                <line x1="120" y1="55" x2="1280" y2="55" stroke="#f59e0b" stroke-width="2"/>
+                <text x="700" y="45" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle">X-AXIS DIMENSION: 28,400 mm</text>
+                
+                <line x1="55" y1="90" x2="55" y2="760" stroke="#f59e0b" stroke-width="2"/>
+                <text x="45" y="435" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle" transform="rotate(-90 45 435)">Y-AXIS DIMENSION: 16,800 mm</text>
+
+                <!-- Zone Labels -->
+                <text x="320" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE A (${floorName})</text>
+                <text x="700" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">코어 및 계단실 (CORE)</text>
+                <text x="1080" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE B (${floorName})</text>
+                <text x="415" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">주차장 / 로비 구역</text>
+                <text x="980" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">기계실 / 전기실 구역</text>
 
                 <!-- Architectural Title Block -->
-                <rect x="850" y="700" width="470" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="1.5" rx="6"/>
-                <text x="865" y="728" fill="#38bdf8" font-size="16" font-weight="bold">현장점검 평면도 [${floorName}]</text>
-                <text x="865" y="754" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템</text>
+                <rect x="850" y="650" width="390" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="2"/>
+                <text x="865" y="678" fill="#38bdf8" font-size="16" font-weight="bold">도휘에드가9차 현장점검 CAD 평면도 [${floorName}]</text>
+                <text x="865" y="704" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템 | SCALE 1:100</text>
             </svg>
         `;
         return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -835,7 +862,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.grids) state.grids = {};
         if (!state.grids[key]) {
             state.grids[key] = {
-                enabled: false,
+                enabled: true,
                 xPrefix: 'X',
                 xCount: 6,
                 yPrefix: 'Y',
@@ -1071,6 +1098,56 @@ document.addEventListener('DOMContentLoaded', () => {
     let ndtInitialOffsetX = 0;
     let ndtInitialOffsetY = 0;
 
+    let isDraggingNdtPin = false;
+    let activeDragNdtPin = null;
+    let dragNdtPart = 'box';
+
+    function formatHeightValue(val) {
+        if (!val) return 'H = 3,000mm';
+        const strVal = String(val).trim();
+        if (!strVal) return 'H = 3,000mm';
+        const digits = strVal.replace(/[^0-9.]/g, '');
+        if (digits) {
+            const num = parseFloat(digits);
+            if (!isNaN(num)) {
+                return `H = ${num.toLocaleString()}mm`;
+            }
+        }
+        return strVal;
+    }
+
+    function findNdtPinAt(vx, vy) {
+        const items = getCurrentFloorNdtData();
+        const currentCat = currentNdtCategory || '실측';
+        let filtered = items;
+        if (currentCat === '기울기') {
+            filtered = items.filter(item => item.category === '기울기');
+        } else if (currentCat === '변위') {
+            filtered = items.filter(item => item.category === '변위');
+        } else {
+            filtered = items.filter(item => ['실측', '강도', '탄산화'].includes(item.category));
+        }
+
+        for (let i = filtered.length - 1; i >= 0; i--) {
+            const item = filtered[i];
+            const boxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
+            const boxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
+            const targetX = item.targetX !== undefined ? item.targetX : (item.x || boxX);
+            const targetY = item.targetY !== undefined ? item.targetY : (item.y || boxY);
+
+            if (Math.hypot(vx - targetX, vy - targetY) < 30) {
+                return { item, part: 'target' };
+            }
+            if (Math.hypot(vx - boxX, vy - boxY) < 50) {
+                return { item, part: 'box' };
+            }
+            if (Math.hypot(vx - (item.x || 100), vy - (item.y || 100)) < 40) {
+                return { item, part: 'all' };
+            }
+        }
+        return null;
+    }
+
     function getCurrentFloorNdtData() {
         if (!state.currentBuildingId) return [];
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
@@ -1252,6 +1329,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const y = item.boxY !== undefined ? item.boxY : (item.y || 100);
         const targetX = item.targetX !== undefined ? item.targetX : (item.x || x);
         const targetY = item.targetY !== undefined ? item.targetY : (item.y || y);
+        const isBeingDragged = (typeof activeDragNdtPin !== 'undefined' && activeDragNdtPin && activeDragNdtPin === item);
 
         const cat = item.category || '강도';
         let noStr = item.no || 'NO.01';
@@ -1261,17 +1339,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (cat === '기울기' || cat === '변위') {
-            // CAD Callout Style rendering (100% matching user reference photo!)
+            // CAD Callout Style rendering (100% matching user reference photo & draggable!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
-            const dispDirRaw = item.dispDirection || '왼쪽';
-            const dispDir = (dispDirRaw === '오른쪽' || dispDirRaw === '→') ? '→ (오른쪽)' : '← (왼쪽)';
+            const dispDir = item.dispDirection || '←';
 
             ctx.save();
 
             // 1. Draw Arrow pointing from Box to Target Point
-            ctx.strokeStyle = '#f97316';
-            ctx.fillStyle = '#f97316';
-            ctx.lineWidth = 3.5;
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#f97316';
+            ctx.fillStyle = isBeingDragged ? '#facc15' : '#f97316';
+            ctx.lineWidth = isBeingDragged ? 4.5 : 3.5;
 
             const dx = targetX - x;
             const dy = targetY - y;
@@ -1280,12 +1357,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.beginPath();
             ctx.moveTo(x, y);
             ctx.lineTo(targetX, targetY);
+            if (isBeingDragged) ctx.setLineDash([5, 3]);
             ctx.stroke();
+            ctx.setLineDash([]);
 
             // Arrow Head at targetX, targetY (pointing to the wall)
             if (dist > 5) {
                 const angle = Math.atan2(dy, dx);
-                const headLen = 14;
+                const headLen = isBeingDragged ? 16 : 14;
                 ctx.beginPath();
                 ctx.moveTo(targetX, targetY);
                 ctx.lineTo(targetX - headLen * Math.cos(angle - Math.PI / 6), targetY - headLen * Math.sin(angle - Math.PI / 6));
@@ -1293,6 +1372,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.closePath();
                 ctx.fill();
             }
+
+            // Target Point Handle Circle
+            ctx.beginPath();
+            ctx.arc(targetX, targetY, isBeingDragged ? 6 : 4, 0, Math.PI * 2);
+            ctx.fill();
 
             // 2. Draw 3-Column CAD Table Box at (x, y) - Un-rotated to stay 100% horizontal on user screen!
             ctx.translate(x, y);
@@ -1310,15 +1394,20 @@ document.addEventListener('DOMContentLoaded', () => {
             const col2W = 65;
             const col3W = 65;
 
-            // Box Background (White) & Outer Red Border
+            // Box Background (White) & Outer Border
             ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = '#ef4444';
-            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
+            ctx.lineWidth = isBeingDragged ? 3.5 : 2.5;
+            if (isBeingDragged) {
+                ctx.shadowColor = '#facc15';
+                ctx.shadowBlur = 12;
+            }
             ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
             ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+            ctx.shadowBlur = 0;
 
             // Vertical & Horizontal Grid Dividers
-            ctx.strokeStyle = '#ef4444';
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
@@ -1331,8 +1420,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineTo(boxW / 2, 0);
             ctx.stroke();
 
-            // Cell Text Formatting (Vibrant Red/Orange Text on White Background)
-            ctx.fillStyle = '#ea580c';
+            // Cell Text Formatting
+            ctx.fillStyle = isBeingDragged ? '#d97706' : '#ea580c';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
@@ -1362,16 +1451,16 @@ document.addEventListener('DOMContentLoaded', () => {
             '강도': '#ef4444',   // Red
             '탄산화': '#eab308'  // Yellow
         };
-        const color = catColors[cat] || '#38bdf8';
+        const color = isBeingDragged ? '#facc15' : (catColors[cat] || '#38bdf8');
 
         ctx.save();
         ctx.translate(x, y);
 
         ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
         ctx.strokeStyle = color;
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = isBeingDragged ? 3.5 : 2.5;
         ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = isBeingDragged ? 16 : 8;
 
         const w = 78;
         const h = 26;
@@ -1427,6 +1516,17 @@ document.addEventListener('DOMContentLoaded', () => {
             ndtInitialOffsetX = ndtView.offsetX;
             ndtInitialOffsetY = ndtView.offsetY;
 
+            // Check hit test on existing NDT pin (Box or Target point)
+            const hitPin = findNdtPinAt(vx, vy);
+            if (hitPin) {
+                isDraggingNdtPin = true;
+                activeDragNdtPin = hitPin.item;
+                dragNdtPart = hitPin.part;
+                canvas.style.cursor = 'move';
+                drawNdtCanvas();
+                return;
+            }
+
             if (ndtMode === 'MARK') {
                 isNdtMarkingDrag = true;
                 window._ndtMarkStartCoords = { x: vx, y: vy };
@@ -1438,16 +1538,37 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (isNdtMarkingDrag) {
-                const canvas = document.getElementById('ndtCanvas');
-                if (!canvas) return;
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = e.clientX - rect.left;
-                const mouseY = e.clientY - rect.top;
-                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
-                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
-                const pt = viewToNdtImgCoords(rawVx, rawVy);
-                window._ndtMarkCurrentCoords = { x: pt.x, y: pt.y };
+            const canvas = document.getElementById('ndtCanvas');
+            if (!canvas) return;
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
+            const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
+            const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
+            const pt = viewToNdtImgCoords(rawVx, rawVy);
+            const vx = pt.x;
+            const vy = pt.y;
+
+            if (isDraggingNdtPin && activeDragNdtPin) {
+                if (dragNdtPart === 'target') {
+                    activeDragNdtPin.targetX = vx;
+                    activeDragNdtPin.targetY = vy;
+                } else if (dragNdtPart === 'box') {
+                    activeDragNdtPin.boxX = vx;
+                    activeDragNdtPin.boxY = vy;
+                } else {
+                    const dx = vx - (activeDragNdtPin.x || vx);
+                    const dy = vy - (activeDragNdtPin.y || vy);
+                    activeDragNdtPin.x = vx;
+                    activeDragNdtPin.y = vy;
+                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : vx) + dx;
+                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : vy) + dy;
+                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : vx) + dx;
+                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : vy) + dy;
+                }
+                drawNdtCanvas();
+            } else if (isNdtMarkingDrag) {
+                window._ndtMarkCurrentCoords = { x: vx, y: vy };
                 drawNdtCanvas();
             } else if (isNdtDragging) {
                 const dx = e.clientX - ndtStartMouseX;
@@ -1459,6 +1580,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mouseup', (e) => {
+            if (isDraggingNdtPin) {
+                isDraggingNdtPin = false;
+                activeDragNdtPin = null;
+                saveStateToLocalStorage();
+                const canvas = document.getElementById('ndtCanvas');
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'grab';
+                drawNdtCanvas();
+            }
             if (isNdtMarkingDrag) {
                 isNdtMarkingDrag = false;
                 const start = window._ndtMarkStartCoords || { x: 100, y: 100 };
@@ -1466,9 +1595,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const dx = start.x - end.x;
                 const dy = start.y - end.y;
-                let autoDir = '왼쪽';
+                let autoDir = '←';
                 if (Math.hypot(dx, dy) > 8) {
-                    autoDir = (dx >= 0) ? '오른쪽' : '왼쪽';
+                    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+                    if (angleDeg >= -22.5 && angleDeg < 22.5) autoDir = '→';
+                    else if (angleDeg >= 22.5 && angleDeg < 67.5) autoDir = '↘';
+                    else if (angleDeg >= 67.5 && angleDeg < 112.5) autoDir = '↓';
+                    else if (angleDeg >= 112.5 && angleDeg < 157.5) autoDir = '↙';
+                    else if (angleDeg >= 157.5 || angleDeg < -157.5) autoDir = '←';
+                    else if (angleDeg >= -157.5 && angleDeg < -112.5) autoDir = '↖';
+                    else if (angleDeg >= -112.5 && angleDeg < -67.5) autoDir = '↑';
+                    else if (angleDeg >= -67.5 && angleDeg < -22.5) autoDir = '↗';
                 }
 
                 const distMoved = Math.hypot(start.x - end.x, start.y - end.y);
@@ -1508,6 +1645,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtStartMouseY = touch.clientY;
                 ndtInitialOffsetX = ndtView.offsetX;
                 ndtInitialOffsetY = ndtView.offsetY;
+
+                const hitPin = findNdtPinAt(vx, vy);
+                if (hitPin) {
+                    isDraggingNdtPin = true;
+                    activeDragNdtPin = hitPin.item;
+                    dragNdtPart = hitPin.part;
+                    drawNdtCanvas();
+                    return;
+                }
 
                 if (ndtMode === 'MARK') {
                     isNdtMarkingDrag = true;
@@ -1553,6 +1699,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (zoomTxt) zoomTxt.textContent = `${Math.round(ndtView.scale * 100)}%`;
                     drawNdtCanvas();
                 }
+            } else if (!isNdtPinching && isDraggingNdtPin && e.touches.length === 1) {
+                const canvas = document.getElementById('ndtCanvas');
+                if (!canvas) return;
+                const rect = canvas.getBoundingClientRect();
+                const touch = e.touches[0];
+                const mouseX = touch.clientX - rect.left;
+                const mouseY = touch.clientY - rect.top;
+                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
+                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
+                const pt = viewToNdtImgCoords(rawVx, rawVy);
+                const vx = pt.x;
+                const vy = pt.y;
+
+                if (dragNdtPart === 'target') {
+                    activeDragNdtPin.targetX = vx;
+                    activeDragNdtPin.targetY = vy;
+                } else if (dragNdtPart === 'box') {
+                    activeDragNdtPin.boxX = vx;
+                    activeDragNdtPin.boxY = vy;
+                } else {
+                    const dx = vx - (activeDragNdtPin.x || vx);
+                    const dy = vy - (activeDragNdtPin.y || vy);
+                    activeDragNdtPin.x = vx;
+                    activeDragNdtPin.y = vy;
+                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : vx) + dx;
+                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : vy) + dy;
+                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : vx) + dx;
+                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : vy) + dy;
+                }
+                drawNdtCanvas();
             } else if (!isNdtPinching && isNdtMarkingDrag && e.touches.length === 1) {
                 const canvas = document.getElementById('ndtCanvas');
                 if (!canvas) return;
@@ -1577,6 +1753,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         window.addEventListener('touchend', (e) => {
             if (isNdtPinching && e.touches.length < 2) isNdtPinching = false;
+            if (isDraggingNdtPin) {
+                isDraggingNdtPin = false;
+                activeDragNdtPin = null;
+                saveStateToLocalStorage();
+                drawNdtCanvas();
+            }
             if (isNdtMarkingDrag) {
                 isNdtMarkingDrag = false;
                 const start = window._ndtMarkStartCoords || { x: 100, y: 100 };
@@ -1584,9 +1766,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const dx = start.x - end.x;
                 const dy = start.y - end.y;
-                let autoDir = '왼쪽';
+                let autoDir = '←';
                 if (Math.hypot(dx, dy) > 8) {
-                    autoDir = (dx >= 0) ? '오른쪽' : '왼쪽';
+                    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+                    if (angleDeg >= -22.5 && angleDeg < 22.5) autoDir = '→';
+                    else if (angleDeg >= 22.5 && angleDeg < 67.5) autoDir = '↘';
+                    else if (angleDeg >= 67.5 && angleDeg < 112.5) autoDir = '↓';
+                    else if (angleDeg >= 112.5 && angleDeg < 157.5) autoDir = '↙';
+                    else if (angleDeg >= 157.5 || angleDeg < -157.5) autoDir = '←';
+                    else if (angleDeg >= -157.5 && angleDeg < -112.5) autoDir = '↖';
+                    else if (angleDeg >= -112.5 && angleDeg < -67.5) autoDir = '↑';
+                    else if (angleDeg >= -67.5 && angleDeg < -22.5) autoDir = '↗';
                 }
 
                 const distMoved = Math.hypot(start.x - end.x, start.y - end.y);
@@ -1627,9 +1817,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 thead.innerHTML = `
                     <th>조사번호</th>
                     <th>측정위치</th>
-                    <th>부재명</th>
+                    <th>측정높이(H)</th>
                     <th>변위량(mm)</th>
-                    <th>기울기</th>
+                    <th>기울기(1/H)</th>
                     <th>안전 등급</th>
                     <th>관리</th>
                 `;
@@ -1695,7 +1885,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
-                    <td>${item.component || '기둥'}</td>
+                    <td style="font-weight:700; color:#38bdf8;">${formatHeightValue(item.height)}</td>
                     <td style="font-weight:800; color:#f8fafc;">${item.avgValue || '-'}</td>
                     <td style="font-weight:800; color:#c084fc;">${item.tiltRatio || '1/750'}</td>
                     <td>${gradeBadges[item.grade] || gradeBadges['a등급']}</td>
@@ -1786,13 +1976,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    function normalizeDispDirection(dir) {
-        if (!dir) return '왼쪽';
-        const d = dir.toString().trim();
-        if (d === '오른쪽' || d === '→' || d.includes('우') || d.includes('Right')) return '오른쪽';
-        return '왼쪽';
-    }
-
     function openNdtModal(imgX, imgY, existingItem = null, extraOpts = null) {
         const modal = document.getElementById('ndtModal');
         if (!modal) return;
@@ -1817,7 +2000,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (compEl) compEl.value = existingItem.component || '기둥';
             if (locEl) locEl.value = existingItem.location || '';
             if (heightEl) heightEl.value = existingItem.height || 'H = 3,000mm';
-            if (dispDirEl) dispDirEl.value = normalizeDispDirection(existingItem.dispDirection);
+            if (dispDirEl) dispDirEl.value = existingItem.dispDirection || '←';
             if (v1El) v1El.value = existingItem.v1 || '';
             if (v2El) v2El.value = existingItem.v2 || '';
             if (v3El) v3El.value = existingItem.v3 || '';
@@ -1847,7 +2030,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (locEl) locEl.value = calculateGridLocationString(imgX, imgY, '기둥');
             }
             if (heightEl) heightEl.value = 'H = 3,000mm';
-            if (dispDirEl) dispDirEl.value = normalizeDispDirection(extraOpts?.dispDirection);
+            if (dispDirEl) dispDirEl.value = extraOpts?.dispDirection || '←';
             if (v1El) v1El.value = '';
             if (v2El) v2El.value = '';
             if (v3El) v3El.value = '';
@@ -1860,15 +2043,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 boxX: imgX,
                 boxY: imgY + 50
             };
-        }
-
-        const arrowSlider = document.getElementById('ndtArrowLength');
-        const arrowLbl = document.getElementById('lblNdtArrowLength');
-        const extra = window._pendingNdtExtra;
-        if (extra && extra.targetX !== undefined && extra.boxX !== undefined) {
-            const currentLen = Math.round(Math.hypot(extra.targetX - extra.boxX, extra.targetY - extra.boxY)) || 100;
-            if (arrowSlider) arrowSlider.value = currentLen;
-            if (arrowLbl) arrowLbl.textContent = `${currentLen}px`;
         }
 
         window.toggleNdtModalFields();
@@ -1888,83 +2062,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const v3El = document.getElementById('ndtVal3');
         const avgEl = document.getElementById('ndtAvgValue');
         const heightEl = document.getElementById('ndtHeight');
-
-        const arrowSlider = document.getElementById('ndtArrowLength');
-        const arrowLbl = document.getElementById('lblNdtArrowLength');
-        const btnAlignLeft = document.getElementById('btnNdtAlignLeft');
-        const btnAlignRight = document.getElementById('btnNdtAlignRight');
-        const btnAlignUp = document.getElementById('btnNdtAlignUp');
-        const btnAlignDown = document.getElementById('btnNdtAlignDown');
-
-        if (arrowSlider) {
-            arrowSlider.addEventListener('input', () => {
-                const len = parseInt(arrowSlider.value) || 100;
-                if (arrowLbl) arrowLbl.textContent = `${len}px`;
-
-                const extra = window._pendingNdtExtra;
-                if (extra && extra.boxX !== undefined) {
-                    let dx = extra.targetX - extra.boxX;
-                    let dy = extra.targetY - extra.boxY;
-                    let angle = Math.atan2(dy, dx);
-                    if (Math.hypot(dx, dy) < 1) angle = Math.PI; // Default to Left
-                    extra.targetX = extra.boxX + Math.cos(angle) * len;
-                    extra.targetY = extra.boxY + Math.sin(angle) * len;
-                    if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-                }
-            });
-        }
-
-        if (btnAlignLeft) {
-            btnAlignLeft.addEventListener('click', () => {
-                const len = parseInt(arrowSlider?.value || 100);
-                const extra = window._pendingNdtExtra;
-                if (extra && extra.boxX !== undefined) {
-                    extra.targetX = extra.boxX - len;
-                    extra.targetY = extra.boxY;
-                }
-                const dispDirEl = document.getElementById('ndtDispDirection');
-                if (dispDirEl) dispDirEl.value = '왼쪽';
-                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-            });
-        }
-
-        if (btnAlignRight) {
-            btnAlignRight.addEventListener('click', () => {
-                const len = parseInt(arrowSlider?.value || 100);
-                const extra = window._pendingNdtExtra;
-                if (extra && extra.boxX !== undefined) {
-                    extra.targetX = extra.boxX + len;
-                    extra.targetY = extra.boxY;
-                }
-                const dispDirEl = document.getElementById('ndtDispDirection');
-                if (dispDirEl) dispDirEl.value = '오른쪽';
-                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-            });
-        }
-
-        if (btnAlignUp) {
-            btnAlignUp.addEventListener('click', () => {
-                const len = parseInt(arrowSlider?.value || 100);
-                const extra = window._pendingNdtExtra;
-                if (extra && extra.boxX !== undefined) {
-                    extra.targetX = extra.boxX;
-                    extra.targetY = extra.boxY - len;
-                }
-                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-            });
-        }
-
-        if (btnAlignDown) {
-            btnAlignDown.addEventListener('click', () => {
-                const len = parseInt(arrowSlider?.value || 100);
-                const extra = window._pendingNdtExtra;
-                if (extra && extra.boxX !== undefined) {
-                    extra.targetX = extra.boxX;
-                    extra.targetY = extra.boxY + len;
-                }
-                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-            });
-        }
 
         function calcNdtAvg() {
             const n1 = parseFloat(v1El?.value);
@@ -2036,13 +2133,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 const cat = document.getElementById('ndtCategory')?.value || '강도';
                 const comp = document.getElementById('ndtComponent')?.value || '기둥';
                 const loc = document.getElementById('ndtLocation')?.value || '';
-                const heightStr = document.getElementById('ndtHeight')?.value || '';
+                const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
+                const formattedHeight = formatHeightValue(rawHeightStr);
                 const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
                 const v1 = document.getElementById('ndtVal1')?.value || '';
                 const v2 = document.getElementById('ndtVal2')?.value || '';
                 const v3 = document.getElementById('ndtVal3')?.value || '';
                 const avg = document.getElementById('ndtAvgValue')?.value || '';
                 const status = document.getElementById('ndtStatus')?.value || '양호';
+
+                let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
+                let grade = document.getElementById('ndtGrade')?.value || '';
+
+                if (cat === '기울기') {
+                    const hDigits = (formattedHeight || '').replace(/[^0-9.]/g, '');
+                    const avgDigits = (avg || '').replace(/[^0-9.]/g, '');
+                    const h = parseFloat(hDigits) || 3000;
+                    const delta = parseFloat(avgDigits) || 0;
+                    if (delta > 0 && h > 0) {
+                        const ratioInv = Math.round(h / delta);
+                        tiltRatio = `1/${ratioInv}`;
+                        if (ratioInv >= 750) grade = 'a등급';
+                        else if (ratioInv >= 500) grade = 'b등급';
+                        else if (ratioInv >= 250) grade = 'c등급';
+                        else if (ratioInv >= 150) grade = 'd등급';
+                        else grade = 'e등급';
+                    } else {
+                        if (!tiltRatio) tiltRatio = '1/750';
+                        if (!grade) grade = 'a등급';
+                    }
+                }
 
                 const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
                 const valsArr = [v1, v2, v3].filter(x => x.trim() !== '');
@@ -2057,7 +2177,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             category: cat,
                             component: comp,
                             location: loc,
-                            height: heightStr,
+                            height: formattedHeight,
                             dispDirection: dispDir,
                             targetX: extra.targetX,
                             targetY: extra.targetY,
@@ -2066,7 +2186,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             v1, v2, v3,
                             valuesText,
                             avgValue: avg || valuesText,
-                            status
+                            status,
+                            tiltRatio,
+                            grade
                         };
                     }
                 } else {
@@ -2076,7 +2198,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         category: cat,
                         component: comp,
                         location: loc,
-                        height: heightStr,
+                        height: formattedHeight,
                         dispDirection: dispDir,
                         targetX: extra.targetX,
                         targetY: extra.targetY,
@@ -2086,6 +2208,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         valuesText,
                         avgValue: avg || valuesText,
                         status,
+                        tiltRatio,
+                        grade,
                         x: extra.targetX,
                         y: extra.targetY
                     };
@@ -3190,6 +3314,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 </tr>
             `;
         }).join('');
+        if (typeof renderPhotoAlbum === 'function') renderPhotoAlbum();
     }
 
     function renderPhotoAlbum() {
@@ -3453,6 +3578,89 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function renderNdtFloorPlanCanvasDataUrl(floorCode) {
+        try {
+            const bldg = window.state.currentBuilding || {};
+            const currentBldgId = bldg.id || state.currentBuildingId || 'default';
+            const key = `${currentBldgId}_${floorCode}`;
+            const ndtItems = state.ndtData ? (state.ndtData[key] || []) : [];
+
+            let loadedImg = state.floorImageCache ? state.floorImageCache[floorCode] : null;
+            let floorDrawingSrc = getFloorDrawingSrc(bldg, floorCode);
+            if (!floorDrawingSrc && state.currentFloor === floorCode && state.ndtBgImage && state.ndtBgImage.src) {
+                floorDrawingSrc = state.ndtBgImage.src;
+            }
+            if (!floorDrawingSrc && state.currentFloor === floorCode && state.bgImage && state.bgImage.src) {
+                floorDrawingSrc = state.bgImage.src;
+            }
+
+            if (loadedImg || floorDrawingSrc) {
+                const drawImageOnPureWhiteCanvas = (imgObj) => {
+                    const canvas = document.createElement('canvas');
+                    const imgW = imgObj.naturalWidth || imgObj.width || 1400;
+                    const imgH = imgObj.naturalHeight || imgObj.height || 900;
+
+                    const cw = 900;
+                    const ch = 1270;
+                    canvas.width = cw;
+                    canvas.height = ch;
+                    const ctx = canvas.getContext('2d');
+
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fillRect(0, 0, cw, ch);
+
+                    ctx.save();
+                    const isHorizontal = imgW > imgH;
+
+                    if (isHorizontal) {
+                        ctx.translate(cw / 2, ch / 2);
+                        ctx.rotate(-Math.PI / 2);
+                        const scale = Math.min(cw / imgH, ch / imgW);
+                        ctx.scale(scale, scale);
+                        ctx.translate(-imgW / 2, -imgH / 2);
+
+                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
+                        ndtItems.forEach(item => drawNdtPin(ctx, item));
+                    } else {
+                        const scale = Math.min(cw / imgW, ch / imgH);
+                        const drawX = (cw - imgW * scale) / 2;
+                        const drawY = (ch - imgH * scale) / 2;
+
+                        ctx.translate(drawX, drawY);
+                        ctx.scale(scale, scale);
+
+                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
+                        ndtItems.forEach(item => drawNdtPin(ctx, item));
+                    }
+                    ctx.restore();
+
+                    return canvas.toDataURL('image/png');
+                };
+
+                if (loadedImg && loadedImg.complete && loadedImg.naturalWidth > 0) {
+                    return drawImageOnPureWhiteCanvas(loadedImg);
+                } else if (floorDrawingSrc) {
+                    const tempImg = new Image();
+                    tempImg.src = floorDrawingSrc;
+                    if (tempImg.complete && tempImg.naturalWidth > 0) {
+                        return drawImageOnPureWhiteCanvas(tempImg);
+                    }
+                }
+            }
+
+            const ndtCanvasEl = document.getElementById('ndtCanvas');
+            if (ndtCanvasEl && state.currentFloor === floorCode) {
+                try {
+                    return ndtCanvasEl.toDataURL('image/png');
+                } catch(e){}
+            }
+            return null;
+        } catch (err) {
+            console.error('Error rendering NDT floor plan data URL:', err);
+            return null;
+        }
+    }
+
     // --- REPORT PREVIEW MODAL (Instant Modal Open & Pure White Paper Theme) ---
     window.openReportPreviewModalFunc = async function() {
         try {
@@ -3682,17 +3890,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
 
-                // --- 4. 🔬 비파괴 장비 조사 결과표 & NDT 측정 위치도 ---
+                // --- 4. 🔬 비파괴 장비 조사 (기울기) 측정 결과표 (페이지 4) ---
                 const ndtKey = `${currentBldgId}_${floorCode}`;
                 const ndtItems = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
 
-                let ndtDrawingDataUrl = null;
-                const ndtCanvasEl = document.getElementById('ndtCanvas');
-                if (ndtCanvasEl && state.currentFloor === floorCode) {
-                    try {
-                        ndtDrawingDataUrl = ndtCanvasEl.toDataURL('image/png');
-                    } catch(e){}
-                }
+                let ndtDrawingDataUrl = renderNdtFloorPlanCanvasDataUrl(floorCode);
 
                 reportPagesHtml += `
                     <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
@@ -3701,7 +3903,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
 
                         <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
-                            4. ${floorCode} 비파괴 장비 조사 측정 결과표 및 위치도
+                            4. ${floorCode} 비파괴 장비 조사 (기울기) 측정 결과표
                         </h2>
 
                         <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; margin-bottom: 1rem;">
@@ -3709,41 +3911,62 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
                                     <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">관리번호</th>
                                     <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">조사항목</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치 (높이)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정수치 (1~3회)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위량 / 평균</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위방향 / 상태</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치 (그리드)</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정높이 (H)</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위량(mm)</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">기울기 (1/H)</th>
+                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">기울기 등급</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                ${ndtItems.length > 0 ? ndtItems.map(item => `
+                                ${ndtItems.length > 0 ? ndtItems.map(item => {
+                                    const fmtH = formatHeightValue(item.height);
+                                    const ratioStr = item.tiltRatio || '1/750';
+                                    const grStr = item.grade || 'a등급';
+                                    const gradeColor = grStr === 'a등급' ? '#16a34a' : (grStr === 'b등급' ? '#0284c7' : (grStr === 'c등급' ? '#ca8a04' : '#dc2626'));
+                                    return `
                                     <tr>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.category || '기울기'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || item.height || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-family:monospace;">${item.valuesText || '-'}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${fmtH}</td>
                                         <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#ea580c;">${item.dispDirection ? item.dispDirection + ' (' + (item.status || '양호') + ')' : (item.status || '양호')}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${ratioStr}</td>
+                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${grStr}</td>
                                     </tr>
-                                `).join('') : `
+                                `;}).join('') : `
                                     <tr>
-                                        <td colspan="6" style="padding: 1rem; color: #94a3b8;">등록된 비파괴 장비 조사 측정 데이터가 없습니다.</td>
+                                        <td colspan="7" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 장비 조사 측정 데이터가 없습니다.</td>
                                     </tr>
                                 `}
                             </tbody>
                         </table>
 
-                        <h3 style="font-size:0.92rem; font-weight:800; color:#0369a1; margin-bottom: 0.4rem;">
-                            📐 ${floorCode} 비파괴 장비 조사 (기울기) 측정 위치도
-                        </h3>
+                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                            <span>📄 스마트 건축물 안전점검 시스템</span>
+                        </div>
+                    </div>
+                `;
+
+                // --- 5. 🔬 비파괴 장비 조사 (기울기) 측정 위치도 (다음 독립 페이지 - A4 세로 꽉 차게 렌더링) ---
+                reportPagesHtml += `
+                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
+                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                            <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
+                        </div>
+
+                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
+                            5. ${floorCode} 비파괴 장비 조사 (기울기) 측정 위치도
+                        </h2>
 
                         ${ndtDrawingDataUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 520px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; margin-top: 0.2rem; display: flex; align-items: center; justify-content: center;">
                                 <img src="${ndtDrawingDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                             </div>
                         ` : `
-                            <div style="width: 100%; flex: 1; min-height: 400px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <i class="fa-solid fa-microscope" style="font-size: 2.5rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                                <i class="fa-solid fa-microscope" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
                                 📍 비파괴 장비 조사 탭에서 도면에 마킹하면 측정 위치도가 보고서에 자동으로 첨부됩니다.
                             </div>
                         `}
@@ -3900,6 +4123,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state: {
                     buildings: window.state.buildings || [],
                     defects: window.state.defects || {},
+                    ndtData: window.state.ndtData || {},
                     floorSnapshots: window.state.floorSnapshots || {},
                     currentBuildingId: window.state.currentBuildingId,
                     currentFloor: window.state.currentFloor
@@ -3947,6 +4171,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 window.state.buildings = data.state.buildings || [];
                 window.state.defects = data.state.defects || {};
+                window.state.ndtData = data.state.ndtData || {};
                 window.state.floorSnapshots = data.state.floorSnapshots || {};
                 if (data.companyName) {
                     window.state.companyName = data.companyName;
@@ -3960,6 +4185,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 renderBuildingSelector();
                 if (typeof renderSurveyTable === 'function') renderSurveyTable();
                 if (typeof drawCanvas === 'function') drawCanvas();
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
 
                 alert('✅ 백업 파일로부터 안전점검 데이터 복원이 완료되었습니다!');
             } catch (err) {
@@ -4502,7 +4729,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const docId = getCompanyDocId();
             const dataToSync = {
                 defects: window.state.defects || {},
-                ndtData: window.state.ndtData || {},
                 buildings: window.state.buildings || [],
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
@@ -4538,17 +4764,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.state.defects = data.defects;
                         isChanged = true;
                     }
-                    if (data.ndtData) {
-                        window.state.ndtData = data.ndtData;
-                        isChanged = true;
-                    }
 
                     if (isChanged) {
                         // 로컬 캐시 갱신
                         try {
                             localStorage.setItem('building_safety_app_state_v2', JSON.stringify({
                                 defects: window.state.defects || {},
-                                ndtData: window.state.ndtData || {},
                                 buildings: window.state.buildings || [],
                                 lastUsedBuildingId: window.state.currentBuildingId || null
                             }));
@@ -4559,8 +4780,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
                         if (typeof renderSurveyTable === 'function') renderSurveyTable();
                         if (typeof drawCanvas === 'function') drawCanvas();
-                        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
-                        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
                     }
                 } catch (e) {
                     console.error('Remote sync apply error:', e);
