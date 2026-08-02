@@ -12,7 +12,7 @@ if (!window.state) {
         currentFloor: '1F',
         defects: {}, // { 'bldg-id_1F': [ ...defects ] }
         grids: {},   // { 'bldg-id_1F': { enabled: true, xPrefix: 'X', xCount: 6, yPrefix: 'Y', yCount: 4, xStart: 0.08, xEnd: 0.92, yStart: 0.08, yEnd: 0.92 } }
-        showGridOverlay: true,
+        showGridOverlay: false,
         view: { offsetX: 0, offsetY: 0, scale: 1.0 },
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
@@ -290,6 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const dataToSave = {
                 defects: window.state.defects || {},
+                ndtData: window.state.ndtData || {},
                 buildings: window.state.buildings || [],
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 customDefectTypes: window.state.customDefectTypes || {},
@@ -352,6 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.defects) {
                     window.state.defects = parsed.defects;
+                }
+                if (parsed.ndtData) {
+                    window.state.ndtData = parsed.ndtData;
                 }
                 if (parsed.customDefectTypes) {
                     window.state.customDefectTypes = parsed.customDefectTypes;
@@ -786,50 +790,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function getDefaultBlueprintSvgDataUrl(floorName) {
         const svg = `
             <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="850" viewBox="0 0 1400 850">
-                <rect width="1400" height="850" fill="#0b1329"/>
-                <!-- CAD Grid Lines -->
-                <g stroke="rgba(56, 189, 248, 0.12)" stroke-width="1">
+                <rect width="1400" height="850" fill="#0f172a"/>
+                <!-- Clean Blueprint Background Grid -->
+                <g stroke="rgba(56, 189, 248, 0.08)" stroke-width="1">
                     ${Array.from({length: 35}).map((_, i) => `<line x1="${i*40}" y1="0" x2="${i*40}" y2="850"/>`).join('')}
                     ${Array.from({length: 22}).map((_, i) => `<line x1="0" y1="${i*40}" x2="1400" y2="${i*40}"/>`).join('')}
                 </g>
-                <!-- Building Outer Boundary & Walls -->
-                <rect x="120" y="90" width="1160" height="670" fill="none" stroke="#38bdf8" stroke-width="5"/>
-                <rect x="135" y="105" width="1130" height="640" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="2" stroke-dasharray="8 4"/>
+                <!-- Outer Border -->
+                <rect x="60" y="60" width="1280" height="730" fill="none" stroke="rgba(56, 189, 248, 0.25)" stroke-width="2" stroke-dasharray="6 4"/>
                 
-                <!-- Internal Structural Rooms & Walls -->
-                <rect x="150" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="520" y="120" width="360" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="910" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                
-                <rect x="150" y="430" width="530" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="710" y="430" width="540" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-
-                <!-- Structural Columns (C1, C2, C3) -->
-                ${[[150,120],[490,120],[520,120],[880,120],[910,120],[1250,120],
-                   [150,400],[490,400],[520,400],[880,400],[910,400],[1250,400],
-                   [150,430],[680,430],[710,430],[1250,430],
-                   [150,730],[680,730],[710,730],[1250,730]].map(([cx, cy]) => `
-                    <rect x="${cx-10}" y="${cy-10}" width="20" height="20" fill="#f43f5e" stroke="#fff" stroke-width="1.5"/>
-                `).join('')}
-
-                <!-- Dimension Lines -->
-                <line x1="120" y1="55" x2="1280" y2="55" stroke="#f59e0b" stroke-width="2"/>
-                <text x="700" y="45" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle">X-AXIS DIMENSION: 28,400 mm</text>
-                
-                <line x1="55" y1="90" x2="55" y2="760" stroke="#f59e0b" stroke-width="2"/>
-                <text x="45" y="435" fill="#f59e0b" font-size="16" font-weight="bold" text-anchor="middle" transform="rotate(-90 45 435)">Y-AXIS DIMENSION: 16,800 mm</text>
-
-                <!-- Zone Labels -->
-                <text x="320" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE A (${floorName})</text>
-                <text x="700" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">코어 및 계단실 (CORE)</text>
-                <text x="1080" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE B (${floorName})</text>
-                <text x="415" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">주차장 / 로비 구역</text>
-                <text x="980" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">기계실 / 전기실 구역</text>
+                <!-- Center Notice Text -->
+                <text x="700" y="400" fill="#94a3b8" font-size="22" font-weight="bold" text-anchor="middle">📷 현장 도면(CAD/이미지)을 업로드하여 점검을 시작하세요</text>
+                <text x="700" y="435" fill="#64748b" font-size="16" text-anchor="middle">[상단 📂 도면 업로드] 버튼으로 평면도 이미지를 등록할 수 있습니다</text>
 
                 <!-- Architectural Title Block -->
-                <rect x="850" y="650" width="390" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="2"/>
-                <text x="865" y="678" fill="#38bdf8" font-size="16" font-weight="bold">도휘에드가9차 현장점검 CAD 평면도 [${floorName}]</text>
-                <text x="865" y="704" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템 | SCALE 1:100</text>
+                <rect x="850" y="700" width="470" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="1.5" rx="6"/>
+                <text x="865" y="728" fill="#38bdf8" font-size="16" font-weight="bold">현장점검 평면도 [${floorName}]</text>
+                <text x="865" y="754" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템</text>
             </svg>
         `;
         return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -858,7 +835,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.grids) state.grids = {};
         if (!state.grids[key]) {
             state.grids[key] = {
-                enabled: true,
+                enabled: false,
                 xPrefix: 'X',
                 xCount: 6,
                 yPrefix: 'Y',
@@ -1286,7 +1263,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cat === '기울기' || cat === '변위') {
             // CAD Callout Style rendering (100% matching user reference photo!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
-            const dispDir = item.dispDirection || '←';
+            const dispDirRaw = item.dispDirection || '왼쪽';
+            const dispDir = (dispDirRaw === '오른쪽' || dispDirRaw === '→') ? '→ (오른쪽)' : '← (왼쪽)';
 
             ctx.save();
 
@@ -1488,17 +1466,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const dx = start.x - end.x;
                 const dy = start.y - end.y;
-                let autoDir = '←';
+                let autoDir = '왼쪽';
                 if (Math.hypot(dx, dy) > 8) {
-                    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-                    if (angleDeg >= -22.5 && angleDeg < 22.5) autoDir = '→';
-                    else if (angleDeg >= 22.5 && angleDeg < 67.5) autoDir = '↘';
-                    else if (angleDeg >= 67.5 && angleDeg < 112.5) autoDir = '↓';
-                    else if (angleDeg >= 112.5 && angleDeg < 157.5) autoDir = '↙';
-                    else if (angleDeg >= 157.5 || angleDeg < -157.5) autoDir = '←';
-                    else if (angleDeg >= -157.5 && angleDeg < -112.5) autoDir = '↖';
-                    else if (angleDeg >= -112.5 && angleDeg < -67.5) autoDir = '↑';
-                    else if (angleDeg >= -67.5 && angleDeg < -22.5) autoDir = '↗';
+                    autoDir = (dx >= 0) ? '오른쪽' : '왼쪽';
                 }
 
                 const distMoved = Math.hypot(start.x - end.x, start.y - end.y);
@@ -1614,17 +1584,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const dx = start.x - end.x;
                 const dy = start.y - end.y;
-                let autoDir = '←';
+                let autoDir = '왼쪽';
                 if (Math.hypot(dx, dy) > 8) {
-                    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-                    if (angleDeg >= -22.5 && angleDeg < 22.5) autoDir = '→';
-                    else if (angleDeg >= 22.5 && angleDeg < 67.5) autoDir = '↘';
-                    else if (angleDeg >= 67.5 && angleDeg < 112.5) autoDir = '↓';
-                    else if (angleDeg >= 112.5 && angleDeg < 157.5) autoDir = '↙';
-                    else if (angleDeg >= 157.5 || angleDeg < -157.5) autoDir = '←';
-                    else if (angleDeg >= -157.5 && angleDeg < -112.5) autoDir = '↖';
-                    else if (angleDeg >= -112.5 && angleDeg < -67.5) autoDir = '↑';
-                    else if (angleDeg >= -67.5 && angleDeg < -22.5) autoDir = '↗';
+                    autoDir = (dx >= 0) ? '오른쪽' : '왼쪽';
                 }
 
                 const distMoved = Math.hypot(start.x - end.x, start.y - end.y);
@@ -1824,6 +1786,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    function normalizeDispDirection(dir) {
+        if (!dir) return '왼쪽';
+        const d = dir.toString().trim();
+        if (d === '오른쪽' || d === '→' || d.includes('우') || d.includes('Right')) return '오른쪽';
+        return '왼쪽';
+    }
+
     function openNdtModal(imgX, imgY, existingItem = null, extraOpts = null) {
         const modal = document.getElementById('ndtModal');
         if (!modal) return;
@@ -1848,7 +1817,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (compEl) compEl.value = existingItem.component || '기둥';
             if (locEl) locEl.value = existingItem.location || '';
             if (heightEl) heightEl.value = existingItem.height || 'H = 3,000mm';
-            if (dispDirEl) dispDirEl.value = existingItem.dispDirection || '←';
+            if (dispDirEl) dispDirEl.value = normalizeDispDirection(existingItem.dispDirection);
             if (v1El) v1El.value = existingItem.v1 || '';
             if (v2El) v2El.value = existingItem.v2 || '';
             if (v3El) v3El.value = existingItem.v3 || '';
@@ -1878,7 +1847,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (locEl) locEl.value = calculateGridLocationString(imgX, imgY, '기둥');
             }
             if (heightEl) heightEl.value = 'H = 3,000mm';
-            if (dispDirEl) dispDirEl.value = extraOpts?.dispDirection || '←';
+            if (dispDirEl) dispDirEl.value = normalizeDispDirection(extraOpts?.dispDirection);
             if (v1El) v1El.value = '';
             if (v2El) v2El.value = '';
             if (v3El) v3El.value = '';
@@ -1891,6 +1860,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 boxX: imgX,
                 boxY: imgY + 50
             };
+        }
+
+        const arrowSlider = document.getElementById('ndtArrowLength');
+        const arrowLbl = document.getElementById('lblNdtArrowLength');
+        const extra = window._pendingNdtExtra;
+        if (extra && extra.targetX !== undefined && extra.boxX !== undefined) {
+            const currentLen = Math.round(Math.hypot(extra.targetX - extra.boxX, extra.targetY - extra.boxY)) || 100;
+            if (arrowSlider) arrowSlider.value = currentLen;
+            if (arrowLbl) arrowLbl.textContent = `${currentLen}px`;
         }
 
         window.toggleNdtModalFields();
@@ -1910,6 +1888,83 @@ document.addEventListener('DOMContentLoaded', () => {
         const v3El = document.getElementById('ndtVal3');
         const avgEl = document.getElementById('ndtAvgValue');
         const heightEl = document.getElementById('ndtHeight');
+
+        const arrowSlider = document.getElementById('ndtArrowLength');
+        const arrowLbl = document.getElementById('lblNdtArrowLength');
+        const btnAlignLeft = document.getElementById('btnNdtAlignLeft');
+        const btnAlignRight = document.getElementById('btnNdtAlignRight');
+        const btnAlignUp = document.getElementById('btnNdtAlignUp');
+        const btnAlignDown = document.getElementById('btnNdtAlignDown');
+
+        if (arrowSlider) {
+            arrowSlider.addEventListener('input', () => {
+                const len = parseInt(arrowSlider.value) || 100;
+                if (arrowLbl) arrowLbl.textContent = `${len}px`;
+
+                const extra = window._pendingNdtExtra;
+                if (extra && extra.boxX !== undefined) {
+                    let dx = extra.targetX - extra.boxX;
+                    let dy = extra.targetY - extra.boxY;
+                    let angle = Math.atan2(dy, dx);
+                    if (Math.hypot(dx, dy) < 1) angle = Math.PI; // Default to Left
+                    extra.targetX = extra.boxX + Math.cos(angle) * len;
+                    extra.targetY = extra.boxY + Math.sin(angle) * len;
+                    if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                }
+            });
+        }
+
+        if (btnAlignLeft) {
+            btnAlignLeft.addEventListener('click', () => {
+                const len = parseInt(arrowSlider?.value || 100);
+                const extra = window._pendingNdtExtra;
+                if (extra && extra.boxX !== undefined) {
+                    extra.targetX = extra.boxX - len;
+                    extra.targetY = extra.boxY;
+                }
+                const dispDirEl = document.getElementById('ndtDispDirection');
+                if (dispDirEl) dispDirEl.value = '왼쪽';
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+        }
+
+        if (btnAlignRight) {
+            btnAlignRight.addEventListener('click', () => {
+                const len = parseInt(arrowSlider?.value || 100);
+                const extra = window._pendingNdtExtra;
+                if (extra && extra.boxX !== undefined) {
+                    extra.targetX = extra.boxX + len;
+                    extra.targetY = extra.boxY;
+                }
+                const dispDirEl = document.getElementById('ndtDispDirection');
+                if (dispDirEl) dispDirEl.value = '오른쪽';
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+        }
+
+        if (btnAlignUp) {
+            btnAlignUp.addEventListener('click', () => {
+                const len = parseInt(arrowSlider?.value || 100);
+                const extra = window._pendingNdtExtra;
+                if (extra && extra.boxX !== undefined) {
+                    extra.targetX = extra.boxX;
+                    extra.targetY = extra.boxY - len;
+                }
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+        }
+
+        if (btnAlignDown) {
+            btnAlignDown.addEventListener('click', () => {
+                const len = parseInt(arrowSlider?.value || 100);
+                const extra = window._pendingNdtExtra;
+                if (extra && extra.boxX !== undefined) {
+                    extra.targetX = extra.boxX;
+                    extra.targetY = extra.boxY + len;
+                }
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+        }
 
         function calcNdtAvg() {
             const n1 = parseFloat(v1El?.value);
@@ -4447,6 +4502,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const docId = getCompanyDocId();
             const dataToSync = {
                 defects: window.state.defects || {},
+                ndtData: window.state.ndtData || {},
                 buildings: window.state.buildings || [],
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
@@ -4482,12 +4538,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.state.defects = data.defects;
                         isChanged = true;
                     }
+                    if (data.ndtData) {
+                        window.state.ndtData = data.ndtData;
+                        isChanged = true;
+                    }
 
                     if (isChanged) {
                         // 로컬 캐시 갱신
                         try {
                             localStorage.setItem('building_safety_app_state_v2', JSON.stringify({
                                 defects: window.state.defects || {},
+                                ndtData: window.state.ndtData || {},
                                 buildings: window.state.buildings || [],
                                 lastUsedBuildingId: window.state.currentBuildingId || null
                             }));
@@ -4498,6 +4559,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
                         if (typeof renderSurveyTable === 'function') renderSurveyTable();
                         if (typeof drawCanvas === 'function') drawCanvas();
+                        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
                     }
                 } catch (e) {
                     console.error('Remote sync apply error:', e);

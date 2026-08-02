@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트 건축물 안전점검 현장점검 시스템</title>
-    <link rel="stylesheet" href="styles.css?v=20260729_1642">
+    <link rel="stylesheet" href="styles.css?v=20260802_2142">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -668,24 +668,49 @@
                     </div>
                 </div>
 
-                <!-- Dedicated Exterior Wall Tilt Fields Group (Measurement Height) -->
-                <div id="groupNdtTiltFields" class="form-row" style="display: none; gap: 0.8rem;">
-                    <div class="form-group" style="flex: 1;">
-                        <label class="form-label">📏 측정 높이 (H) *</label>
-                        <input type="text" id="ndtHeight" class="form-control" placeholder="예: H = 3,000mm">
+                <!-- Dedicated Exterior Wall Tilt Fields Group (Measurement Height & Direction) -->
+                <div id="groupNdtTiltFields" style="display: none; flex-direction: column; gap: 0.8rem; margin-bottom: 0.8rem;">
+                    <div style="display: flex; gap: 0.8rem; flex-wrap: wrap;">
+                        <div class="form-group" style="flex: 1; min-width: 140px;">
+                            <label class="form-label">📏 측정 높이 (H) *</label>
+                            <input type="text" id="ndtHeight" class="form-control" placeholder="예: H = 3,000mm">
+                        </div>
+                        <div class="form-group" style="flex: 1; min-width: 140px;">
+                            <label class="form-label">➡️ 변위 방향 (기울기) *</label>
+                            <select id="ndtDispDirection" class="form-select" style="font-weight: 800; color: #f97316;">
+                                <option value="왼쪽">← 왼쪽 (Left)</option>
+                                <option value="오른쪽">→ 오른쪽 (Right)</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="form-group" style="flex: 1;">
-                        <label class="form-label">➡️ 변위 방향 *</label>
-                        <select id="ndtDispDirection" class="form-select" style="font-weight: 800; color: #f97316;">
-                            <option value="←">← 왼쪽 (Left)</option>
-                            <option value="→">→ 오른쪽 (Right)</option>
-                            <option value="↑">↑ 위쪽 (Up)</option>
-                            <option value="↓">↓ 아래쪽 (Down)</option>
-                            <option value="↖">↖ 좌상단 (Up-Left)</option>
-                            <option value="↗">↗ 우상단 (Up-Right)</option>
-                            <option value="↙">↙ 좌하단 (Down-Left)</option>
-                            <option value="↘">↘ 우하단 (Down-Right)</option>
-                        </select>
+
+                    <!-- Arrow Length Control & Quick Alignment Buttons -->
+                    <div class="form-group" style="background: rgba(15, 23, 42, 0.6); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(56, 189, 248, 0.25);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                            <label class="form-label" style="margin: 0; font-weight: 700; color: #38bdf8;">
+                                📐 변위 화살표 길이 (Arrow Length)
+                            </label>
+                            <span id="lblNdtArrowLength" style="color: #38bdf8; font-weight: 800; font-size: 0.9rem;">100px</span>
+                        </div>
+                        <input type="range" id="ndtArrowLength" class="form-range" min="30" max="300" step="5" value="100" style="width: 100%; cursor: pointer;">
+                        
+                        <div style="margin-top: 0.6rem;">
+                            <label class="form-label" style="font-size: 0.8rem; color: #94a3b8; margin-bottom: 0.3rem;">🎯 화살표 수평 / 수직 빠른 정렬 버튼</label>
+                            <div style="display: flex; gap: 0.4rem; flex-wrap: wrap;">
+                                <button type="button" id="btnNdtAlignLeft" class="btn" style="flex: 1; min-width: 100px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 700; font-size: 0.82rem; padding: 0.4rem 0.5rem;">
+                                    ⬅️ 수평 (왼쪽)
+                                </button>
+                                <button type="button" id="btnNdtAlignRight" class="btn" style="flex: 1; min-width: 100px; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: #38bdf8; font-weight: 700; font-size: 0.82rem; padding: 0.4rem 0.5rem;">
+                                    ➡️ 수평 (오른쪽)
+                                </button>
+                                <button type="button" id="btnNdtAlignUp" class="btn" style="flex: 1; min-width: 100px; background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1; font-weight: 700; font-size: 0.82rem; padding: 0.4rem 0.5rem;">
+                                    ⬆️ 수직 (상단)
+                                </button>
+                                <button type="button" id="btnNdtAlignDown" class="btn" style="flex: 1; min-width: 100px; background: rgba(148, 163, 184, 0.15); border: 1px solid rgba(148, 163, 184, 0.3); color: #cbd5e1; font-weight: 700; font-size: 0.82rem; padding: 0.4rem 0.5rem;">
+                                    ⬇️ 수직 (하단)
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1105,6 +1130,6 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260729_1642"></script>
+    <script src="app.js?v=20260802_2201"></script>
 </body>
 </html>
