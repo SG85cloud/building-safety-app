@@ -243,20 +243,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const parsed = JSON.parse(saved);
                 if (parsed.buildings && Array.isArray(parsed.buildings) && parsed.buildings.length > 0) {
                     window.state.buildings = parsed.buildings.map(bldg => {
-                        // Migration for legacy dong-based keys (101동 -> 1F, etc.)
-                        if (bldg.floorDrawings || bldg.floorsList) {
-                            const dongToFloor = { '101동': '1F', '102동': '2F', '103동': '3F', '104동': '4F', '105동': '5F' };
-                            const floorToDong = { '1F': '101동', '2F': '102동', '3F': '103동', '4F': '104동', '5F': '105동' };
-                            
-                            if (bldg.floorDrawings) {
-                                const newMap = { ...bldg.floorDrawings };
-                                Object.entries(dongToFloor).forEach(([dKey, fKey]) => {
-                                    if (newMap[dKey] && !newMap[fKey]) newMap[fKey] = newMap[dKey];
-                                    if (newMap[fKey] && !newMap[dKey]) newMap[dKey] = newMap[fKey];
-                                });
-                                bldg.floorDrawings = newMap;
-                            }
-                        }
                         if (typeof window.getBuildingAvailableFloors === 'function') {
                             bldg.floorsList = window.getBuildingAvailableFloors(bldg);
                         }
@@ -3807,14 +3793,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const promises = availableFloors.map((floorCode) => {
             return new Promise((resolve) => {
+                const cacheKey = `${bldg.id}_${floorCode}`;
                 const src = getFloorDrawingSrc(bldg, floorCode);
                 if (!src) return resolve();
-                if (state.floorImageCache[floorCode] && state.floorImageCache[floorCode].complete && state.floorImageCache[floorCode].naturalWidth > 0) {
+                if (state.floorImageCache[cacheKey] && state.floorImageCache[cacheKey].complete && state.floorImageCache[cacheKey].naturalWidth > 0) {
                     return resolve();
                 }
                 const img = new Image();
                 img.onload = () => {
-                    state.floorImageCache[floorCode] = img;
+                    state.floorImageCache[cacheKey] = img;
                     resolve();
                 };
                 img.onerror = () => {
@@ -3833,8 +3820,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = `${currentBldgId}_${floorCode}`;
             const defects = state.defects[key] || (state.currentFloor === floorCode ? getCurrentFloorDefects() : []);
 
-            // 1. Check preloaded image cache or image source for this floor
-            let loadedImg = state.floorImageCache ? state.floorImageCache[floorCode] : null;
+            // 1. Check preloaded image cache or image source for this floor (건물별로 구분된 캐시 키 사용)
+            let loadedImg = state.floorImageCache ? state.floorImageCache[`${currentBldgId}_${floorCode}`] : null;
             let floorDrawingSrc = getFloorDrawingSrc(bldg, floorCode);
             if (!floorDrawingSrc && state.currentFloor === floorCode && state.bgImage && state.bgImage.src) {
                 floorDrawingSrc = state.bgImage.src;
@@ -3915,7 +3902,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const key = `${currentBldgId}_${floorCode}`;
             const ndtItems = state.ndtData ? (state.ndtData[key] || []) : [];
 
-            let loadedImg = state.floorImageCache ? state.floorImageCache[floorCode] : null;
+            let loadedImg = state.floorImageCache ? state.floorImageCache[`${currentBldgId}_${floorCode}`] : null;
             let floorDrawingSrc = getFloorDrawingSrc(bldg, floorCode);
             if (!floorDrawingSrc && state.currentFloor === floorCode && state.ndtBgImage && state.ndtBgImage.src) {
                 floorDrawingSrc = state.ndtBgImage.src;
@@ -4329,7 +4316,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const bldg = window.state.currentBuilding || { name: '건축물_점검보고서' };
             const bldgName = (bldg.name || '건축물').replace(/^🏢\s*/, '').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
-            const filename = `${bldgName}_정밀안전점검_상태조사표_${window.state.currentFloor || '1F'}.pdf`;
+            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = `${bldgName}_정밀안전점검_보고서_${dateStr}.pdf`;
 
             const element = document.getElementById('printableReportArea') || document.getElementById('modalReportPreviewBody');
             if (!element) {
@@ -4344,25 +4332,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 b.style.boxShadow = 'none';
             });
 
-            if (typeof html2pdf !== 'undefined') {
-                const opt = {
-                    margin:       0,
-                    filename:     filename,
-                    image:        { type: 'jpeg', quality: 0.98 },
-                    html2canvas:  { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
-                    jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                    pagebreak:    { mode: ['css', 'legacy'] }
-                };
-                
-                await html2pdf().set(opt).from(element).save();
+            try {
+                if (typeof html2pdf !== 'undefined') {
+                    const opt = {
+                        margin:       0,
+                        filename:     filename,
+                        image:        { type: 'jpeg', quality: 0.98 },
+                        html2canvas:  { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
+                        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        pagebreak:    { mode: ['css', 'legacy'] }
+                    };
 
-                // Restore screen preview margins
-                pageBlocks.forEach(b => {
-                    b.style.marginBottom = '2rem';
-                    b.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)';
-                });
-            } else {
-                window.print();
+                    await html2pdf().set(opt).from(element).save();
+                } else {
+                    window.print();
+                }
+            } finally {
+                // Restore screen preview margins (성공/실패 여부와 무관하게 항상 복원)
                 pageBlocks.forEach(b => {
                     b.style.marginBottom = '2rem';
                     b.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)';
