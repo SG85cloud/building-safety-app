@@ -23,108 +23,17 @@ if (!window.state) {
         bgImage: null,
         canvas: null,
         ctx: null,
-        floorSnapshots: {}
+        floorSnapshots: {},
+        // --- Auth / Company (승인제 로그인) ---
+        uid: null,
+        userName: null,
+        companyId: null,
+        companyName: null,
+        companyJoinCode: null,
+        role: null // 'admin' | 'member' | 'pending' | null
     };
 }
 window.appState = window.state;
-
-// --- GLOBAL AUTH & SESSION ENGINE ---
-window.dismissLoginModal = function(e) {
-    if (e && typeof e.preventDefault === 'function') e.preventDefault();
-
-    const compIn = document.getElementById('loginCompanyName');
-    const userEmailInput = document.getElementById('loginUserEmail');
-
-    const existingCompany = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
-    let company = (compIn && compIn.value) ? compIn.value.trim() : existingCompany;
-    if (!company) company = existingCompany;
-
-    let user = (userEmailInput && userEmailInput.value) ? userEmailInput.value.trim() : '';
-    if (!user) user = localStorage.getItem('building_user_name') || '홍길동 수석점검자';
-
-    localStorage.setItem('building_company_name', company);
-    localStorage.setItem('building_user_name', user);
-    sessionStorage.setItem('building_safety_logged_in', 'true');
-
-    if (window.state) {
-        window.state.companyName = company;
-        window.state.userName = user;
-    }
-
-    if (typeof loadStateFromLocalStorage === 'function') {
-        loadStateFromLocalStorage();
-    }
-
-    if (!window.state.buildings || !Array.isArray(window.state.buildings) || window.state.buildings.length === 0) {
-        if (typeof getDefaultBuildings === 'function') window.state.buildings = getDefaultBuildings();
-    } else if (typeof getDefaultBuildings === 'function') {
-        const hasCheomdan = window.state.buildings.some(b => b.id === 'bldg-cheomdan-hospital' || (b.name && b.name.includes('첨단병원')));
-        if (!hasCheomdan) {
-            window.state.buildings.unshift(getDefaultBuildings()[0]);
-        }
-    }
-
-    const loginOverlay = document.getElementById('loginOverlay');
-    if (loginOverlay) {
-        loginOverlay.style.cssText = "display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important;";
-        loginOverlay.classList.remove('open');
-    }
-
-    const headerProfile = document.getElementById('headerUserProfileGroup');
-    if (headerProfile) headerProfile.style.display = 'flex';
-
-    const lblCompany = document.getElementById('lblUserCompany');
-    const lblUser = document.getElementById('lblUserName');
-    if (lblCompany) lblCompany.textContent = company;
-    if (lblUser) lblUser.textContent = user;
-
-    const inputHomeCompany = document.getElementById('inputHomeCompanyName');
-    if (inputHomeCompany) inputHomeCompany.value = company;
-
-    if (typeof listenToRealtimeUpdates === 'function') listenToRealtimeUpdates();
-    if (typeof renderDashboard === 'function') renderDashboard();
-    if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
-};
-
-window.performLogin = window.dismissLoginModal;
-
-window.checkLoginSession = function() {
-    const isLoggedIn = sessionStorage.getItem('building_safety_logged_in') === 'true';
-    let savedCompany = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
-    let savedUser = localStorage.getItem('building_user_name') || '홍길동 수석점검자';
-
-    if (window.state) {
-        window.state.companyName = savedCompany;
-        window.state.userName = savedUser;
-    }
-
-    const loginOverlay = document.getElementById('loginOverlay');
-    const headerProfile = document.getElementById('headerUserProfileGroup');
-
-    if (isLoggedIn) {
-        if (loginOverlay) {
-            loginOverlay.style.setProperty('display', 'none', 'important');
-            loginOverlay.style.visibility = 'hidden';
-            loginOverlay.classList.remove('open');
-        }
-        if (headerProfile) headerProfile.style.display = 'flex';
-    } else {
-        if (loginOverlay) {
-            loginOverlay.style.display = 'flex';
-            loginOverlay.style.visibility = 'visible';
-            loginOverlay.classList.add('open');
-        }
-        if (headerProfile) headerProfile.style.display = 'none';
-    }
-
-    const lblCompany = document.getElementById('lblUserCompany');
-    const lblUser = document.getElementById('lblUserName');
-    if (lblCompany) lblCompany.textContent = savedCompany;
-    if (lblUser) lblUser.textContent = savedUser;
-
-    const inputHomeCompany = document.getElementById('inputHomeCompanyName');
-    if (inputHomeCompany) inputHomeCompany.value = savedCompany;
-};
 
 // --- 2. IMAGE COMPRESSION & FLOOR PARSER HELPERS ---
 
@@ -372,13 +281,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.state.buildings = getDefaultBuildings();
             }
 
-            window.state.companyName = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
             const compInput = document.getElementById('inputHomeCompanyName');
-            if (compInput) compInput.value = window.state.companyName;
+            if (compInput && window.state.companyName) compInput.value = window.state.companyName;
         } catch (e) {
             console.error('LocalStorage load failed:', e);
             window.state.buildings = getDefaultBuildings();
-            window.state.companyName = '(주)한국안전진단기술원';
         }
     }
 
@@ -709,7 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 id: 'bldg-' + Date.now(),
                 name: name.startsWith('🏢') ? name : '🏢 ' + name,
                 address: address,
-                inspector: '홍길동 수석점검자',
+                inspector: window.state.userName || '점검자',
                 date: date,
                 floors: floors,
                 inspectionType: inspectionType,
@@ -2530,7 +2437,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             avgValue: avg || valuesText,
                             status,
                             tiltRatio,
-                            grade
+                            grade,
+                            inspectorName: state.ndtData[key][idx].inspectorName || window.state.userName || ''
                         };
                     }
                 } else {
@@ -2552,6 +2460,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         status,
                         tiltRatio,
                         grade,
+                        inspectorName: window.state.userName || '',
                         x: extra.targetX,
                         y: extra.targetY
                     };
@@ -3460,6 +3369,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     state.defects[key][idx].isProgress = isProgress;
                     state.defects[key][idx].isLeak = isLeak;
                     state.defects[key][idx].photos = photosVal;
+                    if (!state.defects[key][idx].inspectorName) {
+                        state.defects[key][idx].inspectorName = window.state.userName || '';
+                    }
                 }
             } else {
                 // Add new defect
@@ -3475,6 +3387,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     isProgress: isProgress,
                     isLeak: isLeak,
                     photos: photosVal,
+                    inspectorName: window.state.userName || '',
                     x: coords.x,
                     y: coords.y,
                     targetX: coords.targetX,
@@ -3611,7 +3524,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (defects.length === 0) {
-            elements.surveyTableBody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 2.5rem; color:#64748b; font-weight:600;">등록된 결함이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</td></tr>`;
+            elements.surveyTableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 2.5rem; color:#64748b; font-weight:600;">등록된 결함이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</td></tr>`;
             return;
         }
 
@@ -3652,6 +3565,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td><span style="font-weight:800; font-size:0.92rem; color:${leakDisplay === '누수중' ? '#0284c7' : '#94a3b8'};">${leakDisplay}</span></td>
                     <td><span style="font-weight:700; color:#334155;">🔍 ${d.cause || '건조수축'}</span></td>
                     <td><span style="font-weight:700; color:${photoRemark !== '-' ? '#2563eb' : '#94a3b8'};">${photoRemark}</span></td>
+                    <td><span class="badge badge-info">${d.inspectorName || '-'}</span></td>
                     <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="deleteDefectById('${d.id}')">삭제</button></td>
                 </tr>
             `;
@@ -5077,6 +4991,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let db = null;
     let isRemoteSyncing = false;
 
+    let auth = null;
+    window._justRegistering = false;
+
     function initFirebaseSync() {
         try {
             if (typeof firebase !== 'undefined') {
@@ -5084,8 +5001,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     firebase.initializeApp(firebaseConfig);
                 }
                 db = firebase.firestore();
+                if (firebase.auth) {
+                    auth = firebase.auth();
+                    auth.onAuthStateChanged(handleAuthStateChange);
+                } else {
+                    console.warn('Firebase Auth SDK가 로드되지 않았습니다.');
+                }
                 updateOnlineBadge(true);
-                listenToRealtimeUpdates();
             } else {
                 console.warn('Firebase SDK가 로드되지 않았습니다. 오프라인 로컬 모드로 동작합니다.');
                 updateOnlineBadge(false);
@@ -5114,7 +5036,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function syncStateToFirebase() {
-        if (!db || isRemoteSyncing) return;
+        if (!db || isRemoteSyncing || !window.state.companyId) return;
         try {
             const docId = getCompanyDocId();
             const dataToSync = {
@@ -5136,7 +5058,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentUnsubscribe = null;
 
     function listenToRealtimeUpdates() {
-        if (!db) return;
+        if (!db || !window.state.companyId) return;
         if (currentUnsubscribe) {
             try { currentUnsubscribe(); } catch(e) {}
         }
@@ -5198,14 +5120,341 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ==========================================================================
-    // 🔐 COMPANY AUTH & DATA ISOLATION ENGINE (회사별 로그인 및 데이터 개별 격리)
+    // 🔐 COMPANY AUTH & APPROVAL ENGINE (대표 승인제 회사별 로그인)
     // ==========================================================================
 
     function getCompanyDocId() {
-        const company = localStorage.getItem('building_company_name') || window.state.companyName || '(주)한국안전진단기술원';
-        const safeCompanyId = company.replace(/[^a-zA-Z0-9가-힣]/g, '_');
-        return `company_${safeCompanyId}`;
+        return window.state.companyId;
     }
+
+    function generateJoinCode() {
+        const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 0/O, 1/I 등 혼동되는 문자 제외
+        let code = '';
+        for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+        return code;
+    }
+
+    async function generateUniqueJoinCode() {
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const code = generateJoinCode();
+            const snap = await db.collection('companies').where('joinCode', '==', code).limit(1).get();
+            if (snap.empty) return code;
+        }
+        return generateJoinCode() + Date.now().toString(36).slice(-2).toUpperCase();
+    }
+
+    function showAuthError(err) {
+        const box = document.getElementById('authErrorMsg');
+        if (!box) return;
+        const map = {
+            'auth/email-already-in-use': '이미 가입된 이메일입니다. 로그인을 이용해 주세요.',
+            'auth/invalid-email': '이메일 형식이 올바르지 않습니다.',
+            'auth/weak-password': '비밀번호는 6자 이상이어야 합니다.',
+            'auth/wrong-password': '비밀번호가 올바르지 않습니다.',
+            'auth/user-not-found': '가입되지 않은 이메일입니다.',
+            'auth/invalid-credential': '이메일 또는 비밀번호가 올바르지 않습니다.',
+            'auth/too-many-requests': '시도 횟수가 많습니다. 잠시 후 다시 시도해 주세요.'
+        };
+        const code = err && err.code;
+        box.textContent = (code && map[code]) ? map[code] : ((err && err.message) || '오류가 발생했습니다. 다시 시도해 주세요.');
+        box.style.display = 'block';
+    }
+
+    function clearAuthError() {
+        const box = document.getElementById('authErrorMsg');
+        if (box) { box.style.display = 'none'; box.textContent = ''; }
+    }
+
+    function showLoginOverlay() {
+        const overlay = document.getElementById('loginOverlay');
+        const loginCard = overlay ? overlay.querySelector('.modal-card') : null;
+        const pendingCard = document.getElementById('pendingApprovalCard');
+        if (overlay) overlay.style.cssText = 'display: flex !important; opacity: 1 !important; pointer-events: auto !important; visibility: visible !important;';
+        if (loginCard) loginCard.style.display = 'flex';
+        if (pendingCard) pendingCard.style.display = 'none';
+        const headerProfile = document.getElementById('headerUserProfileGroup');
+        if (headerProfile) headerProfile.style.display = 'none';
+        clearAuthError();
+    }
+
+    function showPendingApproval(companyName) {
+        const overlay = document.getElementById('loginOverlay');
+        const loginCard = overlay ? overlay.querySelector('.modal-card') : null;
+        const pendingCard = document.getElementById('pendingApprovalCard');
+        if (overlay) overlay.style.cssText = 'display: flex !important; opacity: 1 !important; pointer-events: auto !important; visibility: visible !important;';
+        if (loginCard) loginCard.style.display = 'none';
+        if (pendingCard) pendingCard.style.display = 'block';
+        const lbl = document.getElementById('pendingCompanyName');
+        if (lbl) lbl.textContent = companyName || '회사';
+        const headerProfile = document.getElementById('headerUserProfileGroup');
+        if (headerProfile) headerProfile.style.display = 'none';
+    }
+
+    function hideAuthOverlay() {
+        const overlay = document.getElementById('loginOverlay');
+        if (overlay) {
+            overlay.style.cssText = 'display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important;';
+            overlay.classList.remove('open');
+        }
+    }
+
+    async function enterAppAsUser(profile) {
+        window.state.uid = profile.uid;
+        window.state.userName = profile.name;
+        window.state.companyId = profile.companyId;
+        window.state.companyName = profile.companyName;
+        window.state.role = profile.role;
+
+        hideAuthOverlay();
+
+        const headerProfile = document.getElementById('headerUserProfileGroup');
+        if (headerProfile) headerProfile.style.display = 'flex';
+        const lblCompany = document.getElementById('lblUserCompany');
+        const lblUser = document.getElementById('lblUserName');
+        if (lblCompany) lblCompany.textContent = profile.companyName || '';
+        if (lblUser) lblUser.textContent = profile.name || '';
+        const inputHomeCompany = document.getElementById('inputHomeCompanyName');
+        if (inputHomeCompany) inputHomeCompany.value = profile.companyName || '';
+
+        const btnApproval = document.getElementById('btnOpenMemberApproval');
+        if (btnApproval) btnApproval.style.display = (profile.role === 'admin') ? 'inline-flex' : 'none';
+
+        if (profile.role === 'admin' && db) {
+            try {
+                const companyDoc = await db.collection('companies').doc(profile.companyId).get();
+                if (companyDoc.exists) window.state.companyJoinCode = companyDoc.data().joinCode || null;
+            } catch (e) { console.warn('회사 코드 조회 실패:', e); }
+        }
+
+        if (typeof loadStateFromLocalStorage === 'function') loadStateFromLocalStorage();
+        if (typeof listenToRealtimeUpdates === 'function') listenToRealtimeUpdates();
+        if (typeof renderDashboard === 'function') renderDashboard();
+        window.switchTab('tab-home');
+    }
+
+    async function handleAuthStateChange(user) {
+        if (!user) {
+            if (currentUnsubscribe) { try { currentUnsubscribe(); } catch (e) {} currentUnsubscribe = null; }
+            window.state.uid = null;
+            window.state.userName = null;
+            window.state.companyId = null;
+            window.state.companyName = null;
+            window.state.role = null;
+            showLoginOverlay();
+            return;
+        }
+
+        if (window._justRegistering) return; // 가입 절차가 직접 화면 전환을 처리함
+
+        try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            if (!userDoc.exists) {
+                showAuthError({ message: '계정 정보를 찾을 수 없습니다. 다시 가입해 주세요.' });
+                await auth.signOut();
+                return;
+            }
+            const data = userDoc.data();
+            if (data.role === 'pending') {
+                showPendingApproval(data.companyName);
+            } else if (data.role === 'rejected') {
+                showAuthError({ message: '가입 신청이 거절되었습니다. 회사 대표에게 문의해 주세요.' });
+                await auth.signOut();
+            } else if (data.role === 'admin' || data.role === 'member') {
+                await enterAppAsUser({ uid: user.uid, name: data.name, companyId: data.companyId, companyName: data.companyName, role: data.role });
+            } else {
+                showAuthError({ message: '알 수 없는 계정 상태입니다.' });
+                await auth.signOut();
+            }
+        } catch (e) {
+            console.error('로그인 상태 확인 오류:', e);
+            showAuthError({ message: '로그인 처리 중 오류가 발생했습니다. 인터넷 연결을 확인해 주세요.' });
+        }
+    }
+
+    window.submitLogin = async function() {
+        clearAuthError();
+        const email = (document.getElementById('authEmail')?.value || '').trim();
+        const password = document.getElementById('authPassword')?.value || '';
+        if (!email || !password) { showAuthError({ message: '이메일과 비밀번호를 입력해 주세요.' }); return; }
+        try {
+            await auth.signInWithEmailAndPassword(email, password);
+        } catch (err) {
+            showAuthError(err);
+        }
+    };
+
+    window.submitRegisterAdmin = async function() {
+        clearAuthError();
+        const name = (document.getElementById('authUserName')?.value || '').trim();
+        const companyName = (document.getElementById('authCompanyName')?.value || '').trim();
+        const email = (document.getElementById('authEmail')?.value || '').trim();
+        const password = document.getElementById('authPassword')?.value || '';
+        if (!name || !companyName || !email || !password) {
+            showAuthError({ message: '이름, 회사명, 이메일, 비밀번호를 모두 입력해 주세요.' });
+            return;
+        }
+        window._justRegistering = true;
+        try {
+            const cred = await auth.createUserWithEmailAndPassword(email, password);
+            const uid = cred.user.uid;
+            const joinCode = await generateUniqueJoinCode();
+            const companyRef = db.collection('companies').doc();
+            await companyRef.set({
+                name: companyName,
+                adminUid: uid,
+                joinCode: joinCode,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            await companyRef.collection('members').doc(uid).set({
+                name, email, role: 'admin',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            await db.collection('users').doc(uid).set({
+                name, email, companyId: companyRef.id, companyName, role: 'admin'
+            });
+            await enterAppAsUser({ uid, name, companyId: companyRef.id, companyName, role: 'admin' });
+        } catch (err) {
+            showAuthError(err);
+        } finally {
+            window._justRegistering = false;
+        }
+    };
+
+    window.submitRegisterMember = async function() {
+        clearAuthError();
+        const name = (document.getElementById('authUserName')?.value || '').trim();
+        const joinCode = (document.getElementById('authJoinCode')?.value || '').trim().toUpperCase();
+        const email = (document.getElementById('authEmail')?.value || '').trim();
+        const password = document.getElementById('authPassword')?.value || '';
+        if (!name || !joinCode || !email || !password) {
+            showAuthError({ message: '이름, 가입 코드, 이메일, 비밀번호를 모두 입력해 주세요.' });
+            return;
+        }
+        window._justRegistering = true;
+        try {
+            const companySnap = await db.collection('companies').where('joinCode', '==', joinCode).limit(1).get();
+            if (companySnap.empty) {
+                showAuthError({ message: '가입 코드를 확인해 주세요. 일치하는 회사가 없습니다.' });
+                return;
+            }
+            const companyDoc = companySnap.docs[0];
+            const companyName = companyDoc.data().name;
+
+            const cred = await auth.createUserWithEmailAndPassword(email, password);
+            const uid = cred.user.uid;
+
+            await companyDoc.ref.collection('pendingRequests').doc(uid).set({
+                name, email, requestedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            await db.collection('users').doc(uid).set({
+                name, email, companyId: companyDoc.id, companyName, role: 'pending'
+            });
+            showPendingApproval(companyName);
+        } catch (err) {
+            showAuthError(err);
+        } finally {
+            window._justRegistering = false;
+        }
+    };
+
+    window.logout = async function() {
+        if (!confirm('🔒 정말 로그아웃 하시겠습니까?')) return;
+        try { if (auth) await auth.signOut(); } catch (e) {}
+        showLoginOverlay();
+    };
+
+    // --- 관리자 가입 승인 관리 패널 ---
+    window.openMemberApprovalModal = async function() {
+        const modal = document.getElementById('memberApprovalModal');
+        if (!modal || window.state.role !== 'admin') return;
+        const lblCode = document.getElementById('lblCompanyJoinCode');
+        if (lblCode) lblCode.textContent = window.state.companyJoinCode || '------';
+        modal.style.display = 'flex';
+        modal.classList.add('open');
+        await renderMemberApprovalLists();
+    };
+
+    async function renderMemberApprovalLists() {
+        const pendingBox = document.getElementById('pendingRequestsList');
+        const membersBox = document.getElementById('approvedMembersList');
+        if (!db || !window.state.companyId) return;
+        const companyRef = db.collection('companies').doc(window.state.companyId);
+
+        try {
+            const pendingSnap = await companyRef.collection('pendingRequests').orderBy('requestedAt', 'desc').get();
+            if (pendingBox) {
+                if (pendingSnap.empty) {
+                    pendingBox.innerHTML = '<div style="font-size:0.82rem; color:#94a3b8; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">대기중인 신청이 없습니다.</div>';
+                } else {
+                    pendingBox.innerHTML = pendingSnap.docs.map(docSnap => {
+                        const d = docSnap.data();
+                        return `
+                            <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #cbd5e1; padding:0.6rem 0.9rem; border-radius:8px; gap:0.6rem; flex-wrap:wrap;">
+                                <span style="font-size:0.85rem;"><strong>${d.name || '이름없음'}</strong> <span style="color:#64748b; font-size:0.78rem;">(${d.email || ''})</span></span>
+                                <div style="display:flex; gap:0.4rem;">
+                                    <button type="button" class="btn btn-sm btn-outline" style="border-color:#059669; color:#059669;" onclick="window.approveMember('${docSnap.id}')"><i class="fa-solid fa-check"></i> 승인</button>
+                                    <button type="button" class="btn btn-sm btn-outline" style="border-color:#ef4444; color:#ef4444;" onclick="window.rejectMember('${docSnap.id}')"><i class="fa-solid fa-xmark"></i> 거절</button>
+                                </div>
+                            </div>`;
+                    }).join('');
+                }
+            }
+        } catch (e) {
+            console.error('대기 목록 로드 오류:', e);
+            if (pendingBox) pendingBox.innerHTML = '<div style="color:#f87171; font-size:0.82rem;">목록을 불러오지 못했습니다.</div>';
+        }
+
+        try {
+            const membersSnap = await companyRef.collection('members').get();
+            if (membersBox) {
+                membersBox.innerHTML = membersSnap.docs.map(docSnap => {
+                    const d = docSnap.data();
+                    const roleLabel = d.role === 'admin' ? '대표' : '팀원';
+                    return `
+                        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8fafc; border:1px solid #e2e8f0; padding:0.5rem 0.9rem; border-radius:8px;">
+                            <span style="font-size:0.85rem;"><strong>${d.name || '이름없음'}</strong> <span style="color:#64748b; font-size:0.78rem;">(${d.email || ''})</span></span>
+                            <span class="badge badge-info">${roleLabel}</span>
+                        </div>`;
+                }).join('');
+            }
+        } catch (e) {
+            console.error('멤버 목록 로드 오류:', e);
+        }
+    }
+
+    window.approveMember = async function(uid) {
+        if (!db || !window.state.companyId) return;
+        try {
+            const companyRef = db.collection('companies').doc(window.state.companyId);
+            const pendingDoc = await companyRef.collection('pendingRequests').doc(uid).get();
+            if (!pendingDoc.exists) { alert('이미 처리된 신청입니다.'); await renderMemberApprovalLists(); return; }
+            const d = pendingDoc.data();
+            await companyRef.collection('members').doc(uid).set({
+                name: d.name, email: d.email, role: 'member',
+                approvedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            await companyRef.collection('pendingRequests').doc(uid).delete();
+            await db.collection('users').doc(uid).set({ role: 'member' }, { merge: true });
+            await renderMemberApprovalLists();
+        } catch (e) {
+            console.error('승인 처리 오류:', e);
+            alert('승인 처리 중 오류가 발생했습니다.');
+        }
+    };
+
+    window.rejectMember = async function(uid) {
+        if (!db || !window.state.companyId) return;
+        if (!confirm('정말 이 가입 신청을 거절하시겠습니까?')) return;
+        try {
+            const companyRef = db.collection('companies').doc(window.state.companyId);
+            await companyRef.collection('pendingRequests').doc(uid).delete();
+            await db.collection('users').doc(uid).set({ role: 'rejected' }, { merge: true });
+            await renderMemberApprovalLists();
+        } catch (e) {
+            console.error('거절 처리 오류:', e);
+            alert('거절 처리 중 오류가 발생했습니다.');
+        }
+    };
 
     function initAuthEvents() {
         const formLogin = document.getElementById('formLogin');
@@ -5213,44 +5462,110 @@ document.addEventListener('DOMContentLoaded', () => {
         const tabLogin = document.getElementById('tabAuthLogin');
         const tabRegister = document.getElementById('tabAuthRegister');
         const btnSubmit = document.getElementById('btnSubmitAuth');
+        const regModeGroup = document.getElementById('regModeGroup');
+        const regModeAdminBtn = document.getElementById('regModeAdminBtn');
+        const regModeMemberBtn = document.getElementById('regModeMemberBtn');
+        const groupRegUserName = document.getElementById('groupRegUserName');
+        const groupRegCompanyName = document.getElementById('groupRegCompanyName');
+        const groupRegJoinCode = document.getElementById('groupRegJoinCode');
+
+        let currentAuthTab = 'login';
+        let currentRegMode = 'admin';
+
+        function applyRegModeUI() {
+            if (regModeAdminBtn) regModeAdminBtn.classList.toggle('active', currentRegMode === 'admin');
+            if (regModeMemberBtn) regModeMemberBtn.classList.toggle('active', currentRegMode === 'member');
+            if (groupRegCompanyName) groupRegCompanyName.style.display = (currentRegMode === 'admin') ? 'block' : 'none';
+            if (groupRegJoinCode) groupRegJoinCode.style.display = (currentRegMode === 'member') ? 'block' : 'none';
+        }
+
+        function applyAuthTabUI() {
+            clearAuthError();
+            if (currentAuthTab === 'login') {
+                if (regModeGroup) regModeGroup.style.display = 'none';
+                if (groupRegUserName) groupRegUserName.style.display = 'none';
+                if (groupRegCompanyName) groupRegCompanyName.style.display = 'none';
+                if (groupRegJoinCode) groupRegJoinCode.style.display = 'none';
+                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 🚀 로그인 및 점검 시작';
+            } else {
+                if (regModeGroup) regModeGroup.style.display = 'flex';
+                if (groupRegUserName) groupRegUserName.style.display = 'block';
+                applyRegModeUI();
+                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-user-plus"></i> 🏢 가입하기';
+            }
+        }
 
         if (tabLogin && tabRegister) {
             tabLogin.addEventListener('click', () => {
+                currentAuthTab = 'login';
                 tabLogin.classList.add('active');
                 tabLogin.style.background = '#0284c7';
                 tabLogin.style.color = '#ffffff';
                 tabRegister.classList.remove('active');
                 tabRegister.style.background = 'transparent';
                 tabRegister.style.color = '#94a3b8';
-                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> 🚀 시스템 로그인 및 점검 시작';
+                applyAuthTabUI();
             });
 
             tabRegister.addEventListener('click', () => {
+                currentAuthTab = 'register';
                 tabRegister.classList.add('active');
                 tabRegister.style.background = '#0284c7';
                 tabRegister.style.color = '#ffffff';
                 tabLogin.classList.remove('active');
                 tabLogin.style.background = 'transparent';
                 tabLogin.style.color = '#94a3b8';
-                if (btnSubmit) btnSubmit.innerHTML = '<i class="fa-solid fa-user-plus"></i> 🏢 신규 회사/점검자 등록';
+                applyAuthTabUI();
             });
         }
 
-        if (formLogin) {
-            formLogin.addEventListener('submit', window.dismissLoginModal);
-        }
-        if (btnSubmit) {
-            btnSubmit.addEventListener('click', window.dismissLoginModal);
+        if (regModeAdminBtn && regModeMemberBtn) {
+            regModeAdminBtn.addEventListener('click', () => { currentRegMode = 'admin'; applyRegModeUI(); });
+            regModeMemberBtn.addEventListener('click', () => { currentRegMode = 'member'; applyRegModeUI(); });
         }
 
-        if (btnLogout) {
-            btnLogout.addEventListener('click', () => {
-                if (confirm('🔒 정말 로그아웃 하시겠습니까?')) {
-                    sessionStorage.removeItem('building_safety_logged_in');
-                    window.checkLoginSession();
+        applyAuthTabUI();
+
+        async function handleSubmit(e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            if (currentAuthTab === 'login') {
+                await window.submitLogin();
+            } else if (currentRegMode === 'admin') {
+                await window.submitRegisterAdmin();
+            } else {
+                await window.submitRegisterMember();
+            }
+            return false;
+        }
+
+        if (formLogin) formLogin.addEventListener('submit', handleSubmit);
+        if (btnSubmit) btnSubmit.addEventListener('click', handleSubmit);
+
+        if (btnLogout) btnLogout.addEventListener('click', window.logout);
+
+        const btnOpenApproval = document.getElementById('btnOpenMemberApproval');
+        const approvalModal = document.getElementById('memberApprovalModal');
+        const btnCloseApproval1 = document.getElementById('btnCloseMemberApprovalModal');
+        const btnCloseApproval2 = document.getElementById('btnCloseMemberApprovalModal2');
+        const closeApprovalModal = () => {
+            if (approvalModal) { approvalModal.style.display = 'none'; approvalModal.classList.remove('open'); }
+        };
+        if (btnOpenApproval) btnOpenApproval.addEventListener('click', window.openMemberApprovalModal);
+        if (btnCloseApproval1) btnCloseApproval1.addEventListener('click', closeApprovalModal);
+        if (btnCloseApproval2) btnCloseApproval2.addEventListener('click', closeApprovalModal);
+
+        const btnPendingRecheck = document.getElementById('btnPendingRecheck');
+        const btnPendingLogout = document.getElementById('btnPendingLogout');
+        if (btnPendingRecheck) {
+            btnPendingRecheck.addEventListener('click', async () => {
+                if (!auth || !auth.currentUser) return;
+                await handleAuthStateChange(auth.currentUser);
+                if (window.state.role === 'pending') {
+                    alert('아직 승인되지 않았습니다. 잠시 후 다시 확인해 주세요.');
                 }
             });
         }
+        if (btnPendingLogout) btnPendingLogout.addEventListener('click', window.logout);
 
         // 비밀번호 찾기 모달 오픈/닫기/발송 핸들러
         const btnOpenForgot = document.getElementById('btnOpenForgotPassword');
@@ -5271,7 +5586,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 resetModal.style.display = 'flex';
                 resetModal.classList.add('open');
                 const emailInput = document.getElementById('resetUserEmail');
-                const loginEmail = document.getElementById('loginUserEmail')?.value;
+                const loginEmail = document.getElementById('authEmail')?.value;
                 if (emailInput && loginEmail && loginEmail.includes('@')) {
                     emailInput.value = loginEmail;
                 }
@@ -5296,12 +5611,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             closeResetModal();
                         })
                         .catch((err) => {
-                            alert(`📧 '${email}' 주소로 비밀번호 재설정 안내 메일이 성공적으로 발송되었습니다.`);
-                            closeResetModal();
+                            alert(`⚠️ 메일 발송에 실패했습니다: ${err.message || err.code || '알 수 없는 오류'}`);
                         });
                 } else {
-                    alert(`📧 '${email}' 주소로 비밀번호 재설정 안내 이메일이 정상적으로 발송 접수되었습니다!\n메일함을 확인해 주세요.`);
-                    closeResetModal();
+                    alert('⚠️ 인증 기능을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.');
                 }
             });
         }
@@ -5420,7 +5733,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initAuthEvents();
         setupGridEvents();
         if (typeof setupNdtModalEvents === 'function') setupNdtModalEvents();
-        checkLoginSession();
+        showLoginOverlay();
     }
 
     init();

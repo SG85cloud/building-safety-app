@@ -19,6 +19,7 @@
     <!-- Firebase SDK (v9/v10 compat 모드) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 </head>
 <body class="theme-light">
 
@@ -72,6 +73,9 @@
             <span id="userProfileText" style="font-size: 0.83rem; font-weight: 700; color: #38bdf8;">
                 <i class="fa-solid fa-user-shield"></i> <span id="lblUserCompany">(주)한국안전진단기술원</span> (<span id="lblUserName">홍길동</span>)
             </span>
+            <button type="button" id="btnOpenMemberApproval" class="btn btn-sm btn-outline" style="display: none; border-color: #059669; color: #059669; font-size: 0.75rem; padding: 0.15rem 0.55rem;" title="가입 승인 관리">
+                <i class="fa-solid fa-user-check"></i> 가입 승인 관리
+            </button>
             <button type="button" id="btnLogout" class="btn btn-sm btn-outline" style="border-color: #ef4444; color: #f87171; font-size: 0.75rem; padding: 0.15rem 0.55rem;" title="로그아웃">
                 <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
             </button>
@@ -325,6 +329,7 @@
                             <th>누수여부</th>
                             <th>결함원인추정</th>
                             <th>비고</th>
+                            <th>등록자</th>
                             <th>관리</th>
                         </tr>
                     </thead>
@@ -943,6 +948,37 @@
         </div>
     </div>
 
+    <!-- MODAL: 회사 가입 승인 관리 (관리자 전용) -->
+    <div class="modal-overlay" id="memberApprovalModal">
+        <div class="modal-card" style="max-width: 560px; width: 94%;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #0369a1, #0f172a); border-bottom: 1px solid #38bdf8;">
+                <h3><i class="fa-solid fa-user-check" style="color: #38bdf8;"></i> 🏢 가입 승인 관리</h3>
+                <button type="button" class="modal-close" id="btnCloseMemberApprovalModal">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1.2rem; max-height: 75vh; overflow-y: auto;">
+
+                <div class="alert alert-info" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); color: #7dd3fc; font-size: 0.85rem; padding: 0.9rem 1rem; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <span><i class="fa-solid fa-key"></i> 우리 회사 가입 코드 (팀원에게 공유하세요):</span>
+                    <strong id="lblCompanyJoinCode" style="font-size: 1.3rem; letter-spacing: 0.15em; color: #ffffff; background: rgba(2,132,199,0.5); padding: 0.3rem 0.8rem; border-radius: 6px;">------</strong>
+                </div>
+
+                <div>
+                    <h4 style="font-size: 0.95rem; font-weight: 800; color: #f59e0b; margin-bottom: 0.6rem;"><i class="fa-solid fa-hourglass-half"></i> 승인 대기중인 가입 신청</h4>
+                    <div id="pendingRequestsList" style="display: flex; flex-direction: column; gap: 0.6rem;"></div>
+                </div>
+
+                <div>
+                    <h4 style="font-size: 0.95rem; font-weight: 800; color: #4ade80; margin-bottom: 0.6rem;"><i class="fa-solid fa-users"></i> 승인된 팀원 목록</h4>
+                    <div id="approvedMembersList" style="display: flex; flex-direction: column; gap: 0.6rem;"></div>
+                </div>
+
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" id="btnCloseMemberApprovalModal2">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <!-- MODAL: Full Screen Interactive Report Preview Modal -->
     <div class="modal-overlay" id="reportPreviewModal">
         <div class="modal-card" style="max-width: 920px; width: 95%; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; background: #ffffff; border: 1px solid #cbd5e1; box-shadow: 0 20px 50px rgba(15,23,42,0.15);">
@@ -999,54 +1035,9 @@
         </div>
     </div>
 
-    <!-- GLOBAL FAIL-SAFE LOGIN DISMISS ENGINE -->
-    <script>
-    window.dismissLoginModal = function(e) {
-        if (e && typeof e.preventDefault === 'function') e.preventDefault();
-        try {
-            var compIn = document.getElementById('loginCompanyName');
-            var userEmailInput = document.getElementById('loginUserEmail');
-            var existingCompany = localStorage.getItem('building_company_name') || '(주)한국안전진단기술원';
-            var company = (compIn && compIn.value) ? compIn.value.trim() : existingCompany;
-            if (!company) company = existingCompany;
-            var user = (userEmailInput && userEmailInput.value) ? userEmailInput.value.trim() : '';
-            if (!user) user = localStorage.getItem('building_user_name') || '홍길동 수석점검자';
-            localStorage.setItem('building_company_name', company);
-            localStorage.setItem('building_user_name', user);
-            sessionStorage.setItem('building_safety_logged_in', 'true');
-            if (window.state) {
-                window.state.companyName = company;
-                window.state.userName = user;
-            }
-        } catch(err) {}
-
-        var overlay = document.getElementById('loginOverlay');
-        if (overlay) {
-            overlay.style.cssText = "display: none !important; opacity: 0 !important; pointer-events: none !important; visibility: hidden !important;";
-            overlay.classList.remove('open');
-        }
-        var profile = document.getElementById('headerUserProfileGroup');
-        if (profile) profile.style.display = 'flex';
-
-        var lblCompany = document.getElementById('lblUserCompany');
-        var lblUser = document.getElementById('lblUserName');
-        if (lblCompany) lblCompany.textContent = company;
-        if (lblUser) lblUser.textContent = user;
-
-        if (typeof loadStateFromLocalStorage === 'function') loadStateFromLocalStorage();
-        if (typeof renderDashboard === 'function') renderDashboard();
-        if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
-        return false;
-    };
-    window.performLogin = window.dismissLoginModal;
-    </script>
-
     <!-- MODAL: Premium Light Mode (White Tone) Login & Registration Overlay -->
     <div class="modal-overlay" id="loginOverlay" style="display: flex; z-index: 9999; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);">
         <div class="modal-card" style="position: relative; max-width: 440px; width: 92%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.12); padding: 2.4rem 2rem; color: #0f172a; position: relative; z-index: 10000; pointer-events: auto;">
-            
-            <!-- Close (X) Button -->
-            <button type="button" onclick="window.dismissLoginModal(event)" style="position: absolute; top: 1rem; right: 1rem; background: #f1f5f9; border: none; font-size: 1.4rem; color: #64748b; cursor: pointer; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" title="닫기">&times;</button>
 
             <!-- Brand Logo Header -->
             <div style="text-align: center; margin-bottom: 1.6rem;">
@@ -1058,7 +1049,7 @@
             </div>
 
             <!-- Login / Register Tab Selector -->
-            <div style="display: flex; background: #f1f5f9; padding: 4px; border-radius: 12px; margin-bottom: 1.5rem; border: 1px solid #e2e8f0;">
+            <div style="display: flex; background: #f1f5f9; padding: 4px; border-radius: 12px; margin-bottom: 1.2rem; border: 1px solid #e2e8f0;" id="authTabGroup">
                 <button type="button" id="tabAuthLogin" class="auth-tab-btn active" style="flex: 1; padding: 0.55rem; border: none; border-radius: 9px; font-size: 0.85rem; font-weight: 700; color: #ffffff; background: #0284c7; cursor: pointer; transition: all 0.2s;">
                     <i class="fa-solid fa-key"></i> 기존 계정 로그인
                 </button>
@@ -1067,30 +1058,56 @@
                 </button>
             </div>
 
+            <!-- Register-only: 대표/팀원 가입 모드 선택 -->
+            <div id="regModeGroup" style="display: none; gap: 0.5rem; margin-bottom: 1.1rem;">
+                <button type="button" id="regModeAdminBtn" class="chip active" data-mode="admin" style="flex: 1; text-align: center; justify-content: center; display: inline-flex;">
+                    🏢 회사 대표로 신규 등록
+                </button>
+                <button type="button" id="regModeMemberBtn" class="chip" data-mode="member" style="flex: 1; text-align: center; justify-content: center; display: inline-flex;">
+                    🔑 코드로 가입 신청
+                </button>
+            </div>
+
             <!-- Login & Registration Form -->
-            <form id="formLogin" style="display: flex; flex-direction: column; gap: 1.1rem;" onsubmit="return window.dismissLoginModal(event);">
-                <div class="form-group" id="groupLoginCompany" style="display: none;">
+            <form id="formLogin" style="display: flex; flex-direction: column; gap: 1.1rem;">
+                <div class="form-group" id="groupRegUserName" style="display: none; margin-bottom: 0;">
                     <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-building" style="color: #0284c7;"></i> 점검 수행회사명 등록 *
+                        <i class="fa-solid fa-id-badge" style="color: #0284c7;"></i> 이름 / 점검자 성함 *
                     </label>
-                    <input type="text" id="loginCompanyName" class="form-control" placeholder="예: (주)한국안전진단기술원" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="text" id="authUserName" class="form-control" placeholder="예: 홍길동" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="groupRegCompanyName" style="display: none; margin-bottom: 0;">
                     <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-user" style="color: #0284c7;"></i> 아이디 / 점검자 성함
+                        <i class="fa-solid fa-building" style="color: #0284c7;"></i> 회사명 (신규 등록) *
                     </label>
-                    <input type="text" id="loginUserEmail" class="form-control" placeholder="아이디 또는 성함 입력" value="" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="text" id="authCompanyName" class="form-control" placeholder="예: 한국안전진단연구원" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" id="groupRegJoinCode" style="display: none; margin-bottom: 0;">
                     <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
-                        <i class="fa-solid fa-lock" style="color: #0284c7;"></i> 접속 비밀번호
+                        <i class="fa-solid fa-key" style="color: #0284c7;"></i> 회사 가입 코드 *
                     </label>
-                    <input type="password" id="loginUserPassword" class="form-control" placeholder="비밀번호 입력" value="" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                    <input type="text" id="authJoinCode" class="form-control" placeholder="대표에게 받은 6자리 코드 입력" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box; text-transform: uppercase;">
                 </div>
 
-                <button type="submit" id="btnSubmitAuth" onclick="return window.dismissLoginModal(event);" class="btn" style="width: 100%; padding: 0.8rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; font-weight: 800; font-size: 0.95rem; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3); margin-top: 0.4rem; transition: all 0.2s; position: relative; z-index: 10001; pointer-events: auto;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
+                        <i class="fa-solid fa-envelope" style="color: #0284c7;"></i> 이메일 *
+                    </label>
+                    <input type="email" id="authEmail" class="form-control" placeholder="예: user@company.com" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label" style="font-size: 0.83rem; font-weight: 700; color: #334155; margin-bottom: 0.4rem; display: block;">
+                        <i class="fa-solid fa-lock" style="color: #0284c7;"></i> 비밀번호 *
+                    </label>
+                    <input type="password" id="authPassword" class="form-control" placeholder="비밀번호 입력 (6자 이상)" style="background: #f8fafc; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 0.7rem 0.9rem; font-size: 0.9rem; width: 100%; box-sizing: border-box;">
+                </div>
+
+                <div id="authErrorMsg" style="display: none; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #dc2626; font-size: 0.8rem; font-weight: 600; padding: 0.6rem 0.8rem; border-radius: 8px;"></div>
+
+                <button type="submit" id="btnSubmitAuth" class="btn" style="width: 100%; padding: 0.8rem; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; font-weight: 800; font-size: 0.95rem; border: none; border-radius: 10px; cursor: pointer; box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3); margin-top: 0.4rem; transition: all 0.2s; position: relative; z-index: 10001; pointer-events: auto;">
                     <i class="fa-solid fa-right-to-bracket"></i> 🚀 시스템 로그인 및 점검 시작
                 </button>
             </form>
@@ -1100,6 +1117,25 @@
                     <i class="fa-solid fa-key"></i> 🔒 비밀번호를 잊으셨나요?
                 </button>
                 <span style="color: #64748b; font-size: 0.76rem;"><i class="fa-solid fa-shield-halved"></i> 보안 접속</span>
+            </div>
+        </div>
+
+        <!-- Pending-Approval State (팀원 가입 신청 후 승인 대기) -->
+        <div class="modal-card" id="pendingApprovalCard" style="display: none; position: relative; max-width: 440px; width: 92%; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 20px; box-shadow: 0 25px 60px rgba(15, 23, 42, 0.12); padding: 2.4rem 2rem; color: #0f172a; text-align: center; z-index: 10000;">
+            <div style="display: inline-flex; align-items: center; justify-content: center; width: 68px; height: 68px; border-radius: 18px; background: rgba(2, 132, 199, 0.12); margin-bottom: 1rem;">
+                <i class="fa-solid fa-hourglass-half" style="font-size: 30px; color: #0284c7;"></i>
+            </div>
+            <h2 style="font-size: 1.25rem; font-weight: 800; margin-bottom: 0.6rem;">가입 승인 대기중입니다</h2>
+            <p style="font-size: 0.85rem; color: #64748b; line-height: 1.6; margin-bottom: 1.4rem;">
+                <strong id="pendingCompanyName">회사</strong>의 대표(관리자)가 가입 신청을 승인하면<br>바로 건축물 점검을 시작할 수 있어요.
+            </p>
+            <div style="display: flex; gap: 0.6rem;">
+                <button type="button" id="btnPendingRecheck" class="btn btn-primary" style="flex: 1; justify-content: center;">
+                    <i class="fa-solid fa-rotate"></i> 승인 여부 새로고침
+                </button>
+                <button type="button" id="btnPendingLogout" class="btn btn-outline" style="flex: 1; justify-content: center;">
+                    <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
+                </button>
             </div>
         </div>
     </div>
