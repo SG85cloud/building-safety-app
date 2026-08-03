@@ -589,6 +589,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const inspectionPeriod = document.getElementById('inputBuildingInspectionPeriod')?.value || '하반기';
             const notes = document.getElementById('inputBuildingNotes')?.value || '';
 
+            const newBuildingId = 'bldg-' + Date.now();
             const safeUploadedDrawings = Array.isArray(window.selectedUploadedDrawings) ? window.selectedUploadedDrawings : [];
             const floorDrawingsMap = {};
             const floorsList = [];
@@ -604,6 +605,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const compressedDataUrl = await window.compressDrawingImage(item.file);
                             if (compressedDataUrl) {
                                 floorDrawingsMap[item.floorCode] = compressedDataUrl;
+                                await uploadFloorDrawing(newBuildingId, item.floorCode, compressedDataUrl);
                             }
                         } catch (err) {
                             console.error('Drawing compression error:', err);
@@ -613,7 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const newBldg = {
-                id: 'bldg-' + Date.now(),
+                id: newBuildingId,
                 name: name.startsWith('🏢') ? name : '🏢 ' + name,
                 address: address,
                 inspector: window.state.userName || '점검자',
@@ -849,6 +851,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const compressedDataUrl = await window.compressDrawingImage(item.file);
                             if (compressedDataUrl) {
                                 bldg.floorDrawings[item.floorCode] = compressedDataUrl;
+                                await uploadFloorDrawing(bldg.id, item.floorCode, compressedDataUrl);
                             }
                         } catch (err) {
                             console.error('Edit drawing compression error:', err);
@@ -897,10 +900,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (confirm(`🗑️ 정말 건축물 '${bldg.name}' 및 등록된 모든 층별 도면과 결함 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
                 window.state.buildings = (window.state.buildings || []).filter(b => b.id !== bldg.id);
-                
+
+                deleteFloorDrawingsForBuilding(bldg);
+
                 // Clear defects and ndtData for this building
                 Object.keys(window.state.defects || {}).forEach(k => {
-                    if (k.startsWith(bldg.id + '_')) delete window.state.defects[k];
+                    if (k.startsWith(bldg.id + '_')) {
+                        (window.state.defects[k] || []).forEach(d => {
+                            if (d.photos && d.photos.length > 0) deletePhotosForDefect(d.id, d.photos.length);
+                        });
+                        delete window.state.defects[k];
+                    }
                 });
                 Object.keys(window.state.ndtData || {}).forEach(k => {
                     if (k.startsWith(bldg.id + '_')) delete window.state.ndtData[k];
@@ -1028,7 +1038,28 @@ document.addEventListener('DOMContentLoaded', () => {
             img.src = srcUrl;
         };
 
-        if (!dataUrl || (isLocalFileUrl && window.location.protocol !== 'file:')) {
+        const hasFloorRegistered = bldg && bldg.floorsList && bldg.floorsList.some(f => f.floorCode === floorCode);
+
+        if (!dataUrl && hasFloorRegistered && db && window.state.companyId) {
+            // 로컬 캐시엔 없지만 이 건물에 등록된 층 도면 -> Firestore에서 1회 조회 후 캐싱
+            db.collection('safety_app').doc(getCompanyDocId())
+                .collection('floorDrawings').doc(`${bldg.id}_${floorCode}`).get()
+                .then(doc => {
+                    const fetchedUrl = doc.exists ? doc.data().dataUrl : null;
+                    if (fetchedUrl) {
+                        if (!bldg.floorDrawings) bldg.floorDrawings = {};
+                        bldg.floorDrawings[floorCode] = fetchedUrl;
+                    }
+                    if (state.currentFloor === floorCode) {
+                        tryLoadImage(fetchedUrl || getDefaultBlueprintSvgDataUrl(floorCode || '1F'), !fetchedUrl);
+                    }
+                })
+                .catch(() => {
+                    if (state.currentFloor === floorCode) {
+                        tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
+                    }
+                });
+        } else if (!dataUrl || (isLocalFileUrl && window.location.protocol !== 'file:')) {
             // Mobile browser or web server accessing local file:/// path -> use high-res CAD SVG immediately
             tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
         } else {
@@ -3342,7 +3373,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnSaveDefect = document.getElementById('btnSaveDefect');
     if (btnSaveDefect) {
-        btnSaveDefect.addEventListener('click', () => {
+        btnSaveDefect.addEventListener('click', async () => {
             if (!state.currentBuildingId) return;
             const key = `${state.currentBuildingId}_${state.currentFloor}`;
             if (!state.defects[key]) state.defects[key] = [];
@@ -3394,6 +3425,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     targetY: coords.targetY
                 };
                 state.defects[key].push(newDefect);
+            }
+
+            const savedDefectId = pinId || (state.defects[key][state.defects[key].length - 1] && state.defects[key][state.defects[key].length - 1].id);
+            if (savedDefectId && photosVal.length > 0) {
+                await uploadDefectPhotos(savedDefectId, photosVal);
             }
 
             saveStateToLocalStorage();
@@ -3729,6 +3765,21 @@ document.addEventListener('DOMContentLoaded', () => {
             availableFloors = bldg.floorsList.map(f => f.floorCode);
         } else if (bldg.floorDrawings) {
             availableFloors = Object.keys(bldg.floorDrawings);
+        }
+
+        // 로컬에 없는 도면은 보고서 생성 전에 Firestore에서 미리 일괄 조회
+        if (db && window.state.companyId) {
+            if (!bldg.floorDrawings) bldg.floorDrawings = {};
+            const missingFloors = availableFloors.filter(fc => !bldg.floorDrawings[fc]);
+            if (missingFloors.length > 0) {
+                const companyDrawings = db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings');
+                await Promise.all(missingFloors.map(async fc => {
+                    try {
+                        const doc = await companyDrawings.doc(`${bldg.id}_${fc}`).get();
+                        if (doc.exists && doc.data().dataUrl) bldg.floorDrawings[fc] = doc.data().dataUrl;
+                    } catch (e) { /* 도면 없음 -> 기본 플레이스홀더로 폴백 */ }
+                }));
+            }
         }
 
         const promises = availableFloors.map((floorCode) => {
@@ -4369,6 +4420,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.deleteDefectById = function(id) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         if (state.defects[key]) {
+            const target = state.defects[key].find(d => d.id === id);
+            if (target && target.photos && target.photos.length > 0) {
+                deletePhotosForDefect(id, target.photos.length);
+            }
             state.defects[key] = state.defects[key].filter(d => d.id !== id);
             saveStateToLocalStorage();
             renderSurveyTable();
@@ -4407,8 +4462,23 @@ document.addEventListener('DOMContentLoaded', () => {
     // ==========================================================================
 
     // --- 1. JSON 데이터 전체 백업 및 복원 ---
-    window.exportBackupJSON = function() {
+    window.exportBackupJSON = async function() {
         try {
+            // 내보내기 전, 아직 로컬 캐시에 없는 층 도면을 전부 미리 가져와 채워서 완전한 백업 보장
+            if (db && window.state.companyId) {
+                const companyDrawings = db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings');
+                for (const bldg of (window.state.buildings || [])) {
+                    if (!bldg.floorDrawings) bldg.floorDrawings = {};
+                    const floors = (bldg.floorsList || []).map(f => f.floorCode);
+                    await Promise.all(floors.filter(fc => !bldg.floorDrawings[fc]).map(async fc => {
+                        try {
+                            const doc = await companyDrawings.doc(`${bldg.id}_${fc}`).get();
+                            if (doc.exists && doc.data().dataUrl) bldg.floorDrawings[fc] = doc.data().dataUrl;
+                        } catch (e) { /* 해당 층 도면 없음 */ }
+                    }));
+                }
+            }
+
             const backupData = {
                 version: 'v60.0_pwa_backup',
                 timestamp: new Date().toISOString(),
@@ -4458,7 +4528,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const reader = new FileReader();
-        reader.onload = function(e) {
+        reader.onload = async function(e) {
             try {
                 const data = JSON.parse(e.target.result);
                 if (!data || !data.state || !Array.isArray(data.state.buildings)) {
@@ -4470,6 +4540,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.state.ndtData = data.state.ndtData || {};
                 window.state.grids = data.state.grids || {};
                 window.state.floorSnapshots = data.state.floorSnapshots || {};
+
+                // 백업 파일 안의 도면/사진을 개별 문서 구조로 업로드
+                if (db && window.state.companyId) {
+                    for (const bldg of window.state.buildings) {
+                        if (bldg.floorDrawings) {
+                            for (const [floorCode, dataUrl] of Object.entries(bldg.floorDrawings)) {
+                                if (dataUrl) await uploadFloorDrawing(bldg.id, floorCode, dataUrl);
+                            }
+                        }
+                    }
+                    for (const arr of Object.values(window.state.defects)) {
+                        for (const d of (arr || [])) {
+                            if (d.photos && d.photos.length > 0) await uploadDefectPhotos(d.id, d.photos);
+                        }
+                    }
+                }
 
                 if (data.companyName) {
                     window.state.companyName = data.companyName;
@@ -5035,15 +5121,108 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // --- 무거운 이미지(도면/사진) 개별 문서 저장 헬퍼 ---
+    // Firestore 문서 1개 1MB 한도 대응: 도면/사진은 각자 별도 문서에 저장하고,
+    // 회사 메타데이터 문서(safety_app/{companyId})에는 참조(ID)만 남긴다.
+
+    function getPhotoDocId(defectId, index) {
+        return `${defectId}_${index}`;
+    }
+
+    async function uploadFloorDrawing(buildingId, floorCode, dataUrl) {
+        if (!db || !window.state.companyId || !dataUrl) return;
+        try {
+            await db.collection('safety_app').doc(getCompanyDocId())
+                .collection('floorDrawings').doc(`${buildingId}_${floorCode}`)
+                .set({ dataUrl });
+        } catch (e) {
+            console.warn('도면 업로드 실패:', e);
+        }
+    }
+
+    async function uploadDefectPhotos(defectId, photosArray) {
+        if (!Array.isArray(photosArray) || photosArray.length === 0) return [];
+        if (!window._photoCache) window._photoCache = {};
+        const photoIds = photosArray.map((_, i) => getPhotoDocId(defectId, i));
+        photosArray.forEach((url, i) => { window._photoCache[photoIds[i]] = url; });
+        if (db && window.state.companyId) {
+            const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
+            await Promise.all(photosArray.map((url, i) =>
+                companyPhotos.doc(photoIds[i]).set({ dataUrl: url }).catch(e => console.warn('사진 업로드 실패:', e))
+            ));
+        }
+        return photoIds;
+    }
+
+    async function deletePhotosForDefect(defectId, count) {
+        if (!db || !window.state.companyId || !count) return;
+        const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
+        const jobs = [];
+        for (let i = 0; i < count; i++) {
+            jobs.push(companyPhotos.doc(getPhotoDocId(defectId, i)).delete().catch(() => {}));
+        }
+        await Promise.all(jobs);
+    }
+
+    async function deleteFloorDrawingsForBuilding(bldg) {
+        if (!db || !window.state.companyId || !bldg) return;
+        const floors = (bldg.floorsList && bldg.floorsList.length > 0)
+            ? bldg.floorsList.map(f => f.floorCode)
+            : Object.keys(bldg.floorDrawings || {});
+        const companyDrawings = db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings');
+        await Promise.all(floors.map(fc => companyDrawings.doc(`${bldg.id}_${fc}`).delete().catch(() => {})));
+    }
+
+    async function hydrateDefectPhotos(defectsMap) {
+        if (!db || !window.state.companyId) return defectsMap;
+        if (!window._photoCache) window._photoCache = {};
+        const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
+        const result = {};
+        for (const [key, arr] of Object.entries(defectsMap || {})) {
+            result[key] = await Promise.all((arr || []).map(async d => {
+                if (!d.photoIds || d.photoIds.length === 0) {
+                    return { ...d, photos: [] };
+                }
+                const photos = await Promise.all(d.photoIds.map(async pid => {
+                    if (window._photoCache[pid]) return window._photoCache[pid];
+                    try {
+                        const snap = await companyPhotos.doc(pid).get();
+                        const url = snap.exists ? snap.data().dataUrl : null;
+                        if (url) window._photoCache[pid] = url;
+                        return url;
+                    } catch (e) {
+                        return null;
+                    }
+                }));
+                return { ...d, photos: photos.filter(Boolean) };
+            }));
+        }
+        return result;
+    }
+
     function syncStateToFirebase() {
         if (!db || isRemoteSyncing || !window.state.companyId) return;
         try {
             const docId = getCompanyDocId();
+
+            const sanitizedBuildings = (window.state.buildings || []).map(b => {
+                const { floorDrawings, ...rest } = b;
+                return rest;
+            });
+
+            const sanitizedDefects = {};
+            Object.entries(window.state.defects || {}).forEach(([key, arr]) => {
+                sanitizedDefects[key] = (arr || []).map(d => {
+                    const { photos, ...rest } = d;
+                    return { ...rest, photoIds: (photos || []).map((_, i) => getPhotoDocId(d.id, i)) };
+                });
+            });
+
             const dataToSync = {
-                defects: window.state.defects || {},
+                defects: sanitizedDefects,
                 ndtData: window.state.ndtData || {},
                 grids: window.state.grids || {},
-                buildings: window.state.buildings || [],
+                buildings: sanitizedBuildings,
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -5063,7 +5242,7 @@ document.addEventListener('DOMContentLoaded', () => {
             try { currentUnsubscribe(); } catch(e) {}
         }
         const docId = getCompanyDocId();
-        currentUnsubscribe = db.collection('safety_app').doc(docId).onSnapshot((doc) => {
+        currentUnsubscribe = db.collection('safety_app').doc(docId).onSnapshot(async (doc) => {
             if (doc && doc.exists) {
                 const data = doc.data();
                 if (!data) return;
@@ -5071,11 +5250,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     let isChanged = false;
                     if (data.buildings && Array.isArray(data.buildings) && data.buildings.length > 0) {
-                        window.state.buildings = data.buildings;
+                        // 로컬에 이미 로드된 도면 캐시(floorDrawings)는 유지한 채 메타데이터만 갱신
+                        const prevDrawingsById = {};
+                        (window.state.buildings || []).forEach(b => { prevDrawingsById[b.id] = b.floorDrawings || {}; });
+                        window.state.buildings = data.buildings.map(b => ({
+                            ...b,
+                            floorDrawings: prevDrawingsById[b.id] || {}
+                        }));
                         isChanged = true;
                     }
                     if (data.defects) {
-                        window.state.defects = data.defects;
+                        window.state.defects = await hydrateDefectPhotos(data.defects);
                         isChanged = true;
                     }
                     if (data.ndtData) {
