@@ -1538,7 +1538,142 @@ body {
     color: var(--text-secondary);
 }
 
-/* BUILDING LIST CARD STYLES */
+/* COMPACT BUILDING LIST (모바일 대응, 다수 건물 대비) */
+.building-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 0.9rem;
+    color: var(--text-muted);
+}
+
+.building-search-bar input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.building-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.building-list-empty {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 2rem 1rem;
+    font-size: 0.9rem;
+}
+
+.building-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.9rem;
+    transition: all 0.15s ease;
+}
+
+.building-row:hover {
+    border-color: var(--accent-indigo);
+    box-shadow: var(--shadow-sm);
+}
+
+.building-row-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    cursor: pointer;
+    gap: 0.1rem;
+}
+
+.building-row-name {
+    font-size: 0.98rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.building-row-meta {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.building-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.icon-btn {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    font-size: 0.95rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.icon-btn-start {
+    border-color: #2563eb;
+    color: #2563eb;
+}
+.icon-btn-start:hover {
+    background: #2563eb;
+    color: #ffffff;
+}
+
+.icon-btn-edit {
+    border-color: #9333ea;
+    color: #9333ea;
+}
+.icon-btn-edit:hover {
+    background: #9333ea;
+    color: #ffffff;
+}
+
+.icon-btn-drawing {
+    border-color: #0891b2;
+    color: #0891b2;
+}
+.icon-btn-drawing:hover {
+    background: #0891b2;
+    color: #ffffff;
+}
+
+@media (max-width: 480px) {
+    .building-row-name { font-size: 0.9rem; }
+    .building-row-meta { font-size: 0.72rem; }
+    .icon-btn { width: 34px; height: 34px; font-size: 0.85rem; }
+    .building-row { padding: 0.55rem 0.7rem; gap: 0.5rem; }
+}
+
+/* BUILDING LIST CARD STYLES (레거시, 현재 미사용 — 다른 화면에서 참조 시를 대비해 유지) */
 .building-card-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));

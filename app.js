@@ -349,36 +349,48 @@ document.addEventListener('DOMContentLoaded', () => {
             saveStateToLocalStorage();
         }
 
-        const bldgs = window.state.buildings || [];
+        const allBldgs = window.state.buildings || [];
+        const term = (window.state.buildingSearchTerm || '').trim().toLowerCase();
+        const bldgs = term
+            ? allBldgs.filter(b => (b.name || '').toLowerCase().includes(term) || (b.address || '').toLowerCase().includes(term))
+            : allBldgs;
+
+        if (bldgs.length === 0) {
+            grid.innerHTML = `<div class="building-list-empty">${term ? '🔍 검색 결과가 없습니다.' : '등록된 건축물이 없습니다. 우측 상단 "신규 건축물 등록" 버튼을 눌러 시작하세요.'}</div>`;
+            return;
+        }
 
         grid.innerHTML = bldgs.map(bldg => {
-            const drawingBadge = (bldg.floorsList && bldg.floorsList.length > 0)
-                ? `<span style="font-size: 0.78rem; font-weight: 700; color: #38bdf8; background: rgba(56, 189, 248, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px; border: 1px solid rgba(56, 189, 248, 0.3);"><i class="fa-solid fa-file-image"></i> 도면 ${bldg.floorsList.length}개 층 보유</span>`
-                : `<span style="font-size: 0.78rem; font-weight: 600; color: #94a3b8; background: rgba(148, 163, 184, 0.15); padding: 0.25rem 0.6rem; border-radius: 12px;">도면 미등록</span>`;
-
+            const floorCount = (bldg.floorsList && bldg.floorsList.length > 0) ? `📐 도면 ${bldg.floorsList.length}개 층` : '📐 도면 미등록';
             return `
-                <div class="building-card" data-id="${bldg.id}" style="padding: 1.5rem; display: flex; flex-direction: column; justify-content: space-between; gap: 1.2rem; min-height: 160px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.12); border-radius: 14px; backdrop-filter: blur(10px); box-shadow: 0 4px 20px rgba(0,0,0,0.3);">
-                    <div class="building-card-header" style="margin-bottom: 0;">
-                        <h3 class="building-title" style="font-size: 1.25rem; font-weight: 800; color: #f8fafc; display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; width: 100%;">
-                            <span>${bldg.name}</span>
-                            ${drawingBadge}
-                        </h3>
-                        <p style="font-size: 0.88rem; color: #94a3b8; margin-top: 0.4rem;">
-                            <i class="fa-solid fa-location-dot" style="color: #ef4444;"></i> ${bldg.address || '서울특별시 강남구'} | 🏢 ${bldg.floors || '지상 10층 ~ 지하 2층'}
-                        </p>
+                <div class="building-row" data-id="${bldg.id}">
+                    <div class="building-row-info" onclick="window.selectBuildingAndInspect('${bldg.id}')">
+                        <span class="building-row-name">${bldg.name}</span>
+                        <span class="building-row-meta">${bldg.address || '주소 미등록'} · ${floorCount}</span>
                     </div>
-                    <div class="building-card-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap;">
-                        <button type="button" class="btn btn-open-building-map" onclick="window.selectBuildingAndInspect('${bldg.id}')" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
-                            <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
+                    <div class="building-row-actions">
+                        <button type="button" class="icon-btn icon-btn-start" title="현장 점검 시작" onclick="window.selectBuildingAndInspect('${bldg.id}')">
+                            <i class="fa-solid fa-map-location-dot"></i>
                         </button>
-                        <button type="button" class="btn btn-edit-building" onclick="window.openEditBuildingModalFunc('${bldg.id}')" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(147, 51, 234, 0.08); border: 1px solid #9333ea; color: #9333ea; border-radius: 8px;">
-                            <i class="fa-solid fa-pen-to-square"></i> ✏️ 명칭/도면 수정
+                        <button type="button" class="icon-btn icon-btn-edit" title="건축물 개요 수정" onclick="window.openEditBuildingModalFunc('${bldg.id}', 'info')">
+                            <i class="fa-solid fa-pen-to-square"></i>
+                        </button>
+                        <button type="button" class="icon-btn icon-btn-drawing" title="도면 수정" onclick="window.openEditBuildingModalFunc('${bldg.id}', 'drawing')">
+                            <i class="fa-solid fa-images"></i>
                         </button>
                     </div>
                 </div>
             `;
         }).join('');
     };
+
+    const buildingSearchInput = document.getElementById('buildingSearchInput');
+    if (buildingSearchInput) {
+        buildingSearchInput.addEventListener('input', (e) => {
+            window.state.buildingSearchTerm = e.target.value;
+            window.renderDashboard();
+        });
+    }
 
     window.selectBuildingAndInspect = function(bldgOrId) {
         if (!window.state.buildings) window.state.buildings = [];
@@ -659,7 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return [...floorsList].sort((a, b) => getRank(a.floorCode) - getRank(b.floorCode));
     };
 
-    window.openEditBuildingModalFunc = function(bldgId) {
+    window.openEditBuildingModalFunc = function(bldgId, focusSection = 'info') {
         const modal = document.getElementById('editBuildingModal');
         if (!modal) return;
 
@@ -693,6 +705,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         modal.style.display = 'flex';
         modal.classList.add('open');
+
+        const modalBody = modal.querySelector('.modal-body');
+        if (modalBody) modalBody.scrollTop = 0;
+
+        if (focusSection === 'drawing') {
+            setTimeout(() => {
+                const drawingInput = document.getElementById('inputEditBuildingDrawings');
+                const drawingSection = drawingInput ? drawingInput.closest('.form-group') : null;
+                if (drawingSection) drawingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 150);
+        }
     };
 
     window.closeEditBuildingModalFunc = function() {
