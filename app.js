@@ -348,6 +348,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                 bldg.floorDrawings = newMap;
                             }
                         }
+                        if (typeof window.getBuildingAvailableFloors === 'function') {
+                            bldg.floorsList = window.getBuildingAvailableFloors(bldg);
+                        }
                         return bldg;
                     });
                 }
@@ -461,7 +464,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <button type="button" class="btn btn-open-building-map" onclick="window.selectBuildingAndInspect('${bldg.id}')" style="flex: 2; min-width: 180px; justify-content: center; padding: 0.8rem 1rem; font-size: 0.95rem; font-weight: 700; background: linear-gradient(135deg, #0284c7, #2563eb); border-radius: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
                             <i class="fa-solid fa-map-location-dot"></i> 🚀 현장 도면 점검 시작
                         </button>
-                        <button type="button" class="btn btn-edit-building" onclick="window.openEditBuildingModalFunc('${bldg.id}')" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(168, 85, 247, 0.15); border: 1px solid #a855f7; color: #d8b4fe; border-radius: 8px;">
+                        <button type="button" class="btn btn-edit-building" onclick="window.openEditBuildingModalFunc('${bldg.id}')" style="flex: 1; min-width: 130px; justify-content: center; padding: 0.8rem 0.8rem; font-size: 0.88rem; font-weight: 700; background: rgba(147, 51, 234, 0.08); border: 1px solid #9333ea; color: #9333ea; border-radius: 8px;">
                             <i class="fa-solid fa-pen-to-square"></i> ✏️ 명칭/도면 수정
                         </button>
                     </div>
@@ -515,33 +518,76 @@ document.addEventListener('DOMContentLoaded', () => {
         ).join('');
     }
 
+    window.getFloorLabelFromCode = function(code) {
+        if (!code) return '1F';
+        const c = String(code).toUpperCase().trim();
+        if (c === 'ROOF' || c.includes('옥상') || c.includes('PH')) return '옥상 층 (ROOF)';
+        const bMatch = c.match(/B\s*([0-9]+)/);
+        if (bMatch) return `지하 ${bMatch[1]}층 (${c})`;
+        const fMatch = c.match(/([0-9]+)\s*F/);
+        if (fMatch) return `지상 ${fMatch[1]}층 (${c})`;
+        return `${c}층 (${c})`;
+    };
+
+    window.getBuildingAvailableFloors = function(bldg) {
+        if (!bldg) return [];
+        const floorMap = {};
+
+        // 1. Collect from bldg.floorsList
+        if (bldg.floorsList && Array.isArray(bldg.floorsList)) {
+            bldg.floorsList.forEach(f => {
+                if (f && f.floorCode) {
+                    floorMap[f.floorCode] = f.floorLabel || window.getFloorLabelFromCode(f.floorCode);
+                }
+            });
+        }
+
+        // 2. Collect from bldg.floorDrawings (전수 자동 수집)
+        if (bldg.floorDrawings && typeof bldg.floorDrawings === 'object') {
+            Object.keys(bldg.floorDrawings).forEach(code => {
+                if (code && !floorMap[code]) {
+                    floorMap[code] = window.getFloorLabelFromCode(code);
+                }
+            });
+        }
+
+        const list = Object.entries(floorMap).map(([code, label]) => ({
+            floorCode: code,
+            floorLabel: label
+        }));
+
+        // 3. Always sort low to high (B2F -> B1F -> 1F -> 2F -> 3F -> ROOF)
+        if (typeof window.sortFloorsLowToHigh === 'function') {
+            return window.sortFloorsLowToHigh(list);
+        }
+        return list;
+    };
+
     function populateFloorSelectDropdown(bldg) {
         if (!elements.floorSelect) return;
-        let availableFloors = [];
-
-        if (bldg.floorsList && bldg.floorsList.length > 0) {
-            availableFloors = bldg.floorsList;
-        } else if (bldg.floorDrawings && Object.keys(bldg.floorDrawings).length > 0) {
-            availableFloors = Object.keys(bldg.floorDrawings).map(code => {
-                let label = code;
-                if (code === 'ROOF') label = '옥상 층 (ROOF)';
-                else if (code.startsWith('B')) label = `지하 ${code.replace('B','').replace('F','')}층 (${code})`;
-                else if (code.endsWith('F')) label = `지상 ${code.replace('F','')}층 (${code})`;
-                return { floorCode: code, floorLabel: label };
-            });
+        
+        const availableFloors = window.getBuildingAvailableFloors(bldg);
+        
+        if (bldg) {
+            bldg.floorsList = availableFloors;
         }
 
         if (availableFloors.length > 0) {
             elements.floorSelect.innerHTML = availableFloors.map(f => 
                 `<option value="${f.floorCode}">${f.floorLabel}</option>`
             ).join('');
-            window.state.currentFloor = availableFloors[0].floorCode;
+
+            const hasCurrent = availableFloors.some(f => f.floorCode === window.state.currentFloor);
+            if (!hasCurrent) {
+                window.state.currentFloor = availableFloors[0].floorCode;
+            }
+            elements.floorSelect.value = window.state.currentFloor;
         } else {
             elements.floorSelect.innerHTML = `
-                <option value="1F">지상 1층 (1F)</option>
-                <option value="2F">지상 2층 (2F)</option>
-                <option value="B1F">지하 1층 (B1F)</option>
                 <option value="B2F">지하 2층 (B2F)</option>
+                <option value="B1F">지하 1층 (B1F)</option>
+                <option value="1F" selected>지상 1층 (1F)</option>
+                <option value="2F">지상 2층 (2F)</option>
                 <option value="ROOF">옥상 층 (ROOF)</option>
             `;
             window.state.currentFloor = '1F';
@@ -682,6 +728,302 @@ document.addEventListener('DOMContentLoaded', () => {
             window.selectBuildingAndInspect(newBldg);
             alert(`🏢 '${name}' 건축물이 성공적으로 등록되었습니다!`);
         });
+    }
+
+    // --- 7-B. BUILDING EDIT & ADDITIONAL DRAWING INSERTION ENGINE (저층->고층 자동 정렬) ---
+
+    // Low-to-High Floor Sort Helper (B3F -> B2F -> B1F -> 1F -> 2F -> 3F -> ROOF)
+    window.sortFloorsLowToHigh = function(floorsList) {
+        if (!Array.isArray(floorsList)) return [];
+        const getRank = (code) => {
+            if (!code) return 0;
+            const c = String(code).toUpperCase().trim();
+            if (c.includes('ROOF') || c.includes('옥상') || c.includes('PH')) return 9999;
+            const bMatch = c.match(/B\s*([0-9]+)/);
+            if (bMatch) return -parseInt(bMatch[1], 10);
+            const fMatch = c.match(/([0-9]+)\s*F/);
+            if (fMatch) return parseInt(fMatch[1], 10);
+            const numMatch = c.match(/([0-9]+)/);
+            if (numMatch) return parseInt(numMatch[1], 10);
+            return 0;
+        };
+        return [...floorsList].sort((a, b) => getRank(a.floorCode) - getRank(b.floorCode));
+    };
+
+    window.openEditBuildingModalFunc = function(bldgId) {
+        const modal = document.getElementById('editBuildingModal');
+        if (!modal) return;
+
+        const bldgs = window.state.buildings || [];
+        const bldg = bldgs.find(b => b.id === bldgId);
+        if (!bldg) {
+            alert('⚠️ 해당 건축물 정보를 찾을 수 없습니다.');
+            return;
+        }
+
+        window.currentEditingBuilding = bldg;
+        window.selectedEditUploadedDrawings = [];
+
+        // Bind building info to edit modal form inputs
+        document.getElementById('inputEditBuildingId').value = bldg.id;
+        document.getElementById('inputEditBuildingName').value = (bldg.name || '').replace(/^🏢\s*/, '');
+        document.getElementById('inputEditBuildingAddress').value = bldg.address || '';
+        document.getElementById('inputEditBuildingFloors').value = bldg.floors || '';
+        document.getElementById('inputEditBuildingDate').value = bldg.date || new Date().toISOString().split('T')[0];
+        
+        if (document.getElementById('inputEditBuildingInspectionType')) document.getElementById('inputEditBuildingInspectionType').value = bldg.inspectionType || '정밀안전점검';
+        if (document.getElementById('inputEditBuildingInspectionYear')) document.getElementById('inputEditBuildingInspectionYear').value = bldg.inspectionYear || '2026년';
+        if (document.getElementById('inputEditBuildingInspectionPeriod')) document.getElementById('inputEditBuildingInspectionPeriod').value = bldg.inspectionPeriod || '하반기';
+        if (document.getElementById('inputEditBuildingNotes')) document.getElementById('inputEditBuildingNotes').value = bldg.notes || '';
+
+        const fileInput = document.getElementById('inputEditBuildingDrawings');
+        if (fileInput) fileInput.value = '';
+
+        // Render current drawings list preview in low-to-high order
+        renderEditDrawingPreview();
+
+        modal.style.display = 'flex';
+        modal.classList.add('open');
+    };
+
+    window.closeEditBuildingModalFunc = function() {
+        const modal = document.getElementById('editBuildingModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    };
+
+    function renderEditDrawingPreview() {
+        const preview = document.getElementById('editDrawingSortPreview');
+        if (!preview) return;
+
+        const bldg = window.currentEditingBuilding;
+        if (!bldg) return;
+
+        let existingFloors = [];
+        if (bldg.floorsList && bldg.floorsList.length > 0) {
+            existingFloors = bldg.floorsList;
+        } else if (bldg.floorDrawings) {
+            existingFloors = Object.keys(bldg.floorDrawings).map(code => ({ floorCode: code, floorLabel: code }));
+        }
+
+        // Sort existing floors in low-to-high order (B2F -> B1F -> 1F -> 2F -> ROOF)
+        existingFloors = window.sortFloorsLowToHigh(existingFloors);
+
+        const newFiles = Array.isArray(window.selectedEditUploadedDrawings) ? window.selectedEditUploadedDrawings : [];
+
+        let html = `
+            <div style="font-size:0.85rem; font-weight:800; color:#0284c7; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+                <span>🖼️ 층별 도면 목록 (저층 ➡️ 고층 순서 정렬):</span>
+                <span style="font-size:0.78rem; color:#64748b;">(기존 ${existingFloors.length}개 + 신규추가 ${newFiles.length}개)</span>
+            </div>
+        `;
+
+        if (existingFloors.length === 0 && newFiles.length === 0) {
+            html += `<div style="font-size:0.8rem; color:#94a3b8; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">등록된 층별 도면이 없습니다. 아래에서 파일들을 선택하여 추가해 주세요.</div>`;
+        } else {
+            html += `<div style="display:flex; flex-direction:column; gap:0.4rem; max-height:220px; overflow-y:auto; padding-right:4px;">`;
+            
+            // Render Existing Registered Drawings
+            existingFloors.forEach((f, idx) => {
+                const hasImg = bldg.floorDrawings && bldg.floorDrawings[f.floorCode];
+                html += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #cbd5e1; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
+                        <span>
+                            <strong style="color:#0284c7;">[기존 ${idx + 1}]</strong> 🏢 ${f.floorLabel} (${f.floorCode})
+                            ${hasImg ? '<span style="color:#16a34a; font-size:0.75rem; margin-left:0.4rem;">✓ 도면이미지 보유</span>' : ''}
+                        </span>
+                        <button type="button" class="btn btn-sm btn-outline" style="border-color:#ef4444; color:#ef4444; font-size:0.72rem; padding:0.1rem 0.4rem;" onclick="window.deleteExistingFloorDrawing('${f.floorCode}')">
+                            <i class="fa-solid fa-trash"></i> 도면 삭제
+                        </button>
+                    </div>
+                `;
+            });
+
+            // Render Newly Added Drawings
+            newFiles.forEach((item, idx) => {
+                html += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:#e0f2fe; border:1px solid #0284c7; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
+                        <span>
+                            <strong style="color:#0369a1;">[신규추가 ${idx + 1}]</strong> ➕ ${item.floorLabel} (${item.floorCode})
+                            <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${item.fileName}</span>
+                        </span>
+                        <span style="font-size:0.75rem; color:#0284c7; font-weight:700;">삽입대기</span>
+                    </div>
+                `;
+            });
+
+            html += `</div>`;
+        }
+
+        preview.innerHTML = html;
+    }
+
+    window.deleteExistingFloorDrawing = function(floorCode) {
+        const bldg = window.currentEditingBuilding;
+        if (!bldg) return;
+
+        if (confirm(`🗑️ 정말 ${floorCode} 층 도면을 삭제하시겠습니까?`)) {
+            if (bldg.floorDrawings && bldg.floorDrawings[floorCode]) {
+                delete bldg.floorDrawings[floorCode];
+            }
+            if (bldg.floorsList) {
+                bldg.floorsList = bldg.floorsList.filter(f => f.floorCode !== floorCode);
+            }
+            renderEditDrawingPreview();
+        }
+    };
+
+    // Handling Additional Drawing File Selection
+    const inputEditDrawings = document.getElementById('inputEditBuildingDrawings');
+    if (inputEditDrawings) {
+        inputEditDrawings.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+
+            const parsedItems = files.map(file => {
+                const info = window.parseFloorInfoFromFilename(file.name);
+                return {
+                    file: file,
+                    fileName: file.name,
+                    rank: info.rank,
+                    floorCode: info.floorCode,
+                    floorLabel: info.floorLabel
+                };
+            });
+
+            window.selectedEditUploadedDrawings = window.sortFloorsLowToHigh(parsedItems);
+            renderEditDrawingPreview();
+        });
+    }
+
+    // Save Edit Building & Merge New Drawings Action
+    const btnSaveEditBuilding = document.getElementById('btnSaveEditBuilding');
+    if (btnSaveEditBuilding) {
+        btnSaveEditBuilding.addEventListener('click', async () => {
+            const bldg = window.currentEditingBuilding;
+            if (!bldg) return;
+
+            const nameInput = document.getElementById('inputEditBuildingName');
+            const name = (nameInput ? nameInput.value : '').trim();
+            if (!name) {
+                alert('⚠️ 건축물 명칭을 입력해 주세요!');
+                if (nameInput) nameInput.focus();
+                return;
+            }
+
+            const address = (document.getElementById('inputEditBuildingAddress')?.value || '').trim() || bldg.address;
+            const floors = (document.getElementById('inputEditBuildingFloors')?.value || '').trim() || bldg.floors;
+            const date = document.getElementById('inputEditBuildingDate')?.value || bldg.date;
+            const inspectionType = document.getElementById('inputEditBuildingInspectionType')?.value || bldg.inspectionType || '정밀안전점검';
+            const inspectionYear = document.getElementById('inputEditBuildingInspectionYear')?.value || bldg.inspectionYear || '2026년';
+            const inspectionPeriod = document.getElementById('inputEditBuildingInspectionPeriod')?.value || bldg.inspectionPeriod || '하반기';
+            const notes = document.getElementById('inputEditBuildingNotes')?.value || '';
+
+            // Process newly added drawings and merge into existing bldg
+            if (!bldg.floorDrawings) bldg.floorDrawings = {};
+            if (!bldg.floorsList) bldg.floorsList = [];
+
+            const newFiles = Array.isArray(window.selectedEditUploadedDrawings) ? window.selectedEditUploadedDrawings : [];
+
+            if (newFiles.length > 0) {
+                for (const item of newFiles) {
+                    // Check if floor already exists in floorsList, if not add it
+                    const existingIdx = bldg.floorsList.findIndex(f => f.floorCode === item.floorCode);
+                    if (existingIdx < 0) {
+                        bldg.floorsList.push({
+                            floorCode: item.floorCode,
+                            floorLabel: item.floorLabel
+                        });
+                    }
+                    if (item.file) {
+                        try {
+                            const compressedDataUrl = await window.compressDrawingImage(item.file);
+                            if (compressedDataUrl) {
+                                bldg.floorDrawings[item.floorCode] = compressedDataUrl;
+                            }
+                        } catch (err) {
+                            console.error('Edit drawing compression error:', err);
+                        }
+                    }
+                }
+            }
+
+            // Always rebuild and sort floorsList in LOW-TO-HIGH order (B2F -> B1F -> 1F -> 2F -> ROOF)
+            bldg.floorsList = window.getBuildingAvailableFloors(bldg);
+
+            // Update building metadata
+            bldg.name = name.startsWith('🏢') ? name : '🏢 ' + name;
+            bldg.address = address;
+            bldg.floors = floors;
+            bldg.date = date;
+            bldg.inspectionType = inspectionType;
+            bldg.inspectionYear = inspectionYear;
+            bldg.inspectionPeriod = inspectionPeriod;
+            bldg.notes = notes;
+
+            // Save state & sync
+            saveStateToLocalStorage();
+            if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
+
+            window.closeEditBuildingModalFunc();
+
+            renderDashboard();
+            updateProjectSelectDropdown();
+            populateFloorSelectDropdown(bldg);
+
+            if (window.state.currentBuildingId === bldg.id) {
+                window.selectBuildingAndInspect(bldg);
+            }
+
+            alert(`✅ '${bldg.name}' 명칭 및 도면 추가 삽입 저장이 완료되었습니다! (총 ${bldg.floorsList.length}개 층 저층➡️고층 정렬 완료)`);
+        });
+    }
+
+    // Delete Building Action
+    const btnDeleteBuilding = document.getElementById('btnDeleteBuilding');
+    if (btnDeleteBuilding) {
+        btnDeleteBuilding.addEventListener('click', () => {
+            const bldg = window.currentEditingBuilding;
+            if (!bldg) return;
+
+            if (confirm(`🗑️ 정말 건축물 '${bldg.name}' 및 등록된 모든 층별 도면과 결함 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
+                window.state.buildings = (window.state.buildings || []).filter(b => b.id !== bldg.id);
+                
+                // Clear defects and ndtData for this building
+                Object.keys(window.state.defects || {}).forEach(k => {
+                    if (k.startsWith(bldg.id + '_')) delete window.state.defects[k];
+                });
+                Object.keys(window.state.ndtData || {}).forEach(k => {
+                    if (k.startsWith(bldg.id + '_')) delete window.state.ndtData[k];
+                });
+
+                saveStateToLocalStorage();
+                if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
+
+                window.closeEditBuildingModalFunc();
+
+                if (window.state.currentBuildingId === bldg.id) {
+                    window.state.currentBuilding = null;
+                    window.state.currentBuildingId = null;
+                    window.switchTab('tab-home');
+                }
+
+                renderDashboard();
+                alert(`✅ 건축물 '${bldg.name}' 삭제가 완료되었습니다.`);
+            }
+        });
+    }
+
+    const btnCloseEditBuildingModal = document.getElementById('btnCloseEditBuildingModal');
+    if (btnCloseEditBuildingModal) {
+        btnCloseEditBuildingModal.addEventListener('click', window.closeEditBuildingModalFunc);
+    }
+
+    const btnCancelEditBuilding = document.getElementById('btnCancelEditBuilding');
+    if (btnCancelEditBuilding) {
+        btnCancelEditBuilding.addEventListener('click', window.closeEditBuildingModalFunc);
     }
 
     // --- 8. DRAWING CANVAS ENGINE (PAN/ZOOM/ROTATE & PINS) ---
@@ -3742,32 +4084,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 surveyPages.forEach((sDefects, sPageIdx) => {
                     reportPagesHtml += `
-                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
-                                <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
                                     1. ${floorCode} 상태조사표 (총 ${defects.length}개 중 ${sDefects.length}개 표시)
                                 </h2>
-                                <span style="font-size:0.8rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.2rem 0.6rem; border-radius:12px;">
+                                <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
                                     페이지 ${sPageIdx + 1} / ${surveyPages.length} (페이지당 최대 12개)
                                 </span>
                             </div>
 
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; page-break-inside: auto;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
                                 <thead>
-                                    <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1; page-break-inside: avoid !important; break-inside: avoid !important;">
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">결함번호</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">위치</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">조사내용</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">구조체여부</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">결함크기</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">진행여부</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">누수여부</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">결함원인추정</th>
-                                        <th style="padding: 0.6rem; border: 1px solid #cbd5e1;">비고</th>
+                                    <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함번호</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">위치</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">조사내용</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">구조체여부</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함크기</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">진행여부</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">누수여부</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함원인추정</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">비고</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -3776,23 +4118,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                         const labels = defectPhotoLabels[defectKey] || [];
                                         const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                                         return `
-                                            <tr style="page-break-inside: avoid !important; break-inside: avoid !important;">
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${d.no}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700;">${d.location || (floorCode + ' ' + d.component)}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:#0369a1;">${d.defectType}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:800; color:${d.category === '구조체' ? '#ef4444' : '#94a3b8'};">${d.category === '구조체' ? '○' : '-'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0;">${d.size || 'W=0.2mm'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isProgress ? '#dc2626' : '#94a3b8'};">${d.isProgress ? '진행중' : '-'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isLeak ? '#0284c7' : '#94a3b8'};">${d.isLeak ? '누수중' : '-'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700;">${d.cause || '건조수축'}</td>
-                                                <td style="padding:0.5rem; border:1px solid #e2e8f0; font-weight:700; color:${pRemark !== '-' ? '#2563eb' : '#94a3b8'};">${pRemark}</td>
+                                            <tr>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${d.no}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${d.location || (floorCode + ' ' + d.component)}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0369a1;">${d.defectType}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.category === '구조체' ? '#ef4444' : '#94a3b8'};">${d.category === '구조체' ? '○' : '-'}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${d.size || 'W=0.2mm'}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isProgress ? '#dc2626' : '#94a3b8'};">${d.isProgress ? '진행중' : '-'}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isLeak ? '#0284c7' : '#94a3b8'};">${d.isLeak ? '누수중' : '-'}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${d.cause || '건조수축'}</td>
+                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:${pRemark !== '-' ? '#2563eb' : '#94a3b8'};">${pRemark}</td>
                                             </tr>
                                         `;
                                     }).join('') : `<tr><td colspan="9" style="padding:2rem; color:#94a3b8;">${floorCode}층에 등록된 결함이 없습니다.</td></tr>`}
                                 </tbody>
                             </table>
 
-                            <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                            <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
                                 <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
@@ -3800,7 +4142,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                 });
 
-                // --- 2. 현장 사진첩 (실제 사진이 등록된 항목만 전수 표시 - A4 1페이지당 정확히 6개 배치 및 4:3 비율 완전보장) ---
+                // --- 2. 현장 사진첩 (A4 1페이지당 정확히 6개 배치 및 4:3 비율 규격) ---
                 const photoPages = [];
                 if (photoItems.length > 0) {
                     for (let i = 0; i < photoItems.length; i += 6) {
@@ -3812,29 +4154,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 photoPages.forEach((pagePhotos, pPageIdx) => {
                     reportPagesHtml += `
-                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                            <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
-                                <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin:0;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
                                     2. ${floorCode} 현장 결함 사진첩 (총 ${photoItems.length}개 사진)
                                 </h2>
-                                <span style="font-size:0.8rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.2rem 0.6rem; border-radius:12px;">
+                                <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
                                     사진첩 페이지 ${pPageIdx + 1} / ${photoPages.length} (규격 6개 배치)
                                 </span>
                             </div>
 
                             ${pagePhotos.length > 0 ? `
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin-bottom: 0.6rem;">
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.4rem;">
                                     ${pagePhotos.map(p => `
-                                        <div style="border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; background: #fafafa; box-sizing: border-box;">
-                                            <div style="position: relative; width: 100%; padding-bottom: 75%; background: #e2e8f0; overflow: hidden;">
+                                        <div style="border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fafafa; box-sizing: border-box;">
+                                            <div style="position: relative; width: 100%; padding-bottom: 64%; background: #e2e8f0; overflow: hidden;">
                                                 <img src="${p.src}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;">
                                             </div>
-                                            <div style="padding: 0.4rem; text-align: center;">
-                                                <div style="font-size:0.88rem; font-weight:800; color:#0369a1;">
+                                            <div style="padding: 0.3rem; text-align: center;">
+                                                <div style="font-size:0.84rem; font-weight:800; color:#0369a1;">
                                                     ${p.label}. ${p.title}
                                                 </div>
                                             </div>
@@ -3848,7 +4190,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             `}
 
-                            <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                            <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
                                 <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
@@ -3856,25 +4198,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                 });
 
-                // --- 3. 결함 위치도 (A4 세로 꽉 차게 렌더링) ---
+                // --- 3. 결함 위치도 (A4 세로 222mm 딱 맞게 렌더링) ---
                 const drawingDataUrl = renderFloorPlanCanvasDataUrl(floorCode);
 
                 reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                             <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                         </div>
 
-                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
+                        <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                             3. ${floorCode} 결함 위치도 (도면 마킹 평면도)
                         </h2>
 
                         ${drawingDataUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; margin-top: 0.2rem; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                 <img src="${drawingDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                             </div>
                         ` : `
-                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                                 <i class="fa-solid fa-map-location-dot" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
                                 📍 ${floorCode} 등록된 평면도 도면이 없습니다.<br>
                                 <span style="font-size: 0.88rem; color: #94a3b8; font-weight: 500; margin-top: 0.4rem; display: inline-block;">
@@ -3883,39 +4225,39 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
                         `}
 
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                        <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
                             <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
                             <span>📄 스마트 건축물 안전점검 시스템</span>
                         </div>
                     </div>
                 `;
 
-                // --- 4. 🔬 비파괴 장비 조사 (기울기) 측정 결과표 (페이지 4) ---
+                // --- 4. 🔬 비파괴 장비 조사 (기울기) 측정 결과표 ---
                 const ndtKey = `${currentBldgId}_${floorCode}`;
                 const ndtItems = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
 
                 let ndtDrawingDataUrl = renderNdtFloorPlanCanvasDataUrl(floorCode);
 
                 reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                             <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                         </div>
 
-                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
+                        <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                             4. ${floorCode} 비파괴 장비 조사 (기울기) 측정 결과표
                         </h2>
 
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.83rem; text-align: center; margin-bottom: 1rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
                             <thead>
                                 <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">관리번호</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">조사항목</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정위치 (그리드)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">측정높이 (H)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">변위량(mm)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">기울기 (1/H)</th>
-                                    <th style="padding: 0.5rem; border: 1px solid #cbd5e1;">기울기 등급</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">관리번호</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">조사항목</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">측정위치 (그리드)</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">측정높이 (H)</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">변위량(mm)</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">기울기 (1/H)</th>
+                                    <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">기울기 등급</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -3926,13 +4268,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const gradeColor = grStr === 'a등급' ? '#16a34a' : (grStr === 'b등급' ? '#0284c7' : (grStr === 'c등급' ? '#ca8a04' : '#dc2626'));
                                     return `
                                     <tr>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700;">${item.category || '기울기'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${fmtH}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${ratioStr}</td>
-                                        <td style="padding:0.45rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${grStr}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.category || '기울기'}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${fmtH}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${ratioStr}</td>
+                                        <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${grStr}</td>
                                     </tr>
                                 `;}).join('') : `
                                     <tr>
@@ -3942,36 +4284,36 @@ document.addEventListener('DOMContentLoaded', () => {
                             </tbody>
                         </table>
 
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                        <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
                             <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
                             <span>📄 스마트 건축물 안전점검 시스템</span>
                         </div>
                     </div>
                 `;
 
-                // --- 5. 🔬 비파괴 장비 조사 (기울기) 측정 위치도 (다음 독립 페이지 - A4 세로 꽉 차게 렌더링) ---
+                // --- 5. 🔬 비파괴 장비 조사 (기울기) 측정 위치도 (독립 A4 페이지) ---
                 reportPagesHtml += `
-                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 2.2rem; margin-bottom: 2.5rem; font-family: sans-serif; font-size:0.9rem; border-radius:8px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; box-sizing: border-box; width: 100%; max-width: 800px; min-height: 1080px; display: flex; flex-direction: column;">
-                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.4rem; margin-bottom: 1rem;">
+                    <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                        <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                             <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                         </div>
 
-                        <h2 style="font-size:1.05rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.6rem; margin-bottom: 0.8rem;">
+                        <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                             5. ${floorCode} 비파괴 장비 조사 (기울기) 측정 위치도
                         </h2>
 
                         ${ndtDrawingDataUrl ? `
-                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px solid #0284c7; border-radius: 8px; overflow: hidden; background: #ffffff; text-align: center; padding: 4px; box-sizing: border-box; margin-top: 0.2rem; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                 <img src="${ndtDrawingDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                             </div>
                         ` : `
-                            <div style="width: 100%; flex: 1; min-height: 820px; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                                 <i class="fa-solid fa-microscope" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
                                 📍 비파괴 장비 조사 탭에서 도면에 마킹하면 측정 위치도가 보고서에 자동으로 첨부됩니다.
                             </div>
                         `}
 
-                        <div style="margin-top: auto; padding-top: 0.8rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #475569;">
+                        <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
                             <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
                             <span>📄 스마트 건축물 안전점검 시스템</span>
                         </div>
@@ -3979,7 +4321,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             });
 
-            container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
+            container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 210mm; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
         } catch (err) {
             console.error('Error in openReportPreviewModalFunc:', err);
             const modal = document.getElementById('reportPreviewModal');
@@ -3995,7 +4337,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // 1. Ensure report preview content is fully generated and preloaded
             await window.openReportPreviewModalFunc();
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 250));
 
             const bldg = window.state.currentBuilding || { name: '건축물_점검보고서' };
             const bldgName = (bldg.name || '건축물').replace(/^🏢\s*/, '').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
@@ -4007,20 +4349,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            // Temporarily set margin-bottom to 0 for strict 1:1 A4 PDF rendering
+            const pageBlocks = element.querySelectorAll('.report-page-block');
+            pageBlocks.forEach(b => {
+                b.style.marginBottom = '0';
+                b.style.boxShadow = 'none';
+            });
+
             if (typeof html2pdf !== 'undefined') {
                 const opt = {
-                    margin:       [5, 5, 5, 5],
+                    margin:       0,
                     filename:     filename,
                     image:        { type: 'jpeg', quality: 0.98 },
-                    html2canvas:  { scale: 2, useCORS: true, logging: false },
+                    html2canvas:  { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
                     jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                    pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
+                    pagebreak:    { mode: ['css', 'legacy'] }
                 };
-                html2pdf().set(opt).from(element).save().catch(() => {
-                    window.print();
+                
+                await html2pdf().set(opt).from(element).save();
+
+                // Restore screen preview margins
+                pageBlocks.forEach(b => {
+                    b.style.marginBottom = '2rem';
+                    b.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)';
                 });
             } else {
                 window.print();
+                pageBlocks.forEach(b => {
+                    b.style.marginBottom = '2rem';
+                    b.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)';
+                });
             }
         } catch(err) {
             console.error('PDF export error:', err);
@@ -4047,6 +4405,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnModalExportPdf = document.getElementById('btnModalExportPdf');
     if (btnModalExportPdf) {
         btnModalExportPdf.addEventListener('click', window.exportPDF);
+    }
+
+    // Theme Toggle Handler (Default Pure Light White Theme)
+    const btnThemeToggle = document.getElementById('btnThemeToggle');
+    if (btnThemeToggle) {
+        btnThemeToggle.innerHTML = '<i class="fa-solid fa-sun"></i>';
+        btnThemeToggle.title = "다크/라이트 모드 전환 (현재: 화이트 톤)";
+        btnThemeToggle.addEventListener('click', () => {
+            const isLight = document.body.classList.contains('theme-light');
+            if (isLight) {
+                document.body.classList.remove('theme-light');
+                document.body.classList.add('theme-dark');
+                btnThemeToggle.innerHTML = '<i class="fa-solid fa-moon"></i>';
+                localStorage.setItem('building_theme', 'dark');
+            } else {
+                document.body.classList.remove('theme-dark');
+                document.body.classList.add('theme-light');
+                btnThemeToggle.innerHTML = '<i class="fa-solid fa-sun"></i>';
+                localStorage.setItem('building_theme', 'light');
+            }
+        });
     }
 
     const btnPrintReport = document.getElementById('btnPrintReport');
@@ -4117,13 +4496,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.exportBackupJSON = function() {
         try {
             const backupData = {
-                version: 'v58.7_backup',
+                version: 'v60.0_pwa_backup',
                 timestamp: new Date().toISOString(),
                 companyName: localStorage.getItem('building_company_name') || window.state.companyName || '(주)한국안전진단기술원',
+                userName: localStorage.getItem('building_user_name') || window.state.userName || '홍길동 수석점검자',
                 state: {
                     buildings: window.state.buildings || [],
                     defects: window.state.defects || {},
                     ndtData: window.state.ndtData || {},
+                    grids: window.state.grids || {},
                     floorSnapshots: window.state.floorSnapshots || {},
                     currentBuildingId: window.state.currentBuildingId,
                     currentFloor: window.state.currentFloor
@@ -4136,7 +4517,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const now = new Date();
             const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-            const filename = `스마트건축물_안전점검_백업_${dateStr}.json`;
+            const timeStr = now.toTimeString().slice(0, 5).replace(/:/g, '');
+            const filename = `스마트건축물_안전점검_백업_${dateStr}_${timeStr}.json`;
 
             const link = document.createElement('a');
             link.href = url;
@@ -4146,7 +4528,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
-            alert(`💾 안전점검 데이터 전체 백업 파일이 성공적으로 생성되었습니다!\n파일명: ${filename}`);
+            alert(`💾 안전점검 데이터 전체 백업 파일이 성공적으로 생성되었습니다!\n\n파일명: ${filename}`);
         } catch (err) {
             alert('백업 파일 생성 중 오류가 발생했습니다: ' + err.message);
         }
@@ -4156,7 +4538,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
 
-        if (!confirm('📥 선택한 백업 파일(.json)로 기존 데이터를 복원하시겠습니까?\n현재 브라우저에 저장된 데이터가 백업 파일 데이터로 대체됩니다.')) {
+        if (!confirm('📥 선택한 백업 파일(.json)로 기존 데이터를 복원하시겠습니까?\n현재 브라우저에 저장된 데이터가 백업 파일 데이터로 대체 및 통합됩니다.')) {
             event.target.value = '';
             return;
         }
@@ -4172,15 +4554,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.state.buildings = data.state.buildings || [];
                 window.state.defects = data.state.defects || {};
                 window.state.ndtData = data.state.ndtData || {};
+                window.state.grids = data.state.grids || {};
                 window.state.floorSnapshots = data.state.floorSnapshots || {};
+
                 if (data.companyName) {
                     window.state.companyName = data.companyName;
                     localStorage.setItem('building_company_name', data.companyName);
                     const inputCompany = document.getElementById('inputHomeCompanyName');
                     if (inputCompany) inputCompany.value = data.companyName;
                 }
+                if (data.userName) {
+                    window.state.userName = data.userName;
+                    localStorage.setItem('building_user_name', data.userName);
+                }
 
                 saveStateToLocalStorage();
+                if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
+
                 renderDashboard();
                 renderBuildingSelector();
                 if (typeof renderSurveyTable === 'function') renderSurveyTable();
@@ -4188,7 +4578,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
                 if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
 
-                alert('✅ 백업 파일로부터 안전점검 데이터 복원이 완료되었습니다!');
+                alert('✅ 백업 파일로부터 안전점검 데이터 복원 및 클라우드 동기화가 완료되었습니다!');
             } catch (err) {
                 alert('❌ 데이터 복원 오류: ' + err.message);
             } finally {
@@ -4729,6 +5119,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const docId = getCompanyDocId();
             const dataToSync = {
                 defects: window.state.defects || {},
+                ndtData: window.state.ndtData || {},
+                grids: window.state.grids || {},
                 buildings: window.state.buildings || [],
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
@@ -4764,12 +5156,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         window.state.defects = data.defects;
                         isChanged = true;
                     }
+                    if (data.ndtData) {
+                        window.state.ndtData = data.ndtData;
+                        isChanged = true;
+                    }
+                    if (data.grids) {
+                        window.state.grids = data.grids;
+                        isChanged = true;
+                    }
 
                     if (isChanged) {
                         // 로컬 캐시 갱신
                         try {
                             localStorage.setItem('building_safety_app_state_v2', JSON.stringify({
                                 defects: window.state.defects || {},
+                                ndtData: window.state.ndtData || {},
+                                grids: window.state.grids || {},
                                 buildings: window.state.buildings || [],
                                 lastUsedBuildingId: window.state.currentBuildingId || null
                             }));
@@ -4780,6 +5182,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (typeof renderBuildingSelector === 'function') renderBuildingSelector();
                         if (typeof renderSurveyTable === 'function') renderSurveyTable();
                         if (typeof drawCanvas === 'function') drawCanvas();
+                        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
                     }
                 } catch (e) {
                     console.error('Remote sync apply error:', e);

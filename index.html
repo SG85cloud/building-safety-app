@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>스마트 건축물 안전점검 현장점검 시스템</title>
+    <!-- PWA Offline & Mobile App Meta -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#ffffff">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
     <link rel="stylesheet" href="styles.css?v=20260729_1642">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -13,7 +20,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 </head>
-<body class="theme-dark">
+<body class="theme-light">
 
     <!-- Top Header Navigation -->
     <header class="app-header">
@@ -97,21 +104,21 @@
                 <!-- Hero Header with Add Building Button -->
                 <div class="dashboard-hero">
                     <div class="hero-text">
-                        <span class="hero-badge" style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); font-size: 0.85rem; padding: 0.3rem 0.8rem; border-radius: 20px; font-weight: 700;">
-                            <i class="fa-solid fa-circle-check"></i> v59.0 (6대 기능: JSON백업·손상필터·사진주석·통계차트·음성입력·엑셀저장 통합 적용 완료)
+                        <span class="hero-badge" style="background: rgba(2, 132, 199, 0.12); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3); font-size: 0.85rem; padding: 0.35rem 0.85rem; border-radius: 20px; font-weight: 700;">
+                            <i class="fa-solid fa-circle-check"></i> v60.0 정식 통합 버전 (PWA오프라인 · JSON백업 · PDF밀림보정 · 비파괴기울기 실시간동기화 · 화이트톤 완료)
                         </span>
                         <h2 class="hero-title" style="margin-top: 0.4rem;">🏢 점검 대상 건축물 목록</h2>
                     </div>
                     <div class="hero-actions" style="display: flex; gap: 0.8rem; align-items: center; flex-wrap: wrap;">
-                        <div style="display: flex; align-items: center; background: rgba(255,255,255,0.08); padding: 0.3rem 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
-                            <span style="font-size: 0.85rem; font-weight: 700; color: #38bdf8; white-space: nowrap; margin-right: 0.5rem;"><i class="fa-solid fa-building-user"></i> 🏢 점검 수행회사:</span>
-                            <input type="text" id="inputHomeCompanyName" class="form-control" style="width: 190px; height: 32px; font-size: 0.85rem; padding: 0.2rem 0.6rem; background: #0f172a; color: #ffffff; border: 1px solid #38bdf8; display: inline-block;" placeholder="(주)한국안전진단기술원" value="(주)한국안전진단기술원">
+                        <div style="display: flex; align-items: center; background: rgba(2, 132, 199, 0.08); padding: 0.3rem 0.8rem; border-radius: 8px; border: 1px solid rgba(2, 132, 199, 0.25);">
+                            <span style="font-size: 0.85rem; font-weight: 700; color: #0284c7; white-space: nowrap; margin-right: 0.5rem;"><i class="fa-solid fa-building-user"></i> 🏢 점검 수행회사:</span>
+                            <input type="text" id="inputHomeCompanyName" class="form-control" style="width: 190px; height: 32px; font-size: 0.85rem; padding: 0.2rem 0.6rem; background: #ffffff; color: #0f172a; border: 1px solid #0284c7; font-weight: 600; display: inline-block;" placeholder="(주)한국안전진단기술원" value="(주)한국안전진단기술원">
                             <button type="button" id="btnSaveHomeCompanyName" class="btn btn-sm btn-primary" style="margin-left: 0.4rem; height: 32px; padding: 0 0.6rem; white-space: nowrap;"><i class="fa-solid fa-floppy-disk"></i> 저장</button>
                         </div>
-                        <button type="button" class="btn btn-outline" id="btnExportJSON" style="border-color: #10b981; color: #34d399; font-weight: 700;">
+                        <button type="button" class="btn btn-outline" id="btnExportJSON" style="border-color: #059669; color: #059669; font-weight: 700;">
                             <i class="fa-solid fa-file-export"></i> 💾 데이터 백업 (.json)
                         </button>
-                        <button type="button" class="btn btn-outline" id="btnImportJSON" style="border-color: #38bdf8; color: #38bdf8; font-weight: 700;">
+                        <button type="button" class="btn btn-outline" id="btnImportJSON" style="border-color: #0284c7; color: #0284c7; font-weight: 700;">
                             <i class="fa-solid fa-file-import"></i> 📥 백업 불러오기 (.json)
                         </button>
                         <input type="file" id="inputImportJSON" accept=".json" style="display:none;">
@@ -135,20 +142,20 @@
             <div class="map-controls-toolbar">
                 <div class="toolbar-left">
                     <!-- Inspection Type / Year / Period Selector Group -->
-                    <div class="filter-group" style="background: rgba(2, 132, 199, 0.18); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(2, 132, 199, 0.45); display: flex; align-items: center; gap: 0.4rem;">
-                        <span class="filter-label" style="color: #38bdf8; font-weight: 800;"><i class="fa-solid fa-clipboard-check"></i> 점검 설정:</span>
-                        <select id="selectInspectionType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #0f172a; color: #38bdf8; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
+                    <div class="filter-group" style="background: rgba(2, 132, 199, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(2, 132, 199, 0.25); display: flex; align-items: center; gap: 0.4rem;">
+                        <span class="filter-label" style="color: #0284c7; font-weight: 800;"><i class="fa-solid fa-clipboard-check"></i> 점검 설정:</span>
+                        <select id="selectInspectionType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
                             <option value="정밀안전점검" selected>정밀안전점검</option>
                             <option value="정기안전점검">정기안전점검</option>
                             <option value="정밀안전진단">정밀안전진단</option>
                         </select>
-                        <select id="selectInspectionYear" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #0f172a; color: #38bdf8; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
+                        <select id="selectInspectionYear" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
                             <option value="2026년" selected>2026년</option>
                             <option value="2025년">2025년</option>
                             <option value="2027년">2027년</option>
                             <option value="2028년">2028년</option>
                         </select>
-                        <select id="selectInspectionPeriod" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #0f172a; color: #38bdf8; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
+                        <select id="selectInspectionPeriod" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
                             <option value="하반기" selected>하반기</option>
                             <option value="상반기">상반기</option>
                             <option value="수시점검">수시점검</option>
@@ -187,9 +194,9 @@
                     </div>
 
                     <!-- Damage Type Filter -->
-                    <div class="filter-group" style="background: rgba(244, 63, 94, 0.15); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.4);">
-                        <span class="filter-label" style="color: #fb7185; font-weight: 800;"><i class="fa-solid fa-filter"></i> 손상 유형:</span>
-                        <select id="filterDamageType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #0f172a; color: #fb7185; border: 1px solid #f43f5e; font-weight: 700; display: inline-block;">
+                    <div class="filter-group" style="background: rgba(244, 63, 94, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.25);">
+                        <span class="filter-label" style="color: #e11d48; font-weight: 800;"><i class="fa-solid fa-filter"></i> 손상 유형:</span>
+                        <select id="filterDamageType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #e11d48; border: 1px solid #f43f5e; font-weight: 700; display: inline-block;">
                             <option value="ALL" selected>🔍 전체 손상 보기</option>
                             <option value="균열">🔴 균열 (Crack)</option>
                             <option value="누수">💧 누수 (Leak)</option>
@@ -837,34 +844,34 @@
 
     <!-- MODAL: Building Information Edit & Floor Drawing Re-upload Modal -->
     <div class="modal-overlay" id="editBuildingModal">
-        <div class="modal-card" style="max-width: 620px; width: 94%;">
-            <div class="modal-header" style="background: linear-gradient(135deg, #1e293b, #0f172a); border-bottom: 1px solid var(--border-highlight);">
-                <h3><i class="fa-solid fa-pen-to-square" style="color: #38bdf8;"></i> ✏️ 건축물 명칭 수정 & 층별 도면 교체</h3>
-                <button type="button" class="modal-close" id="btnCloseEditBuildingModal">&times;</button>
+        <div class="modal-card" style="max-width: 640px; width: 94%; background: #ffffff; border: 1px solid #cbd5e1; box-shadow: 0 20px 50px rgba(15,23,42,0.15);">
+            <div class="modal-header" style="background: #f8fafc; padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0;">
+                <h3 style="color: #0284c7; margin:0; font-size: 1.1rem; font-weight: 800;"><i class="fa-solid fa-pen-to-square"></i> ✏️ 건축물 명칭 수정 & 층별 도면 추가/교체</h3>
+                <button type="button" class="modal-close" id="btnCloseEditBuildingModal" style="color: #64748b;">&times;</button>
             </div>
-            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto; padding: 1.2rem;">
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto; padding: 1.2rem; background: #ffffff;">
                 <input type="hidden" id="inputEditBuildingId">
                 <div class="form-group">
-                    <label class="form-label" style="font-weight: 700;">🏢 건축물 명칭 *</label>
+                    <label class="form-label" style="font-weight: 700; color: #334155;">🏢 건축물 명칭 *</label>
                     <input type="text" id="inputEditBuildingName" class="form-control" placeholder="예: 강남 테헤란 타워 A동">
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-weight: 700;">📍 소재지 주소</label>
+                    <label class="form-label" style="font-weight: 700; color: #334155;">📍 소재지 주소</label>
                     <input type="text" id="inputEditBuildingAddress" class="form-control" placeholder="예: 서울특별시 강남구 테헤란로 123">
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
                     <div class="form-group" style="flex:1;">
-                        <label class="form-label" style="font-weight: 700;">🏢 규모 및 층수</label>
+                        <label class="form-label" style="font-weight: 700; color: #334155;">🏢 규모 및 층수</label>
                         <input type="text" id="inputEditBuildingFloors" class="form-control" placeholder="예: 지상 15층 ~ 지하 3층">
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label class="form-label" style="font-weight: 700;">📅 점검 일시</label>
+                        <label class="form-label" style="font-weight: 700; color: #334155;">📅 점검 일시</label>
                         <input type="date" id="inputEditBuildingDate" class="form-control">
                     </div>
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
                     <div class="form-group" style="flex:1;">
-                        <label class="form-label" style="font-weight: 700;">📋 점검 종류</label>
+                        <label class="form-label" style="font-weight: 700; color: #334155;">📋 점검 종류</label>
                         <select id="inputEditBuildingInspectionType" class="form-control">
                             <option value="정밀안전점검">정밀안전점검</option>
                             <option value="정기안전점검">정기안전점검</option>
@@ -872,7 +879,7 @@
                         </select>
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label class="form-label" style="font-weight: 700;">📅 점검 년도</label>
+                        <label class="form-label" style="font-weight: 700; color: #334155;">📅 점검 년도</label>
                         <select id="inputEditBuildingInspectionYear" class="form-control">
                             <option value="2026년">2026년</option>
                             <option value="2025년">2025년</option>
@@ -881,7 +888,7 @@
                         </select>
                     </div>
                     <div class="form-group" style="flex:1;">
-                        <label class="form-label" style="font-weight: 700;">🗓️ 상/하반기</label>
+                        <label class="form-label" style="font-weight: 700; color: #334155;">🗓️ 상/하반기</label>
                         <select id="inputEditBuildingInspectionPeriod" class="form-control">
                             <option value="하반기">하반기</option>
                             <option value="상반기">상반기</option>
@@ -890,26 +897,26 @@
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label" style="font-weight: 700;">📝 비고 / 특이사항</label>
+                    <label class="form-label" style="font-weight: 700; color: #334155;">📝 비고 / 특이사항</label>
                     <textarea id="inputEditBuildingNotes" class="form-control" rows="2" placeholder="건물 특이사항이나 주요 요청 사항 입력"></textarea>
                 </div>
                 
                 <!-- Floor Drawing Re-upload & Replace Section -->
-                <div class="form-group" style="background: rgba(15, 23, 42, 0.7); padding: 1.2rem; border-radius: 10px; border: 1px dashed #38bdf8;">
+                <div class="form-group" style="background: #f8fafc; padding: 1.2rem; border-radius: 10px; border: 1px dashed #0284c7;">
                     <label class="form-label" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.6rem;">
-                        <span style="color: #38bdf8; font-weight: 800; font-size: 0.95rem;"><i class="fa-solid fa-file-arrow-up"></i> 🖼️ 층별 도면 다시 올리기 / 교체 (파일 선택)</span>
-                        <span class="text-muted" style="font-size:0.75rem;">(B1, 1F 등 파일명 자동인식 & 고화질 자동압축)</span>
+                        <span style="color: #0284c7; font-weight: 800; font-size: 0.95rem;"><i class="fa-solid fa-file-arrow-up"></i> 🖼️ 층별 도면 추가 삽입 / 교체 (파일 선택)</span>
+                        <span class="text-muted" style="font-size:0.75rem;">(B2, 1F 등 파일명 자동인식 & 저층➡️고층 자동 정렬)</span>
                     </label>
-                    <input type="file" id="inputEditBuildingDrawings" multiple accept="image/*" class="form-control">
+                    <input type="file" id="inputEditBuildingDrawings" multiple accept="image/*" class="form-control" style="background:#ffffff; border:1px solid #cbd5e1;">
                     
                     <div id="editDrawingSortPreview" style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem;"></div>
                 </div>
             </div>
-            <div class="modal-footer" style="justify-content: space-between; gap: 0.6rem; background: #1e293b; padding: 1rem 1.2rem;">
-                <button type="button" class="btn btn-danger-outline" id="btnDeleteBuilding"><i class="fa-solid fa-trash"></i> 🗑️ 건물 삭제</button>
+            <div class="modal-footer" style="justify-content: space-between; gap: 0.6rem; background: #f8fafc; border-top:1px solid #e2e8f0; padding: 1rem 1.2rem;">
+                <button type="button" class="btn btn-outline" id="btnDeleteBuilding" style="border-color: #ef4444; color: #ef4444;"><i class="fa-solid fa-trash"></i> 🗑️ 건물 삭제</button>
                 <div style="display: flex; gap: 0.5rem;">
                     <button type="button" class="btn btn-outline" id="btnCancelEditBuilding">취소</button>
-                    <button type="button" class="btn btn-primary" id="btnSaveEditBuilding"><i class="fa-solid fa-check"></i> 💾 수정사항 및 도면 저장</button>
+                    <button type="button" class="btn btn-primary" id="btnSaveEditBuilding" style="background: linear-gradient(135deg, #0284c7, #2563eb); font-weight: 700;"><i class="fa-solid fa-check"></i> 💾 수정사항 및 도면 저장</button>
                 </div>
             </div>
         </div>
@@ -938,16 +945,16 @@
 
     <!-- MODAL: Full Screen Interactive Report Preview Modal -->
     <div class="modal-overlay" id="reportPreviewModal">
-        <div class="modal-card" style="max-width: 920px; width: 95%; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; background: #0f172a; border: 1px solid rgba(255,255,255,0.15);">
-            <div class="modal-header" style="background: #1e293b; padding: 1rem 1.5rem; border-bottom: 1px solid rgba(255,255,255,0.1);">
-                <h3><i class="fa-solid fa-file-contract"></i> 📋 정밀 안전점검 보고서 미리보기</h3>
+        <div class="modal-card" style="max-width: 920px; width: 95%; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; background: #ffffff; border: 1px solid #cbd5e1; box-shadow: 0 20px 50px rgba(15,23,42,0.15);">
+            <div class="modal-header" style="background: #f8fafc; padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; color: #0f172a;">
+                <h3 style="color: #0284c7; margin:0; font-size: 1.1rem; font-weight: 800;"><i class="fa-solid fa-file-contract"></i> 📋 정밀 안전점검 보고서 미리보기</h3>
                 <div style="display: flex; gap: 0.5rem; align-items: center;">
                     <button class="btn btn-primary btn-sm" id="btnModalExportPdf" onclick="window.exportPDF()"><i class="fa-solid fa-file-pdf"></i> PDF 저장</button>
                     <button class="btn btn-secondary btn-sm" id="btnModalPrint" onclick="window.print()"><i class="fa-solid fa-print"></i> 인쇄</button>
-                    <button class="modal-close" id="btnCloseReportPreviewModal">&times;</button>
+                    <button class="modal-close" id="btnCloseReportPreviewModal" style="color: #64748b;">&times;</button>
                 </div>
             </div>
-            <div class="modal-body" id="modalReportPreviewBody" style="flex: 1; overflow-y: auto; padding: 1.5rem; background: #334155;"></div>
+            <div class="modal-body" id="modalReportPreviewBody" style="flex: 1; overflow-y: auto; padding: 1.5rem; background: #f1f5f9;"></div>
         </div>
     </div>
 
@@ -1126,5 +1133,18 @@
 
     <!-- Application Script -->
     <script src="app.js?v=20260729_1642"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(function(registration) {
+                        console.log('✅ ServiceWorker Registered Successfully with scope:', registration.scope);
+                    })
+                    .catch(function(error) {
+                        console.warn('⚠️ ServiceWorker Registration Failed:', error);
+                    });
+            });
+        }
+    </script>
 </body>
 </html>

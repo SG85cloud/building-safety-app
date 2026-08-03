@@ -1,0 +1,18 @@
+{
+  "name": "스마트 건축물 안전점검 현장점검 시스템",
+  "short_name": "스마트 안전점검",
+  "description": "PC · 갤럭시 탭 · 스마트폰 실시간 연동 현장점검 시스템 (오프라인 지원 PWA)",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%23ffffff' rx='100'/><path fill='%230284c7' d='M256 32L64 128v144c0 120 80 220 192 240 112-20 192-120 192-240V128L256 32zm0 288c-44 0-80-36-80-80s36-80 80-80 80 36 80 80-36 80-80 80z'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
