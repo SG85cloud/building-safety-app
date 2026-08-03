@@ -5137,8 +5137,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function generateUniqueJoinCode() {
         for (let attempt = 0; attempt < 5; attempt++) {
             const code = generateJoinCode();
-            const snap = await db.collection('companies').where('joinCode', '==', code).limit(1).get();
-            if (snap.empty) return code;
+            const doc = await db.collection('joinCodes').doc(code).get();
+            if (!doc.exists) return code;
         }
         return generateJoinCode() + Date.now().toString(36).slice(-2).toUpperCase();
     }
@@ -5254,21 +5254,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             const data = userDoc.data();
-            if (data.role === 'pending') {
+            const status = await resolveMembershipStatus(user.uid, data.companyId);
+            if (status === 'pending') {
+                window.state.role = 'pending';
                 showPendingApproval(data.companyName);
-            } else if (data.role === 'rejected') {
+            } else if (status === 'rejected') {
                 showAuthError({ message: '가입 신청이 거절되었습니다. 회사 대표에게 문의해 주세요.' });
                 await auth.signOut();
-            } else if (data.role === 'admin' || data.role === 'member') {
-                await enterAppAsUser({ uid: user.uid, name: data.name, companyId: data.companyId, companyName: data.companyName, role: data.role });
+            } else if (status === 'admin' || status === 'member') {
+                await enterAppAsUser({ uid: user.uid, name: data.name, companyId: data.companyId, companyName: data.companyName, role: status });
             } else {
-                showAuthError({ message: '알 수 없는 계정 상태입니다.' });
+                showAuthError({ message: '알 수 없는 계정 상태입니다. 회사 대표에게 문의해 주세요.' });
                 await auth.signOut();
             }
         } catch (e) {
             console.error('로그인 상태 확인 오류:', e);
             showAuthError({ message: '로그인 처리 중 오류가 발생했습니다. 인터넷 연결을 확인해 주세요.' });
         }
+    }
+
+    // 회사 하위 members/pendingRequests/rejectedRequests 컬렉션만으로 상태를 판단
+    // (users/{uid} 문서는 본인만 쓸 수 있어야 하므로, 대표가 팀원 상태를 바꿀 때도
+    //  companies/{companyId} 하위 문서만 건드리도록 설계)
+    async function resolveMembershipStatus(uid, companyId) {
+        if (!companyId) return 'unknown';
+        const companyRef = db.collection('companies').doc(companyId);
+        const memberDoc = await companyRef.collection('members').doc(uid).get();
+        if (memberDoc.exists) return memberDoc.data().role || 'member';
+        const pendingDoc = await companyRef.collection('pendingRequests').doc(uid).get();
+        if (pendingDoc.exists) return 'pending';
+        const rejectedDoc = await companyRef.collection('rejectedRequests').doc(uid).get();
+        if (rejectedDoc.exists) return 'rejected';
+        return 'unknown';
     }
 
     window.submitLogin = async function() {
@@ -5294,8 +5311,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         window._justRegistering = true;
+        let cred = null;
         try {
-            const cred = await auth.createUserWithEmailAndPassword(email, password);
+            cred = await auth.createUserWithEmailAndPassword(email, password);
             const uid = cred.user.uid;
             const joinCode = await generateUniqueJoinCode();
             const companyRef = db.collection('companies').doc();
@@ -5304,6 +5322,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 adminUid: uid,
                 joinCode: joinCode,
                 createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            await db.collection('joinCodes').doc(joinCode).set({
+                companyId: companyRef.id, companyName
             });
             await companyRef.collection('members').doc(uid).set({
                 name, email, role: 'admin',
@@ -5315,6 +5336,7 @@ document.addEventListener('DOMContentLoaded', () => {
             await enterAppAsUser({ uid, name, companyId: companyRef.id, companyName, role: 'admin' });
         } catch (err) {
             showAuthError(err);
+            if (cred && cred.user) { try { await cred.user.delete(); } catch (e) {} }
         } finally {
             window._justRegistering = false;
         }
@@ -5331,27 +5353,28 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         window._justRegistering = true;
+        let cred = null;
         try {
-            const companySnap = await db.collection('companies').where('joinCode', '==', joinCode).limit(1).get();
-            if (companySnap.empty) {
+            const codeDoc = await db.collection('joinCodes').doc(joinCode).get();
+            if (!codeDoc.exists) {
                 showAuthError({ message: '가입 코드를 확인해 주세요. 일치하는 회사가 없습니다.' });
                 return;
             }
-            const companyDoc = companySnap.docs[0];
-            const companyName = companyDoc.data().name;
+            const { companyId, companyName } = codeDoc.data();
 
-            const cred = await auth.createUserWithEmailAndPassword(email, password);
+            cred = await auth.createUserWithEmailAndPassword(email, password);
             const uid = cred.user.uid;
 
-            await companyDoc.ref.collection('pendingRequests').doc(uid).set({
+            await db.collection('companies').doc(companyId).collection('pendingRequests').doc(uid).set({
                 name, email, requestedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             await db.collection('users').doc(uid).set({
-                name, email, companyId: companyDoc.id, companyName, role: 'pending'
+                name, email, companyId, companyName, role: 'pending'
             });
             showPendingApproval(companyName);
         } catch (err) {
             showAuthError(err);
+            if (cred && cred.user) { try { await cred.user.delete(); } catch (e) {} }
         } finally {
             window._justRegistering = false;
         }
@@ -5434,7 +5457,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 approvedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
             await companyRef.collection('pendingRequests').doc(uid).delete();
-            await db.collection('users').doc(uid).set({ role: 'member' }, { merge: true });
             await renderMemberApprovalLists();
         } catch (e) {
             console.error('승인 처리 오류:', e);
@@ -5447,8 +5469,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('정말 이 가입 신청을 거절하시겠습니까?')) return;
         try {
             const companyRef = db.collection('companies').doc(window.state.companyId);
+            const pendingDoc = await companyRef.collection('pendingRequests').doc(uid).get();
+            const d = pendingDoc.exists ? pendingDoc.data() : { name: '', email: '' };
+            await companyRef.collection('rejectedRequests').doc(uid).set({
+                name: d.name || '', email: d.email || '',
+                rejectedAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
             await companyRef.collection('pendingRequests').doc(uid).delete();
-            await db.collection('users').doc(uid).set({ role: 'rejected' }, { merge: true });
             await renderMemberApprovalLists();
         } catch (e) {
             console.error('거절 처리 오류:', e);
