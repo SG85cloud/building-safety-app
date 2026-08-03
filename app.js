@@ -37,14 +37,86 @@ window.appState = window.state;
 
 // --- 2. IMAGE COMPRESSION & FLOOR PARSER HELPERS ---
 
+// pdf.js 워커 경로 설정 (CDN 스크립트가 로드된 경우에만)
+if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+function isPdfFile(file) {
+    return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+}
+
+// PDF 페이지를 지정 스케일로 캔버스에 렌더링 후 PNG dataURL로 변환
+async function renderPdfPageToDataUrl(page, scale) {
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    const ctx = canvas.getContext('2d');
+    // PDF는 배경이 투명할 수 있어, 흰 배경을 먼저 채워 검게 나오는 것을 방지
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    return canvas.toDataURL('image/png');
+}
+
+/**
+ * 캐드(CAD)에서 내보낸 PDF 도면을 pdf.js로 첫 페이지 고해상도 렌더링 (벡터 원본 기반이라 글씨/선이 뭉개지지 않음)
+ * Firestore 문서 용량(1MB) 여유를 위해 결과가 너무 크면 스케일을 낮춰 재시도
+ */
+window.renderPdfFileToImage = function(file, targetLongSide = 4200, maxDataUrlBytes = 950000) {
+    return new Promise((resolve, reject) => {
+        if (typeof pdfjsLib === 'undefined') {
+            reject(new Error('PDF 렌더링 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'));
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            try {
+                const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(e.target.result) }).promise;
+                const page = await pdf.getPage(1);
+                const baseViewport = page.getViewport({ scale: 1 });
+                let scale = targetLongSide / Math.max(baseViewport.width, baseViewport.height);
+                scale = Math.min(Math.max(scale, 1), 8); // 너무 작은 PDF는 과도확대, 너무 큰 PDF는 과도축소 방지
+
+                let dataUrl = await renderPdfPageToDataUrl(page, scale);
+                let attempts = 0;
+                while (dataUrl && dataUrl.length > maxDataUrlBytes && attempts < 4) {
+                    scale *= 0.75;
+                    dataUrl = await renderPdfPageToDataUrl(page, scale);
+                    attempts++;
+                }
+                resolve(dataUrl);
+            } catch (err) {
+                reject(err);
+            }
+        };
+        reader.onerror = () => reject(new Error('PDF 파일을 읽는 중 오류가 발생했습니다.'));
+        reader.readAsArrayBuffer(file);
+    });
+};
+
 /**
  * HTML5 Canvas Image Compressor
  * Reduces 4K/8K drawing photos (5~20MB) to lightweight JPEG (~150KB)
+ * PDF 파일이 들어오면 pdf.js로 고해상도 렌더링 (renderPdfFileToImage) 후 PNG로 반환
  */
 window.compressDrawingImage = function(file, maxDim = 1400, quality = 0.8) {
     return new Promise((resolve) => {
         if (!file || !(file instanceof Blob)) {
             return resolve(null);
+        }
+        if (isPdfFile(file)) {
+            window.renderPdfFileToImage(file)
+                .then(resolve)
+                .catch((err) => {
+                    console.error('PDF 도면 렌더링 오류:', err);
+                    if (typeof window.showToast === 'function') {
+                        window.showToast(`'${file.name}' PDF 렌더링에 실패했습니다: ${err.message}`, 'error', 5000);
+                    }
+                    resolve(null);
+                });
+            return;
         }
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -129,28 +201,67 @@ window.parseFloorInfoFromFilename = function(fileName) {
     const cleanName = nameWithoutExt.toUpperCase();
 
     if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('PH')) {
-        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상 층 (ROOF)' };
+        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상 층 (ROOF)', matched: true };
     }
 
     const bMatch = cleanName.match(/(?:B|지하)\s*([0-9]{1,2})(?![0-9])/i);
     if (bMatch) {
         const num = parseInt(bMatch[1], 10);
         if (num > 0 && num <= 99) {
-            return { rank: -num, floorCode: `B${num}F`, floorLabel: `지하 ${num}층 (B${num}F)` };
+            return { rank: -num, floorCode: `B${num}F`, floorLabel: `지하 ${num}층 (B${num}F)`, matched: true };
         }
     }
 
-    const fMatch = cleanName.match(/(?:F|층|지상)\s*([0-9]{1,2})(?![0-9])/i) || 
-                   cleanName.match(/([0-9]{1,2})\s*(?:F|층)(?![0-9])/i) ||
-                   cleanName.match(/(?<![0-9])([0-9]{1,2})(?![0-9])/);
-    if (fMatch) {
-        const num = parseInt(fMatch[1], 10);
+    // F/층/지상 접두·접미가 붙은 명확한 패턴만 "신뢰 가능한 인식"으로 처리
+    const strongFMatch = cleanName.match(/(?:F|층|지상)\s*([0-9]{1,2})(?![0-9])/i) ||
+                          cleanName.match(/([0-9]{1,2})\s*(?:F|층)(?![0-9])/i);
+    if (strongFMatch) {
+        const num = parseInt(strongFMatch[1], 10);
         if (num > 0 && num <= 99) {
-            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)` };
+            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)`, matched: true };
         }
     }
 
-    return { rank: 1, floorCode: '1F', floorLabel: '지상 1층 (1F)' };
+    // 마지막 수단: 파일명 속 숫자를 추정치로만 사용 (카메라 자동 생성 파일명 등은 신뢰도 낮음 -> matched:false 로 표시)
+    const looseMatch = cleanName.match(/(?<![0-9])([0-9]{1,2})(?![0-9])/);
+    if (looseMatch) {
+        const num = parseInt(looseMatch[1], 10);
+        if (num > 0 && num <= 99) {
+            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)`, matched: false };
+        }
+    }
+
+    return { rank: 1, floorCode: '1F', floorLabel: '지상 1층 (1F)', matched: false };
+};
+
+// 층 코드 수동 선택용 옵션 목록 (지하10층 ~ 지상30층 + 옥상)
+window.FLOOR_CODE_OPTION_LIST = (function() {
+    const list = [];
+    for (let i = 10; i >= 1; i--) list.push(`B${i}F`);
+    for (let i = 1; i <= 30; i++) list.push(`${i}F`);
+    list.push('ROOF');
+    return list;
+})();
+
+window.getFloorRankFromCode = function(code) {
+    if (!code) return 0;
+    const c = String(code).toUpperCase().trim();
+    if (c.includes('ROOF') || c.includes('옥상') || c.includes('PH')) return 9999;
+    const bMatch = c.match(/B\s*([0-9]+)/);
+    if (bMatch) return -parseInt(bMatch[1], 10);
+    const fMatch = c.match(/([0-9]+)\s*F/);
+    if (fMatch) return parseInt(fMatch[1], 10);
+    const numMatch = c.match(/([0-9]+)/);
+    if (numMatch) return parseInt(numMatch[1], 10);
+    return 0;
+};
+
+window.buildFloorCodeOptionsHtml = function(selectedCode) {
+    return window.FLOOR_CODE_OPTION_LIST.map(code => {
+        const label = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(code) : code;
+        const sel = code === selectedCode ? 'selected' : '';
+        return `<option value="${code}" ${sel}>${label}</option>`;
+    }).join('');
 };
 
 window.selectedUploadedDrawings = [];
@@ -192,6 +303,65 @@ document.addEventListener('DOMContentLoaded', () => {
         photoAlbumGrid: document.getElementById('photoAlbumGrid'),
         surveyFloorTitle: document.getElementById('surveyFloorTitle'),
         albumFloorTitle: document.getElementById('albumFloorTitle')
+    };
+
+    // --- 3.5 UI 알림 / 로딩 유틸 (토스트 & 전역 로딩 오버레이) ---
+    function ensureToastContainer() {
+        let box = document.getElementById('toastContainer');
+        if (!box) {
+            box = document.createElement('div');
+            box.id = 'toastContainer';
+            box.className = 'toast-container';
+            document.body.appendChild(box);
+        }
+        return box;
+    }
+
+    // type: 'success' | 'error' | 'warning' | 'info'
+    window.showToast = function(message, type = 'info', duration = 3500) {
+        const box = ensureToastContainer();
+        const icons = {
+            success: 'fa-circle-check',
+            error: 'fa-circle-exclamation',
+            warning: 'fa-triangle-exclamation',
+            info: 'fa-circle-info'
+        };
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        const icon = document.createElement('i');
+        icon.className = `fa-solid ${icons[type] || icons.info}`;
+        const text = document.createElement('span');
+        text.textContent = message; // XSS 방지: innerHTML 대신 textContent로 삽입
+        toast.appendChild(icon);
+        toast.appendChild(text);
+        box.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        }, duration);
+        return toast;
+    };
+
+    let _loadingDepth = 0;
+    window.showLoading = function(text = '처리 중입니다...') {
+        _loadingDepth++;
+        let overlay = document.getElementById('globalLoadingOverlay');
+        if (!overlay) {
+            overlay = document.createElement('div');
+            overlay.id = 'globalLoadingOverlay';
+            overlay.className = 'loading-overlay';
+            overlay.innerHTML = '<div class="loading-box"><div class="loading-spinner"></div><div class="loading-text"></div></div>';
+            document.body.appendChild(overlay);
+        }
+        overlay.querySelector('.loading-text').textContent = text;
+        overlay.style.display = 'flex';
+    };
+    window.hideLoading = function() {
+        _loadingDepth = Math.max(0, _loadingDepth - 1);
+        if (_loadingDepth > 0) return;
+        const overlay = document.getElementById('globalLoadingOverlay');
+        if (overlay) overlay.style.display = 'none';
     };
 
     // --- 4. PERSISTENCE ENGINE (LOCAL STORAGE) ---
@@ -526,44 +696,110 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Listening for Add Modal Multi-Drawing Uploads
+    function updateNewBuildingFloorsSummary() {
+        const floorsInput = document.getElementById('inputBuildingFloors');
+        const items = window.selectedUploadedDrawings || [];
+        if (floorsInput && items.length > 0) {
+            const sorted = [...items].sort((a, b) => a.rank - b.rank);
+            const lowest = sorted[0];
+            const highest = sorted[sorted.length - 1];
+            floorsInput.value = `${highest.floorLabel.split(' ')[0]} ${highest.floorLabel.split(' ')[1]} ~ ${lowest.floorLabel.split(' ')[0]} ${lowest.floorLabel.split(' ')[1]}`;
+        }
+    }
+
+    function renderNewBuildingDrawingPreview() {
+        const preview = document.getElementById('drawingSortPreview');
+        if (!preview) return;
+        const items = window.selectedUploadedDrawings || [];
+
+        const codeCounts = {};
+        items.forEach(it => { codeCounts[it.floorCode] = (codeCounts[it.floorCode] || 0) + 1; });
+        const hasUnmatched = items.some(it => it.matched === false);
+        const hasDuplicate = Object.values(codeCounts).some(c => c > 1);
+
+        let warningHtml = '';
+        if (hasUnmatched || hasDuplicate) {
+            warningHtml = `<div style="font-size:0.78rem; color:#d97706; background:rgba(217,119,6,0.12); border:1px solid #d97706; border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.4rem;">
+                ⚠️ 파일명만으로는 층을 정확히 인식하지 못한 파일이 있습니다 (촬영 사진은 파일명이 자동 생성되어 흔한 경우입니다). 아래에서 각 파일의 층을 직접 확인/선택해 주세요.
+                ${hasDuplicate ? '<br>같은 층이 중복 선택된 파일은 저장 시 마지막 파일로 덮어써집니다.' : ''}
+            </div>`;
+        }
+
+        preview.innerHTML = `
+            <div style="font-size:0.82rem; font-weight:700; color:#38bdf8; margin-bottom:0.2rem;">
+                ✅ 총 ${items.length}개 도면 파일이 선택되었습니다. 층을 확인해 주세요:
+            </div>
+            ${warningHtml}
+            ${items.map((item, idx) => {
+                const flagged = item.matched === false || codeCounts[item.floorCode] > 1;
+                return `
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${flagged ? '#d97706' : 'transparent'}; padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
+                    <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.fileName}">${item.fileName}</span>
+                    <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem;">
+                        ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                    </select>
+                </div>`;
+            }).join('')}
+        `;
+
+        preview.querySelectorAll('.drawing-floor-select').forEach(sel => {
+            sel.addEventListener('change', (ev) => {
+                const idx = parseInt(ev.target.dataset.idx, 10);
+                const item = (window.selectedUploadedDrawings || [])[idx];
+                if (!item) return;
+                const code = ev.target.value;
+                item.floorCode = code;
+                item.floorLabel = window.getFloorLabelFromCode(code);
+                item.rank = window.getFloorRankFromCode(code);
+                item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+                updateNewBuildingFloorsSummary();
+                renderNewBuildingDrawingPreview();
+            });
+        });
+    }
+
+    // 이미지 입력과 PDF 입력, 두 개의 <input type=file>에서 선택한 파일을 같은 목록에 누적
+    function handleNewBuildingFilesSelected(files) {
+        if (files.length === 0) return;
+
+        const newItems = files.map(file => {
+            const info = window.parseFloorInfoFromFilename(file.name);
+            return {
+                file: file,
+                fileName: file.name,
+                rank: info.rank,
+                floorCode: info.floorCode,
+                floorLabel: info.floorLabel,
+                matched: info.matched
+            };
+        });
+
+        window.selectedUploadedDrawings = (window.selectedUploadedDrawings || [])
+            .concat(newItems)
+            .sort((a, b) => a.rank - b.rank);
+
+        renderNewBuildingDrawingPreview();
+        updateNewBuildingFloorsSummary();
+
+        const unmatchedCount = newItems.filter(it => it.matched === false).length;
+        if (unmatchedCount > 0) {
+            window.showToast(`${unmatchedCount}개 파일의 층을 파일명에서 자동으로 인식하지 못했습니다. 목록에서 직접 층을 선택해 주세요.`, 'warning', 5500);
+        }
+    }
+
     const inputDrawings = document.getElementById('inputBuildingDrawings');
     if (inputDrawings) {
         inputDrawings.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files || []);
-            if (files.length === 0) return;
+            handleNewBuildingFilesSelected(Array.from(e.target.files || []));
+            e.target.value = ''; // 같은 파일 재선택도 인식되도록 초기화
+        });
+    }
 
-            window.selectedUploadedDrawings = files.map(file => {
-                const info = window.parseFloorInfoFromFilename(file.name);
-                return {
-                    file: file,
-                    fileName: file.name,
-                    rank: info.rank,
-                    floorCode: info.floorCode,
-                    floorLabel: info.floorLabel
-                };
-            }).sort((a, b) => a.rank - b.rank);
-
-            const preview = document.getElementById('drawingSortPreview');
-            if (preview) {
-                preview.innerHTML = `
-                    <div style="font-size:0.82rem; font-weight:700; color:#38bdf8; margin-bottom:0.2rem;">
-                        ✅ 총 ${window.selectedUploadedDrawings.length}개 층 도면 파일이 정렬되었습니다:
-                    </div>
-                    ${window.selectedUploadedDrawings.map((item, idx) => `
-                        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.06); padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
-                            <span><strong>[순서 ${idx + 1}]</strong> ${item.floorLabel}</span>
-                            <span style="color:#94a3b8; font-size:0.75rem;">${item.fileName}</span>
-                        </div>
-                    `).join('')}
-                `;
-            }
-
-            const floorsInput = document.getElementById('inputBuildingFloors');
-            if (floorsInput && window.selectedUploadedDrawings.length > 0) {
-                const lowest = window.selectedUploadedDrawings[0];
-                const highest = window.selectedUploadedDrawings[window.selectedUploadedDrawings.length - 1];
-                floorsInput.value = `${highest.floorLabel.split(' ')[0]} ${highest.floorLabel.split(' ')[1]} ~ ${lowest.floorLabel.split(' ')[0]} ${lowest.floorLabel.split(' ')[1]}`;
-            }
+    const inputDrawingsPdf = document.getElementById('inputBuildingDrawingsPdf');
+    if (inputDrawingsPdf) {
+        inputDrawingsPdf.addEventListener('change', (e) => {
+            handleNewBuildingFilesSelected(Array.from(e.target.files || []));
+            e.target.value = '';
         });
     }
 
@@ -574,7 +810,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const nameInput = document.getElementById('inputBuildingName');
             const name = (nameInput ? nameInput.value : '').trim();
             if (!name) {
-                alert('⚠️ 건축물 명칭을 입력해 주세요!');
+                window.showToast('건축물 명칭을 입력해 주세요.', 'warning');
                 if (nameInput) nameInput.focus();
                 return;
             }
@@ -589,26 +825,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const newBuildingId = 'bldg-' + Date.now();
             const safeUploadedDrawings = Array.isArray(window.selectedUploadedDrawings) ? window.selectedUploadedDrawings : [];
+
+            // 같은 층으로 지정된 파일이 여러 개면 저장 시 마지막 파일만 남고 나머지는 사라지므로 사전 확인
+            const dupCounts = {};
+            safeUploadedDrawings.forEach(it => { dupCounts[it.floorCode] = (dupCounts[it.floorCode] || 0) + 1; });
+            const dupCodes = Object.keys(dupCounts).filter(c => dupCounts[c] > 1);
+            if (dupCodes.length > 0) {
+                const proceed = confirm(`⚠️ 같은 층으로 지정된 도면이 있습니다 (${dupCodes.join(', ')}).\n계속 저장하면 같은 층끼리는 마지막 파일만 남고 나머지는 사라집니다.\n계속하시겠습니까?`);
+                if (!proceed) return;
+            }
+
             const floorDrawingsMap = {};
             const floorsList = [];
 
             if (safeUploadedDrawings.length > 0) {
-                for (const item of safeUploadedDrawings) {
-                    floorsList.push({
-                        floorCode: item.floorCode,
-                        floorLabel: item.floorLabel
-                    });
-                    if (item.file) {
-                        try {
-                            const compressedDataUrl = await window.compressDrawingImage(item.file);
-                            if (compressedDataUrl) {
-                                floorDrawingsMap[item.floorCode] = compressedDataUrl;
-                                await uploadFloorDrawing(newBuildingId, item.floorCode, compressedDataUrl);
+                window.showLoading(`도면 ${safeUploadedDrawings.length}개 처리 중입니다... (PDF는 시간이 더 걸릴 수 있습니다)`);
+                try {
+                    for (const item of safeUploadedDrawings) {
+                        if (!floorsList.some(f => f.floorCode === item.floorCode)) {
+                            floorsList.push({
+                                floorCode: item.floorCode,
+                                floorLabel: item.floorLabel
+                            });
+                        }
+                        if (item.file) {
+                            try {
+                                const compressedDataUrl = await window.compressDrawingImage(item.file);
+                                if (compressedDataUrl) {
+                                    floorDrawingsMap[item.floorCode] = compressedDataUrl;
+                                    await uploadFloorDrawing(newBuildingId, item.floorCode, compressedDataUrl);
+                                }
+                            } catch (err) {
+                                console.error('Drawing compression error:', err);
                             }
-                        } catch (err) {
-                            console.error('Drawing compression error:', err);
                         }
                     }
+                } finally {
+                    window.hideLoading();
                 }
             }
 
@@ -633,7 +886,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderDashboard();
             window.selectBuildingAndInspect(newBldg);
-            alert(`🏢 '${name}' 건축물이 성공적으로 등록되었습니다!`);
+            window.showToast(`'${name}' 건축물이 등록되었습니다.`, 'success');
         });
     }
 
@@ -664,7 +917,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bldgs = window.state.buildings || [];
         const bldg = bldgs.find(b => b.id === bldgId);
         if (!bldg) {
-            alert('⚠️ 해당 건축물 정보를 찾을 수 없습니다.');
+            window.showToast('해당 건축물 정보를 찾을 수 없습니다.', 'error');
             return;
         }
 
@@ -759,15 +1012,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             });
 
+            // 신규추가 파일 중 같은 층으로 지정된 파일 검사 (저장 시 나중 파일이 이전 파일을 덮어씀)
+            const newDupCounts = {};
+            newFiles.forEach(it => { newDupCounts[it.floorCode] = (newDupCounts[it.floorCode] || 0) + 1; });
+            const hasUnmatched = newFiles.some(it => it.matched === false);
+            const hasDuplicate = Object.values(newDupCounts).some(c => c > 1);
+            if (hasUnmatched || hasDuplicate) {
+                html += `<div style="font-size:0.78rem; color:#d97706; background:rgba(217,119,6,0.12); border:1px solid #d97706; border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.4rem;">
+                    ⚠️ 파일명만으로는 층을 정확히 인식하지 못한 파일이 있습니다. 아래 [신규추가] 항목에서 층을 직접 확인/선택해 주세요.
+                    ${hasDuplicate ? '<br>같은 층이 중복 선택된 파일은 저장 시 마지막 파일로 덮어써집니다.' : ''}
+                </div>`;
+            }
+
             // Render Newly Added Drawings
             newFiles.forEach((item, idx) => {
+                const flagged = item.matched === false || newDupCounts[item.floorCode] > 1;
                 html += `
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:#e0f2fe; border:1px solid #0284c7; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
-                        <span>
-                            <strong style="color:#0369a1;">[신규추가 ${idx + 1}]</strong> ➕ ${item.floorLabel} (${item.floorCode})
+                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#0284c7'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
+                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                            <strong style="color:#0369a1;">[신규추가 ${idx + 1}]</strong>
                             <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${item.fileName}</span>
                         </span>
-                        <span style="font-size:0.75rem; color:#0284c7; font-weight:700;">삽입대기</span>
+                        <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem; flex-shrink:0;">
+                            ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                        </select>
                     </div>
                 `;
             });
@@ -776,6 +1044,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         preview.innerHTML = html;
+
+        preview.querySelectorAll('.edit-drawing-floor-select').forEach(sel => {
+            sel.addEventListener('change', (ev) => {
+                const idx = parseInt(ev.target.dataset.idx, 10);
+                const item = (window.selectedEditUploadedDrawings || [])[idx];
+                if (!item) return;
+                const code = ev.target.value;
+                item.floorCode = code;
+                item.floorLabel = window.getFloorLabelFromCode(code);
+                item.rank = window.getFloorRankFromCode(code);
+                item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+                renderEditDrawingPreview();
+            });
+        });
     }
 
     window.deleteExistingFloorDrawing = function(floorCode) {
@@ -794,25 +1076,46 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // Handling Additional Drawing File Selection
+    // 이미지 입력과 PDF 입력, 두 개의 <input type=file>에서 선택한 파일을 같은 목록에 누적
+    function handleEditBuildingFilesSelected(files) {
+        if (files.length === 0) return;
+
+        const parsedItems = files.map(file => {
+            const info = window.parseFloorInfoFromFilename(file.name);
+            return {
+                file: file,
+                fileName: file.name,
+                rank: info.rank,
+                floorCode: info.floorCode,
+                floorLabel: info.floorLabel,
+                matched: info.matched
+            };
+        });
+
+        window.selectedEditUploadedDrawings = window.sortFloorsLowToHigh(
+            (window.selectedEditUploadedDrawings || []).concat(parsedItems)
+        );
+        renderEditDrawingPreview();
+
+        const unmatchedCount = parsedItems.filter(it => it.matched === false).length;
+        if (unmatchedCount > 0) {
+            window.showToast(`${unmatchedCount}개 파일의 층을 파일명에서 자동으로 인식하지 못했습니다. 목록에서 직접 층을 선택해 주세요.`, 'warning', 5500);
+        }
+    }
+
     const inputEditDrawings = document.getElementById('inputEditBuildingDrawings');
     if (inputEditDrawings) {
         inputEditDrawings.addEventListener('change', (e) => {
-            const files = Array.from(e.target.files || []);
-            if (files.length === 0) return;
+            handleEditBuildingFilesSelected(Array.from(e.target.files || []));
+            e.target.value = '';
+        });
+    }
 
-            const parsedItems = files.map(file => {
-                const info = window.parseFloorInfoFromFilename(file.name);
-                return {
-                    file: file,
-                    fileName: file.name,
-                    rank: info.rank,
-                    floorCode: info.floorCode,
-                    floorLabel: info.floorLabel
-                };
-            });
-
-            window.selectedEditUploadedDrawings = window.sortFloorsLowToHigh(parsedItems);
-            renderEditDrawingPreview();
+    const inputEditDrawingsPdf = document.getElementById('inputEditBuildingDrawingsPdf');
+    if (inputEditDrawingsPdf) {
+        inputEditDrawingsPdf.addEventListener('change', (e) => {
+            handleEditBuildingFilesSelected(Array.from(e.target.files || []));
+            e.target.value = '';
         });
     }
 
@@ -826,7 +1129,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const nameInput = document.getElementById('inputEditBuildingName');
             const name = (nameInput ? nameInput.value : '').trim();
             if (!name) {
-                alert('⚠️ 건축물 명칭을 입력해 주세요!');
+                window.showToast('건축물 명칭을 입력해 주세요.', 'warning');
                 if (nameInput) nameInput.focus();
                 return;
             }
@@ -845,27 +1148,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const newFiles = Array.isArray(window.selectedEditUploadedDrawings) ? window.selectedEditUploadedDrawings : [];
 
+            // 신규추가 파일 중 같은 층으로 지정된 것이 있으면 저장 전 확인 (마지막 파일만 남고 나머지는 사라짐)
             if (newFiles.length > 0) {
-                for (const item of newFiles) {
-                    // Check if floor already exists in floorsList, if not add it
-                    const existingIdx = bldg.floorsList.findIndex(f => f.floorCode === item.floorCode);
-                    if (existingIdx < 0) {
-                        bldg.floorsList.push({
-                            floorCode: item.floorCode,
-                            floorLabel: item.floorLabel
-                        });
-                    }
-                    if (item.file) {
-                        try {
-                            const compressedDataUrl = await window.compressDrawingImage(item.file);
-                            if (compressedDataUrl) {
-                                bldg.floorDrawings[item.floorCode] = compressedDataUrl;
-                                await uploadFloorDrawing(bldg.id, item.floorCode, compressedDataUrl);
+                const dupCounts = {};
+                newFiles.forEach(it => { dupCounts[it.floorCode] = (dupCounts[it.floorCode] || 0) + 1; });
+                const dupCodes = Object.keys(dupCounts).filter(c => dupCounts[c] > 1);
+                if (dupCodes.length > 0) {
+                    const proceed = confirm(`⚠️ 같은 층으로 지정된 도면이 있습니다 (${dupCodes.join(', ')}).\n계속 저장하면 같은 층끼리는 마지막 파일만 남고 나머지는 사라집니다.\n계속하시겠습니까?`);
+                    if (!proceed) return;
+                }
+            }
+
+            if (newFiles.length > 0) {
+                window.showLoading(`도면 ${newFiles.length}개 처리 중입니다... (PDF는 시간이 더 걸릴 수 있습니다)`);
+                try {
+                    for (const item of newFiles) {
+                        // Check if floor already exists in floorsList, if not add it
+                        const existingIdx = bldg.floorsList.findIndex(f => f.floorCode === item.floorCode);
+                        if (existingIdx < 0) {
+                            bldg.floorsList.push({
+                                floorCode: item.floorCode,
+                                floorLabel: item.floorLabel
+                            });
+                        }
+                        if (item.file) {
+                            try {
+                                const compressedDataUrl = await window.compressDrawingImage(item.file);
+                                if (compressedDataUrl) {
+                                    bldg.floorDrawings[item.floorCode] = compressedDataUrl;
+                                    await uploadFloorDrawing(bldg.id, item.floorCode, compressedDataUrl);
+                                }
+                            } catch (err) {
+                                console.error('Edit drawing compression error:', err);
                             }
-                        } catch (err) {
-                            console.error('Edit drawing compression error:', err);
                         }
                     }
+                } finally {
+                    window.hideLoading();
                 }
             }
 
@@ -896,7 +1215,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.selectBuildingAndInspect(bldg);
             }
 
-            alert(`✅ '${bldg.name}' 명칭 및 도면 추가 삽입 저장이 완료되었습니다! (총 ${bldg.floorsList.length}개 층 저층➡️고층 정렬 완료)`);
+            window.showToast(`'${bldg.name}' 명칭 및 도면 저장이 완료되었습니다. (총 ${bldg.floorsList.length}개 층)`, 'success');
         });
     }
 
@@ -907,38 +1226,45 @@ document.addEventListener('DOMContentLoaded', () => {
             const bldg = window.currentEditingBuilding;
             if (!bldg) return;
 
-            if (confirm(`🗑️ 정말 건축물 '${bldg.name}' 및 등록된 모든 층별 도면과 결함 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) {
-                window.state.buildings = (window.state.buildings || []).filter(b => b.id !== bldg.id);
+            if (!confirm(`🗑️ 정말 건축물 '${bldg.name}' 및 등록된 모든 층별 도면과 결함 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
 
-                deleteFloorDrawingsForBuilding(bldg);
+            window.state.buildings = (window.state.buildings || []).filter(b => b.id !== bldg.id);
 
-                // Clear defects and ndtData for this building
-                Object.keys(window.state.defects || {}).forEach(k => {
-                    if (k.startsWith(bldg.id + '_')) {
-                        (window.state.defects[k] || []).forEach(d => {
-                            if (d.photos && d.photos.length > 0) deletePhotosForDefect(d.id, d.photos.length);
-                        });
-                        delete window.state.defects[k];
-                    }
-                });
-                Object.keys(window.state.ndtData || {}).forEach(k => {
-                    if (k.startsWith(bldg.id + '_')) delete window.state.ndtData[k];
-                });
-
-                saveStateToLocalStorage();
-                if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
-
-                window.closeEditBuildingModalFunc();
-
-                if (window.state.currentBuildingId === bldg.id) {
-                    window.state.currentBuilding = null;
-                    window.state.currentBuildingId = null;
-                    window.switchTab('tab-home');
+            // Clear defects and ndtData for this building
+            const photoDeleteJobs = [];
+            Object.keys(window.state.defects || {}).forEach(k => {
+                if (k.startsWith(bldg.id + '_')) {
+                    (window.state.defects[k] || []).forEach(d => {
+                        if (d.photos && d.photos.length > 0) photoDeleteJobs.push(deletePhotosForDefect(d.id, d.photos.length));
+                    });
+                    delete window.state.defects[k];
                 }
+            });
+            Object.keys(window.state.ndtData || {}).forEach(k => {
+                if (k.startsWith(bldg.id + '_')) delete window.state.ndtData[k];
+            });
 
-                renderDashboard();
-                alert(`✅ 건축물 '${bldg.name}' 삭제가 완료되었습니다.`);
+            saveStateToLocalStorage();
+            if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
+
+            window.closeEditBuildingModalFunc();
+
+            if (window.state.currentBuildingId === bldg.id) {
+                window.state.currentBuilding = null;
+                window.state.currentBuildingId = null;
+                window.switchTab('tab-home');
             }
+
+            renderDashboard();
+            window.showToast(`'${bldg.name}' 건축물이 삭제되었습니다.`, 'success');
+
+            // 클라우드 첨부파일(도면/사진) 삭제는 백그라운드에서 진행하고, 실패 건이 있으면 사후 안내
+            Promise.all([deleteFloorDrawingsForBuilding(bldg), ...photoDeleteJobs]).then(results => {
+                const totalFail = results.reduce((sum, n) => sum + (n || 0), 0);
+                if (totalFail > 0) {
+                    window.showToast(`클라우드에서 일부 첨부파일(${totalFail}건) 삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.`, 'warning', 5000);
+                }
+            });
         });
     }
 
@@ -2224,7 +2550,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.exportNdtTableExcel = function() {
         const items = getCurrentFloorNdtData();
         if (items.length === 0) {
-            alert('⚠️ 엑셀로 출력할 비파괴 조사 측정 데이터가 없습니다.');
+            window.showToast('엑셀로 출력할 비파괴 조사 측정 데이터가 없습니다.', 'warning');
             return;
         }
 
@@ -2541,7 +2867,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         state.ndtImages[key] = event.target.result;
                         saveStateToLocalStorage();
                         loadFloorNdtDrawing();
-                        alert('✅ NDT 전용 도면이 성공적으로 등록되었습니다!');
+                        window.showToast('NDT 전용 도면이 등록되었습니다.', 'success');
                     };
                     reader.readAsDataURL(file);
                 }
@@ -2557,7 +2883,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     saveStateToLocalStorage();
                 }
                 loadFloorNdtDrawing();
-                alert('🔄 층별 원본 도면으로 연동이 완료되었습니다.');
+                window.showToast('층별 원본 도면으로 연동이 완료되었습니다.', 'success');
             });
         }
     }
@@ -2961,7 +3287,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 saveStateToLocalStorage();
                 drawCanvas();
-                alert('✅ 3초 스마트 그리드 캘리브레이션 완료!\n도면 상에 X1~Xn / Y1~Yn 그리드망이 정상 배치되었습니다.');
+                window.showToast('3초 스마트 그리드 캘리브레이션 완료! 도면 상에 그리드망이 정상 배치되었습니다.', 'success', 4500);
             }
             return;
         }
@@ -4309,6 +4635,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- PDF EXPORT ENGINE (비동기 A4 풀다운로드 & 반응 즉시 활성화) ---
     window.exportPDF = async function() {
+        window.showLoading('PDF 보고서를 생성하는 중입니다...');
         try {
             // 1. Ensure report preview content is fully generated and preloaded
             await window.openReportPreviewModalFunc();
@@ -4356,7 +4683,10 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch(err) {
             console.error('PDF export error:', err);
+            window.showToast('PDF 생성 중 오류가 발생하여 인쇄 화면으로 대신 전환합니다.', 'warning', 4500);
             window.print();
+        } finally {
+            window.hideLoading();
         }
     };
 
@@ -4431,7 +4761,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.defects[key]) {
             const target = state.defects[key].find(d => d.id === id);
             if (target && target.photos && target.photos.length > 0) {
-                deletePhotosForDefect(id, target.photos.length);
+                deletePhotosForDefect(id, target.photos.length).then(failCount => {
+                    if (failCount > 0) {
+                        window.showToast(`사진 ${failCount}건 삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.`, 'warning', 5000);
+                    }
+                });
             }
             state.defects[key] = state.defects[key].filter(d => d.id !== id);
             saveStateToLocalStorage();
@@ -4447,7 +4781,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const val = (document.getElementById('inputHomeCompanyName')?.value || '').trim() || '(주)한국안전진단기술원';
             window.state.companyName = val;
             localStorage.setItem('building_company_name', val);
-            alert(`🏢 점검 수행회사명이 '${val}'(으)로 성공적으로 저장되었습니다!`);
+            window.showToast(`점검 수행회사명이 '${val}'(으)로 저장되었습니다.`, 'success');
         });
     }
 
@@ -4472,6 +4806,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 1. JSON 데이터 전체 백업 및 복원 ---
     window.exportBackupJSON = async function() {
+        window.showLoading('백업 파일 생성 중입니다...');
         try {
             // 내보내기 전, 아직 로컬 캐시에 없는 층 도면을 전부 미리 가져와 채워서 완전한 백업 보장
             if (db && window.state.companyId) {
@@ -4521,9 +4856,11 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
 
-            alert(`💾 안전점검 데이터 전체 백업 파일이 성공적으로 생성되었습니다!\n\n파일명: ${filename}`);
+            window.showToast(`백업 파일이 생성되었습니다. (파일명: ${filename})`, 'success', 4500);
         } catch (err) {
-            alert('백업 파일 생성 중 오류가 발생했습니다: ' + err.message);
+            window.showToast('백업 파일 생성 중 오류가 발생했습니다: ' + err.message, 'error', 5000);
+        } finally {
+            window.hideLoading();
         }
     };
 
@@ -4538,6 +4875,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const reader = new FileReader();
         reader.onload = async function(e) {
+            window.showLoading('백업 데이터를 복원하는 중입니다...');
             try {
                 const data = JSON.parse(e.target.result);
                 if (!data || !data.state || !Array.isArray(data.state.buildings)) {
@@ -4587,10 +4925,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
                 if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
 
-                alert('✅ 백업 파일로부터 안전점검 데이터 복원 및 클라우드 동기화가 완료되었습니다!');
+                window.showToast('백업 파일로부터 데이터 복원 및 클라우드 동기화가 완료되었습니다.', 'success', 4500);
             } catch (err) {
-                alert('❌ 데이터 복원 오류: ' + err.message);
+                window.showToast('데이터 복원 오류: ' + err.message, 'error', 5000);
             } finally {
+                window.hideLoading();
                 event.target.value = '';
             }
         };
@@ -4915,7 +5254,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.startSpeechRecognition = function(inputId, btnElement) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
-            alert('⚠️ 해당 브라우저에서는 음성 인식을 지원하지 않습니다.\n구글 크롬(Chrome) 또는 마이크로소프트 엣지(Edge) 브라우저를 이용해 주세요.');
+            window.showToast('해당 브라우저에서는 음성 인식을 지원하지 않습니다. 구글 크롬(Chrome) 또는 마이크로소프트 엣지(Edge) 브라우저를 이용해 주세요.', 'warning', 5000);
             return;
         }
 
@@ -4957,7 +5296,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
 
             recognition.onerror = function(event) {
-                alert('음성 인식 감지 오류: ' + event.error);
+                window.showToast('음성 인식 감지 오류: ' + event.error, 'error');
                 if (btnElement) {
                     btnElement.style.background = '';
                     btnElement.style.color = '#38bdf8';
@@ -4965,7 +5304,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             };
         } catch (e) {
-            alert('음성 인식 시작 실패: ' + e.message);
+            window.showToast('음성 인식 시작 실패: ' + e.message, 'error');
         }
     };
 
@@ -4984,13 +5323,13 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const bldg = window.state.currentBuilding;
             if (!bldg) {
-                alert('선택된 건축물이 없습니다.');
+                window.showToast('선택된 건축물이 없습니다.', 'warning');
                 return;
             }
 
             const defects = getCurrentFloorDefects();
             if (!defects || defects.length === 0) {
-                alert('현재 층에 등록된 결함 데이터가 없습니다.');
+                window.showToast('현재 층에 등록된 결함 데이터가 없습니다.', 'warning');
                 return;
             }
 
@@ -5061,7 +5400,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(link);
             URL.revokeObjectURL(url);
         } catch (e) {
-            alert('엑셀 내보내기 중 오류가 발생했습니다: ' + e.message);
+            window.showToast('엑셀 내보내기 중 오류가 발생했습니다: ' + e.message, 'error', 5000);
         }
     };
 
@@ -5163,23 +5502,38 @@ document.addEventListener('DOMContentLoaded', () => {
         return photoIds;
     }
 
+    // 반환값: 삭제 실패 건수. 실패해도 예외를 던지지 않지만, 호출부에서 사용자에게 알릴 수 있도록 건수를 반환한다.
     async function deletePhotosForDefect(defectId, count) {
-        if (!db || !window.state.companyId || !count) return;
+        if (!db || !window.state.companyId || !count) return 0;
         const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
+        let failCount = 0;
         const jobs = [];
         for (let i = 0; i < count; i++) {
-            jobs.push(companyPhotos.doc(getPhotoDocId(defectId, i)).delete().catch(() => {}));
+            const photoDocId = getPhotoDocId(defectId, i);
+            jobs.push(companyPhotos.doc(photoDocId).delete().catch(e => {
+                failCount++;
+                console.warn(`사진 삭제 실패 (${photoDocId}):`, e);
+            }));
         }
         await Promise.all(jobs);
+        return failCount;
     }
 
     async function deleteFloorDrawingsForBuilding(bldg) {
-        if (!db || !window.state.companyId || !bldg) return;
+        if (!db || !window.state.companyId || !bldg) return 0;
         const floors = (bldg.floorsList && bldg.floorsList.length > 0)
             ? bldg.floorsList.map(f => f.floorCode)
             : Object.keys(bldg.floorDrawings || {});
         const companyDrawings = db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings');
-        await Promise.all(floors.map(fc => companyDrawings.doc(`${bldg.id}_${fc}`).delete().catch(() => {})));
+        let failCount = 0;
+        await Promise.all(floors.map(fc => {
+            const drawingDocId = `${bldg.id}_${fc}`;
+            return companyDrawings.doc(drawingDocId).delete().catch(e => {
+                failCount++;
+                console.warn(`도면 삭제 실패 (${drawingDocId}):`, e);
+            });
+        }));
+        return failCount;
     }
 
     async function hydrateDefectPhotos(defectsMap) {
@@ -5487,10 +5841,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const email = (document.getElementById('authEmail')?.value || '').trim();
         const password = document.getElementById('authPassword')?.value || '';
         if (!email || !password) { showAuthError({ message: '이메일과 비밀번호를 입력해 주세요.' }); return; }
+        window.showLoading('로그인 중입니다...');
         try {
             await auth.signInWithEmailAndPassword(email, password);
         } catch (err) {
             showAuthError(err);
+        } finally {
+            window.hideLoading();
         }
     };
 
@@ -5505,6 +5862,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         window._justRegistering = true;
+        window.showLoading('회사 계정을 생성하는 중입니다...');
         let cred = null;
         try {
             cred = await auth.createUserWithEmailAndPassword(email, password);
@@ -5533,6 +5891,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cred && cred.user) { try { await cred.user.delete(); } catch (e) {} }
         } finally {
             window._justRegistering = false;
+            window.hideLoading();
         }
     };
 
@@ -5547,6 +5906,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         window._justRegistering = true;
+        window.showLoading('가입 신청 중입니다...');
         let cred = null;
         try {
             const codeDoc = await db.collection('joinCodes').doc(joinCode).get();
@@ -5571,6 +5931,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (cred && cred.user) { try { await cred.user.delete(); } catch (e) {} }
         } finally {
             window._justRegistering = false;
+            window.hideLoading();
         }
     };
 
@@ -5644,7 +6005,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const companyRef = db.collection('companies').doc(window.state.companyId);
             const pendingDoc = await companyRef.collection('pendingRequests').doc(uid).get();
-            if (!pendingDoc.exists) { alert('이미 처리된 신청입니다.'); await renderMemberApprovalLists(); return; }
+            if (!pendingDoc.exists) { window.showToast('이미 처리된 신청입니다.', 'warning'); await renderMemberApprovalLists(); return; }
             const d = pendingDoc.data();
             await companyRef.collection('members').doc(uid).set({
                 name: d.name, email: d.email, role: 'member',
@@ -5652,9 +6013,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             await companyRef.collection('pendingRequests').doc(uid).delete();
             await renderMemberApprovalLists();
+            window.showToast(`'${d.name || '팀원'}'님의 가입을 승인했습니다.`, 'success');
         } catch (e) {
             console.error('승인 처리 오류:', e);
-            alert('승인 처리 중 오류가 발생했습니다.');
+            window.showToast('승인 처리 중 오류가 발생했습니다.', 'error');
         }
     };
 
@@ -5671,9 +6033,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             await companyRef.collection('pendingRequests').doc(uid).delete();
             await renderMemberApprovalLists();
+            window.showToast('가입 신청을 거절했습니다.', 'info');
         } catch (e) {
             console.error('거절 처리 오류:', e);
-            alert('거절 처리 중 오류가 발생했습니다.');
+            window.showToast('거절 처리 중 오류가 발생했습니다.', 'error');
         }
     };
 
@@ -5782,7 +6145,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!auth || !auth.currentUser) return;
                 await handleAuthStateChange(auth.currentUser);
                 if (window.state.role === 'pending') {
-                    alert('아직 승인되지 않았습니다. 잠시 후 다시 확인해 주세요.');
+                    window.showToast('아직 승인되지 않았습니다. 잠시 후 다시 확인해 주세요.', 'info');
                 }
             });
         }
@@ -5821,21 +6184,21 @@ document.addEventListener('DOMContentLoaded', () => {
             btnSendReset.addEventListener('click', () => {
                 const email = (document.getElementById('resetUserEmail')?.value || '').trim();
                 if (!email) {
-                    alert('⚠️ 이메일 주소를 입력해 주세요.');
+                    window.showToast('이메일 주소를 입력해 주세요.', 'warning');
                     return;
                 }
 
                 if (typeof firebase !== 'undefined' && firebase.auth) {
                     firebase.auth().sendPasswordResetEmail(email)
                         .then(() => {
-                            alert(`📧 '${email}' 주소로 비밀번호 재설정 이메일이 즉시 발송되었습니다.\n메일함을 확인해 주세요!`);
+                            window.showToast(`'${email}' 주소로 비밀번호 재설정 이메일이 발송되었습니다. 메일함을 확인해 주세요.`, 'success', 4500);
                             closeResetModal();
                         })
                         .catch((err) => {
-                            alert(`⚠️ 메일 발송에 실패했습니다: ${err.message || err.code || '알 수 없는 오류'}`);
+                            window.showToast(`메일 발송에 실패했습니다: ${err.message || err.code || '알 수 없는 오류'}`, 'error', 5000);
                         });
                 } else {
-                    alert('⚠️ 인증 기능을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.');
+                    window.showToast('인증 기능을 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.', 'error');
                 }
             });
         }
@@ -5930,7 +6293,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 cfg.yEnd = 0.92;
                 saveStateToLocalStorage();
                 drawCanvas();
-                alert('🔄 그리드 간격이 균등 분할로 리셋되었습니다!');
+                window.showToast('그리드 간격이 균등 분할로 리셋되었습니다.', 'success');
             });
         }
 

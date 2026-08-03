@@ -11,11 +11,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260729_1642">
+    <link rel="stylesheet" href="styles.css?v=20260804_0100">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- pdf.js for rendering CAD-exported PDF floor plans at high resolution (crisp text/lines, no re-compression blur) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <!-- Firebase SDK (v9/v10 compat 모드) -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -838,8 +840,17 @@
                         <span><i class="fa-solid fa-file-image" style="color: #38bdf8;"></i> 📁 층별 도면 파일 여러개 일괄 올리기</span>
                         <span class="text-muted" style="font-size:0.75rem;">(B1, 지하1층, 1F 등 파일명 자동인식 & 아래층 순 자동정렬)</span>
                     </label>
-                    <input type="file" id="inputBuildingDrawings" multiple accept="image/*" class="form-control" style="margin-top: 0.4rem;">
-                    
+                    <div style="display:flex; gap:0.5rem; margin-top:0.4rem; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:180px;">
+                            <label for="inputBuildingDrawings" class="text-muted" style="font-size:0.72rem; display:block; margin-bottom:0.2rem;">🖼️ 사진/이미지 파일</label>
+                            <input type="file" id="inputBuildingDrawings" multiple accept="image/*" class="form-control">
+                        </div>
+                        <div style="flex:1; min-width:180px;">
+                            <label for="inputBuildingDrawingsPdf" class="text-muted" style="font-size:0.72rem; display:block; margin-bottom:0.2rem;">📄 캐드 PDF 파일 (사진 폴더에 안 보이면 여기서 선택)</label>
+                            <input type="file" id="inputBuildingDrawingsPdf" multiple accept="application/pdf,.pdf" class="form-control">
+                        </div>
+                    </div>
+
                     <!-- Floor Sorting Preview Box -->
                     <div id="drawingSortPreview" style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.4rem;"></div>
                 </div>
@@ -916,8 +927,17 @@
                         <span style="color: #0284c7; font-weight: 800; font-size: 0.95rem;"><i class="fa-solid fa-file-arrow-up"></i> 🖼️ 층별 도면 추가 삽입 / 교체 (파일 선택)</span>
                         <span class="text-muted" style="font-size:0.75rem;">(B2, 1F 등 파일명 자동인식 & 저층➡️고층 자동 정렬)</span>
                     </label>
-                    <input type="file" id="inputEditBuildingDrawings" multiple accept="image/*" class="form-control" style="background:#ffffff; border:1px solid #cbd5e1;">
-                    
+                    <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                        <div style="flex:1; min-width:180px;">
+                            <label for="inputEditBuildingDrawings" class="text-muted" style="font-size:0.72rem; display:block; margin-bottom:0.2rem;">🖼️ 사진/이미지 파일</label>
+                            <input type="file" id="inputEditBuildingDrawings" multiple accept="image/*" class="form-control" style="background:#ffffff; border:1px solid #cbd5e1;">
+                        </div>
+                        <div style="flex:1; min-width:180px;">
+                            <label for="inputEditBuildingDrawingsPdf" class="text-muted" style="font-size:0.72rem; display:block; margin-bottom:0.2rem;">📄 캐드 PDF 파일 (사진 폴더에 안 보이면 여기서 선택)</label>
+                            <input type="file" id="inputEditBuildingDrawingsPdf" multiple accept="application/pdf,.pdf" class="form-control" style="background:#ffffff; border:1px solid #cbd5e1;">
+                        </div>
+                    </div>
+
                     <div id="editDrawingSortPreview" style="margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.5rem;"></div>
                 </div>
             </div>
@@ -1172,7 +1192,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260729_1642"></script>
+    <script src="app.js?v=20260804_0100"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
