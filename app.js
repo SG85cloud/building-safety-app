@@ -2970,17 +2970,94 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- 결함 되돌리기/다시실행 히스토리 엔진 ---
+    // 새로고침 시 초기화되어도 무방한 세션 한정 상태라 state가 아닌 클로저 변수로 관리
+    const defectHistory = {};
+
+    function getDefectHistoryKey() {
+        return `${state.currentBuildingId}_${state.currentFloor}`;
+    }
+
+    // 결함이 바뀌기 직전에 호출해서 현재 상태를 되돌리기 스택에 저장
+    function pushDefectHistory() {
+        if (!state.currentBuildingId) return;
+        const key = getDefectHistoryKey();
+        if (!defectHistory[key]) defectHistory[key] = { undo: [], redo: [] };
+        const h = defectHistory[key];
+        h.undo.push(JSON.stringify(state.defects[key] || []));
+        if (h.undo.length > 30) h.undo.shift();
+        h.redo = [];
+        updateUndoRedoButtons();
+    }
+
+    function undoDefectChange() {
+        const key = getDefectHistoryKey();
+        const h = defectHistory[key];
+        if (!h || h.undo.length === 0) return;
+        const prevSnapshot = h.undo.pop();
+        h.redo.push(JSON.stringify(state.defects[key] || []));
+        state.defects[key] = JSON.parse(prevSnapshot);
+        saveStateToLocalStorage();
+        renderSurveyTable();
+        drawCanvas();
+        window.showToast('되돌리기 완료', 'info', 1500);
+    }
+
+    function redoDefectChange() {
+        const key = getDefectHistoryKey();
+        const h = defectHistory[key];
+        if (!h || h.redo.length === 0) return;
+        const nextSnapshot = h.redo.pop();
+        h.undo.push(JSON.stringify(state.defects[key] || []));
+        state.defects[key] = JSON.parse(nextSnapshot);
+        saveStateToLocalStorage();
+        renderSurveyTable();
+        drawCanvas();
+        window.showToast('다시 실행 완료', 'info', 1500);
+    }
+
+    function updateUndoRedoButtons() {
+        const h = state.currentBuildingId ? defectHistory[getDefectHistoryKey()] : null;
+        const btnUndoEl = document.getElementById('btnUndo');
+        const btnRedoEl = document.getElementById('btnRedo');
+        if (btnUndoEl) btnUndoEl.disabled = !h || h.undo.length === 0;
+        if (btnRedoEl) btnRedoEl.disabled = !h || h.redo.length === 0;
+    }
+
     // 좌측 사이드바에 표시되는 "현재 층에 등록된 결함" 간단 목록 렌더링
     function renderDefectListPanel() {
         const panel = document.getElementById('defectListPanel');
+        const summaryEl = document.getElementById('defectListSummary');
         if (!panel) return;
 
         if (!state.currentBuildingId) {
             panel.innerHTML = '';
+            if (summaryEl) summaryEl.innerHTML = '';
             return;
         }
 
         const defects = getCurrentFloorFilteredDefects();
+
+        if (summaryEl) {
+            if (defects.length === 0) {
+                summaryEl.innerHTML = '';
+            } else {
+                const counts = { '구조체': 0, '비구조체': 0, '마감재': 0 };
+                defects.forEach(d => {
+                    const cat = Object.prototype.hasOwnProperty.call(counts, d.category) ? d.category : '구조체';
+                    counts[cat]++;
+                });
+                const catClassMap = { '구조체': '', '비구조체': 'cat-nonstructural', '마감재': 'cat-finishing' };
+                let html = `<span>결함 ${defects.length}건</span>`;
+                Object.keys(counts).forEach(cat => {
+                    if (counts[cat] > 0) {
+                        html += `<span class="defect-summary-badge ${catClassMap[cat]}">${counts[cat]}건</span>`;
+                    }
+                });
+                summaryEl.innerHTML = html;
+            }
+        }
+
         if (defects.length === 0) {
             panel.innerHTML = '<div class="defect-list-empty">아직 등록된 결함이 없습니다.<br>도면에서 핀을 찍어보세요.</div>';
             return;
@@ -2989,36 +3066,72 @@ document.addEventListener('DOMContentLoaded', () => {
         panel.innerHTML = '';
         defects.forEach(d => {
             const catClass = d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : '');
+            const numMatch = (d.no || '').match(/\d+/);
+            const badgeNo = numMatch ? numMatch[0] : '?';
             const shapeIcon = d.shapeType === 'area' ? '🟧 ' : '';
-            const labelText = `${shapeIcon}${d.no || ''} ${d.component || ''} ${d.defectType || ''}`.trim();
 
             const row = document.createElement('div');
             row.className = `defect-list-item ${catClass}`.trim();
-            row.title = d.location || labelText;
+            row.title = d.location || '';
 
-            const textSpan = document.createElement('span');
-            textSpan.className = 'defect-list-item-text';
-            textSpan.textContent = labelText;
-            row.appendChild(textSpan);
+            const badge = document.createElement('span');
+            badge.className = 'defect-badge-no';
+            badge.textContent = badgeNo;
+            row.appendChild(badge);
+
+            const lines = document.createElement('div');
+            lines.className = 'defect-list-item-lines';
+
+            const compLine = document.createElement('span');
+            compLine.className = 'defect-list-item-component';
+            compLine.textContent = `${shapeIcon}${d.component || ''}`.trim();
+            lines.appendChild(compLine);
+
+            const typeLine = document.createElement('span');
+            typeLine.className = 'defect-list-item-type';
+            typeLine.textContent = d.defectType || '';
+            lines.appendChild(typeLine);
+
+            row.appendChild(lines);
+
+            const actions = document.createElement('div');
+            actions.className = 'defect-list-item-actions';
 
             const editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'defect-list-item-edit';
             editBtn.title = '수정';
             editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
-            row.appendChild(editBtn);
+            actions.appendChild(editBtn);
+
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'defect-list-item-delete';
+            deleteBtn.title = '삭제';
+            deleteBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+            actions.appendChild(deleteBtn);
+
+            row.appendChild(actions);
 
             row.addEventListener('click', (e) => {
-                if (e.target === editBtn || editBtn.contains(e.target)) return;
+                if (actions.contains(e.target)) return;
                 window.focusDefectOnCanvas(d.id);
             });
             editBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
             });
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (confirm(`'${d.component || ''} ${d.defectType || ''}' 결함을 삭제할까요?`)) {
+                    window.deleteDefectById(d.id);
+                }
+            });
 
             panel.appendChild(row);
         });
+
+        updateUndoRedoButtons();
     }
     window.renderDefectListPanel = renderDefectListPanel;
 
@@ -3484,6 +3597,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hitInfo) {
             // Start 1-second (1000ms) long-press timer for moving box, tip, or area rect
             longPressTimer = setTimeout(() => {
+                pushDefectHistory();
                 isDraggingPin = true;
                 activeDragPin = hitInfo.defect;
                 activeDragPart = hitInfo.part;
@@ -3966,6 +4080,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!state.currentBuildingId) return;
             const key = `${state.currentBuildingId}_${state.currentFloor}`;
             if (!state.defects[key]) state.defects[key] = [];
+            pushDefectHistory();
 
             const pinId = document.getElementById('defectPinId').value;
             const coords = window._pendingPinCoords || { x: 200, y: 200, targetX: 165, targetY: 235 };
@@ -4093,6 +4208,53 @@ document.addEventListener('DOMContentLoaded', () => {
         btnModeMark.addEventListener('click', () => setDrawMode('MARK'));
         if (btnModeArea) btnModeArea.addEventListener('click', () => setDrawMode('AREA'));
     }
+
+    // 되돌리기 / 다시실행 / 전체초기화 (하단 아이콘 툴바)
+    const btnUndoEl = document.getElementById('btnUndo');
+    if (btnUndoEl) btnUndoEl.addEventListener('click', () => undoDefectChange());
+
+    const btnRedoEl = document.getElementById('btnRedo');
+    if (btnRedoEl) btnRedoEl.addEventListener('click', () => redoDefectChange());
+
+    const btnClearPinsEl = document.getElementById('btnClearPins');
+    if (btnClearPinsEl) {
+        btnClearPinsEl.addEventListener('click', () => {
+            if (!state.currentBuildingId) return;
+            const key = `${state.currentBuildingId}_${state.currentFloor}`;
+            const defects = state.defects[key] || [];
+            if (defects.length === 0) {
+                window.showToast('현재 층에 등록된 결함이 없습니다.', 'info');
+                return;
+            }
+            if (!confirm(`현재 층의 결함 ${defects.length}건을 모두 삭제할까요? (되돌리기로 복원 가능)`)) return;
+
+            pushDefectHistory();
+            defects.forEach(d => {
+                if (d.photos && d.photos.length > 0) {
+                    deletePhotosForDefect(d.id, d.photos.length);
+                }
+            });
+            state.defects[key] = [];
+            saveStateToLocalStorage();
+            renderSurveyTable();
+            drawCanvas();
+            window.showToast('현재 층 결함을 모두 초기화했습니다.', 'success');
+        });
+    }
+
+    // Ctrl+Z / Ctrl+Y 키보드 단축키 (입력 필드에 포커스가 있을 때는 무시)
+    window.addEventListener('keydown', (e) => {
+        const tag = (e.target && e.target.tagName || '').toUpperCase();
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
+        if (!document.getElementById('tab-map')?.classList.contains('active')) return;
+        if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
+            e.preventDefault();
+            undoDefectChange();
+        } else if (e.ctrlKey && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) {
+            e.preventDefault();
+            redoDefectChange();
+        }
+    });
 
     // Zoom Buttons
     const btnZoomIn = document.getElementById('btnZoomIn');
@@ -5024,6 +5186,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.deleteDefectById = function(id) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         if (state.defects[key]) {
+            pushDefectHistory();
             const target = state.defects[key].find(d => d.id === id);
             if (target && target.photos && target.photos.length > 0) {
                 deletePhotosForDefect(id, target.photos.length).then(failCount => {

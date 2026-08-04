@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260804_0200">
+    <link rel="stylesheet" href="styles.css?v=20260804_0300">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -153,6 +153,7 @@
                 <!-- LEFT: 등록된 결함 빠른 목록 -->
                 <aside class="inspect-sidebar-left">
                     <h4 class="inspect-sidebar-title"><i class="fa-solid fa-list-check"></i> 등록된 결함 목록</h4>
+                    <div id="defectListSummary" class="defect-list-summary"></div>
                     <div id="defectListPanel" class="defect-list-panel"></div>
                 </aside>
 
@@ -200,6 +201,22 @@
 
                         <canvas id="planCanvas"></canvas>
                     </div>
+
+                    <!-- Bottom Icon Toolbar -->
+                    <div class="canvas-bottom-toolbar">
+                        <button type="button" id="btnUndo" class="icon-pill-btn" title="실행 취소 (Ctrl+Z)" disabled>
+                            <i class="fa-solid fa-rotate-left"></i>
+                            <span>되돌리기</span>
+                        </button>
+                        <button type="button" id="btnRedo" class="icon-pill-btn" title="다시 실행" disabled>
+                            <i class="fa-solid fa-rotate-right"></i>
+                            <span>다시 실행</span>
+                        </button>
+                        <button type="button" id="btnClearPins" class="icon-pill-btn icon-pill-danger" title="현재 층 핀 전체 초기화">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>전체 초기화</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- RIGHT: 도구 패널 -->
@@ -233,16 +250,6 @@
                             <span id="arrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
                         </div>
 
-                        <div class="filter-group">
-                            <button id="btnUndo" class="btn btn-outline" title="실행 취소 (Ctrl+Z)" style="border-color: #6366f1; color: #a5b4fc; width: 100%;">
-                                <i class="fa-solid fa-rotate-left"></i> ↩️ 되돌리기
-                            </button>
-                        </div>
-                        <div class="filter-group">
-                            <button id="btnClearPins" class="btn btn-danger-outline" style="width: 100%;">
-                                <i class="fa-solid fa-trash-can"></i> 핀 전체 초기화
-                            </button>
-                        </div>
                     </div>
 
                     <details class="advanced-filter-panel">
@@ -1214,7 +1221,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260804_0200"></script>
+    <script src="app.js?v=20260804_0300"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

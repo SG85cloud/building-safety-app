@@ -456,6 +456,55 @@ body {
     }
 }
 
+/* Bottom Icon Toolbar (되돌리기 / 다시실행 / 전체초기화) */
+.canvas-bottom-toolbar {
+    display: flex;
+    justify-content: center;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+}
+
+.icon-pill-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.5rem 1rem;
+    min-width: 84px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.icon-pill-btn i {
+    font-size: 1rem;
+    color: var(--accent-blue);
+}
+
+.icon-pill-btn:hover:not(:disabled) {
+    border-color: var(--accent-blue);
+    color: var(--text-primary);
+}
+
+.icon-pill-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.icon-pill-btn.icon-pill-danger i {
+    color: #ef4444;
+}
+
+.icon-pill-btn.icon-pill-danger:hover:not(:disabled) {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
 /* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
 .inspect-layout {
     display: flex;
@@ -491,6 +540,42 @@ body {
     gap: 0.4rem;
 }
 
+.defect-list-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.defect-summary-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 0.15rem 0.6rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+}
+
+.defect-summary-badge::before {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ef4444;
+    display: inline-block;
+}
+
+.defect-summary-badge.cat-nonstructural::before { background: #3b82f6; }
+.defect-summary-badge.cat-finishing::before { background: #f97316; }
+
 .defect-list-panel {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -514,12 +599,11 @@ body {
 .defect-list-item {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: 0.5rem;
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    border-left: 4px solid #ef4444;
     border-radius: var(--radius-sm);
-    padding: 0.4rem 0.55rem;
+    padding: 0.4rem 0.5rem;
     cursor: pointer;
     transition: all 0.15s ease;
 }
@@ -529,21 +613,57 @@ body {
     background: rgba(56, 189, 248, 0.08);
 }
 
-.defect-list-item.cat-nonstructural { border-left-color: #3b82f6; }
-.defect-list-item.cat-finishing { border-left-color: #f97316; }
+.defect-badge-no {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 0.7rem;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 
-.defect-list-item-text {
+.defect-list-item.cat-nonstructural .defect-badge-no { background: #3b82f6; }
+.defect-list-item.cat-finishing .defect-badge-no { background: #f97316; }
+
+.defect-list-item-lines {
     flex: 1;
     min-width: 0;
-    font-size: 0.78rem;
-    font-weight: 700;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.defect-list-item-component {
+    font-size: 0.8rem;
+    font-weight: 800;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.defect-list-item-edit {
+.defect-list-item-type {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.defect-list-item-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+}
+
+.defect-list-item-edit,
+.defect-list-item-delete {
     flex-shrink: 0;
     background: none;
     border: none;
@@ -555,6 +675,10 @@ body {
 
 .defect-list-item-edit:hover {
     color: var(--accent-blue);
+}
+
+.defect-list-item-delete:hover {
+    color: #ef4444;
 }
 
 .inspect-tool-panel {
