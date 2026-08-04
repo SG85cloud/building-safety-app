@@ -1759,7 +1759,9 @@ document.addEventListener('DOMContentLoaded', () => {
         return { tiltRatio: `1/${ratioInv}`, grade };
     }
 
-    // 부재변위(처짐): 부재길이 L(mm) 대비 처짐량(mm)으로 처짐비 1/L 및 부재처짐 안전등급 산정 (시설물의 안전 및 유지관리 세부지침 기준)
+    // 부재변위(처짐): 시설물의 안전 및 유지관리 실시 세부지침(건축물편) [표 6.34] 부재의 변위·변형에 대한 상태평가기준
+    // 보/슬래브 처짐 δ, 경간길이 L → a·b: L/480 이하(육안상 경미한 손상 동반 시 b), c: L/240 이하, d: L/150 이하, e: L/150 초과
+    // 기울기(calcTiltGrade)와 달리 등급 구간이 480/240/150 3단계뿐이며 360 구간이 없음 — 손상 동반 여부(a/b 구분)는 육안 판단이 필요해 자동판정에서는 기본값 a로 처리
     function calcMemberDispGrade(lengthMm, deltaMm) {
         const l = lengthMm || 5000;
         const delta = Math.abs(deltaMm) || 0;
@@ -1767,7 +1769,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const ratioInv = Math.round(l / delta);
         let grade = 'e등급';
         if (ratioInv >= 480) grade = 'a등급';
-        else if (ratioInv >= 360) grade = 'b등급';
         else if (ratioInv >= 240) grade = 'c등급';
         else if (ratioInv >= 150) grade = 'd등급';
         return { tiltRatio: `1/${ratioInv}`, grade };
