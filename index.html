@@ -194,11 +194,6 @@
 
                     <!-- Canvas Viewport -->
                     <div class="canvas-container" id="canvasContainer">
-                        <div class="canvas-hint" id="canvasHintText">
-                            <i class="fa-solid fa-hand-pointer"></i>
-                            <span>[✋ 이동 모드] 손가락으로 도면 자유 이동 및 확대/축소 | 핀을 찍으려면 <strong>📍 핀 마킹</strong>, 영역으로 표시하려면 <strong>🟧 영역 마킹</strong> 버튼 클릭</span>
-                        </div>
-
                         <canvas id="planCanvas"></canvas>
                     </div>
 
@@ -239,14 +234,14 @@
                         <!-- Pin Size Adjuster Slider -->
                         <div class="filter-group">
                             <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
-                            <input type="range" id="pinSizeRange" min="0.6" max="2.2" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
+                            <input type="range" id="pinSizeRange" min="0.6" max="4.4" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
                             <span id="pinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
                         </div>
 
                         <!-- Arrow Size Adjuster Slider -->
                         <div class="filter-group">
                             <span class="filter-label"><i class="fa-solid fa-location-arrow"></i> 화살표 크기:</span>
-                            <input type="range" id="arrowSizeRange" min="0.6" max="2.5" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
+                            <input type="range" id="arrowSizeRange" min="0.6" max="5.0" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
                             <span id="arrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
                         </div>
 
