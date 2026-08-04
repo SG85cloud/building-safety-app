@@ -1761,14 +1761,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 부재변위(처짐): 시설물의 안전 및 유지관리 실시 세부지침(건축물편) [표 6.34] 부재의 변위·변형에 대한 상태평가기준
     // 보/슬래브 처짐 δ, 경간길이 L → a·b: L/480 이하(육안상 경미한 손상 동반 시 b), c: L/240 이하, d: L/150 이하, e: L/150 초과
-    // 기울기(calcTiltGrade)와 달리 등급 구간이 480/240/150 3단계뿐이며 360 구간이 없음 — 손상 동반 여부(a/b 구분)는 육안 판단이 필요해 자동판정에서는 기본값 a로 처리
-    function calcMemberDispGrade(lengthMm, deltaMm) {
+    // 기울기(calcTiltGrade)와 달리 등급 구간이 480/240/150 3단계뿐이며 360 구간이 없음
+    // hasMinorDamage: 균열 등 경미한 손상 동반 여부(육안 확인, 체크박스 입력) — 처짐비가 L/480 이내여도 손상이 있으면 a 대신 b등급
+    function calcMemberDispGrade(lengthMm, deltaMm, hasMinorDamage = false) {
         const l = lengthMm || 5000;
         const delta = Math.abs(deltaMm) || 0;
-        if (delta <= 0 || l <= 0) return { tiltRatio: '1/480', grade: 'a등급' };
+        const bestGrade = hasMinorDamage ? 'b등급' : 'a등급';
+        if (delta <= 0 || l <= 0) return { tiltRatio: '1/480', grade: bestGrade };
         const ratioInv = Math.round(l / delta);
         let grade = 'e등급';
-        if (ratioInv >= 480) grade = 'a등급';
+        if (ratioInv >= 480) grade = bestGrade;
         else if (ratioInv >= 240) grade = 'c등급';
         else if (ratioInv >= 150) grade = 'd등급';
         return { tiltRatio: `1/${ratioInv}`, grade };
@@ -1797,7 +1799,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 delta = points[0].level;
             }
             const absDelta = Math.abs(delta);
-            const calc = calcMemberDispGrade(lengthMm, absDelta);
+            const calc = calcMemberDispGrade(lengthMm, absDelta, group.hasMinorDamage);
             return { delta, absDelta, tiltRatio: calc.tiltRatio, grade: calc.grade };
         } else {
             const first = points[0];
@@ -3039,13 +3041,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (dispGroups.length > 0) {
             if (items.length > 0) csvContent += "\n";
-            csvContent += "조사번호,조사항목,측정위치,측정길이(m),변위량(mm),기울기(1/L),안전등급\n";
+            csvContent += "조사번호,조사항목,측정위치,측정길이(m),변위/처짐량(mm),비율(1/L),안전등급\n";
             dispGroups.forEach(group => {
-                const first = group.points[0];
-                const last = group.points[group.points.length - 1];
-                const delta = (first && last) ? (first.level - last.level) : 0;
-                const calc = calcTiltGrade((group.measureLength || 0) * 1000, delta);
-                csvContent += `"${group.groupNo}","부동침하 기울기","${group.locationType}","${group.measureLength}","${delta.toFixed(1)}","${calc.tiltRatio}","${calc.grade}"\n`;
+                const calc = calcGroupDisplacement(group);
+                const catLabel = group.category === '부재변위' ? '부재처짐' : '부동침하 기울기';
+                csvContent += `"${group.groupNo}","${catLabel}","${group.locationType}","${group.measureLength}","${calc.delta.toFixed(1)}","${calc.tiltRatio}","${calc.grade}"\n`;
             });
         }
 
@@ -3433,6 +3433,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const infoBlock = document.getElementById('groupNdtDispInfo');
         const locEl = document.getElementById('ndtDispLocationType');
         const lenEl = document.getElementById('ndtDispMeasureLength');
+        const damageRow = document.getElementById('ndtDispMinorDamageRow');
+        const damageEl = document.getElementById('ndtDispHasMinorDamage');
         const levelEl = document.getElementById('ndtDispLevel');
         const modalTitleEl = modal.querySelector('.modal-header h3');
         const btnDelete = document.getElementById('btnDeleteNdtDispPoint');
@@ -3458,6 +3460,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const ptRole = isMemberDisp ? (idx === 0 ? ' [단부 1]' : (idx === existingGroup.points.length - 1 ? ' [단부 2]' : ' [중앙부]')) : '';
             hintEl.textContent = `${existingGroup.groupNo} 그룹 - ${idx + 1}번 지점${ptRole} 수정`;
             infoBlock.style.display = 'none';
+            if (damageRow) damageRow.style.display = 'none';
             levelEl.value = existingPoint.level;
             btnDelete.style.display = '';
             btnAddAnother.style.display = 'none';
@@ -3468,6 +3471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const ptRole = isMemberDisp ? (ptSeq === 1 ? ' (단부 1)' : (ptSeq === 2 ? ' (중앙부)' : ' (단부 2)')) : '';
             hintEl.textContent = `${tmpl.groupNo} 그룹에 ${tmpl.locationType} 측정 지점 추가 (${ptSeq}번째${ptRole})`;
             infoBlock.style.display = 'none';
+            if (damageRow) damageRow.style.display = 'none';
             levelEl.value = '';
             btnDelete.style.display = 'none';
             btnAddAnother.style.display = '';
@@ -3477,6 +3481,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const ptRole = isMemberDisp ? ' (단부 1)' : '';
             hintEl.textContent = `새 측정 구역 (${nextDisplacementGroupNo(cat)}) - 1번째 지점${ptRole}`;
             infoBlock.style.display = 'flex';
+            if (damageRow) damageRow.style.display = isMemberDisp ? 'block' : 'none';
+            if (damageEl) damageEl.checked = false;
             locEl.value = '보';
             lenEl.value = '';
             levelEl.value = '';
@@ -3538,6 +3544,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return null;
         }
         const cat = currentNdtCategory === '부재변위' ? '부재변위' : '변위';
+        const hasMinorDamage = cat === '부재변위' && !!document.getElementById('ndtDispHasMinorDamage')?.checked;
         const color = NDT_DISPLACEMENT_COLORS[groups.length % NDT_DISPLACEMENT_COLORS.length];
         const point = { id: `ndtp_${Date.now()}`, x: coords.x, y: coords.y, level };
         const group = {
@@ -3546,6 +3553,7 @@ document.addEventListener('DOMContentLoaded', () => {
             groupNo: nextDisplacementGroupNo(cat),
             locationType,
             measureLength,
+            hasMinorDamage,
             color,
             boxX: coords.x - 40,
             boxY: coords.y - 50,
@@ -3561,6 +3569,11 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('ndtDispGroupEditTitle').textContent = `${group.groupNo} 측정 구역 정보`;
         document.getElementById('ndtDispEditLocationType').value = group.locationType;
         document.getElementById('ndtDispEditMeasureLength').value = group.measureLength;
+        const damageRow = document.getElementById('ndtDispEditMinorDamageRow');
+        const damageEl = document.getElementById('ndtDispEditHasMinorDamage');
+        const isMemberDisp = group.category === '부재변위';
+        if (damageRow) damageRow.style.display = isMemberDisp ? 'block' : 'none';
+        if (damageEl) damageEl.checked = !!group.hasMinorDamage;
         renderNdtDispGroupPointList(group);
         const modal = document.getElementById('ndtDisplacementGroupEditModal');
         modal.style.display = 'flex';
@@ -3686,6 +3699,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 group.locationType = document.getElementById('ndtDispEditLocationType').value || '보';
                 group.measureLength = len;
+                if (group.category === '부재변위') {
+                    group.hasMinorDamage = !!document.getElementById('ndtDispEditHasMinorDamage')?.checked;
+                }
                 saveStateToLocalStorage();
                 drawNdtCanvas();
                 renderNdtSummaryTable();

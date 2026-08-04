@@ -800,6 +800,13 @@
                     </div>
                 </div>
 
+                <div id="ndtDispMinorDamageRow" class="form-group" style="display:none;">
+                    <label class="form-label" style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="ndtDispHasMinorDamage" style="width:auto;">
+                        ⚠️ 경미한 손상(균열 등) 동반 — 처짐비가 L/480 이내여도 a 대신 b등급으로 판정
+                    </label>
+                </div>
+
                 <div class="form-group">
                     <label class="form-label" id="lblNdtDispLevel">📊 레벨값 (mm) *</label>
                     <input type="number" id="ndtDispLevel" class="form-control" step="0.1" placeholder="예: -3 또는 2.5" style="font-weight: 800; color: #4ade80;">
@@ -838,6 +845,12 @@
                         <label class="form-label">📏 총 측정길이 (m) *</label>
                         <input type="number" id="ndtDispEditMeasureLength" class="form-control" step="0.1" min="0">
                     </div>
+                </div>
+                <div id="ndtDispEditMinorDamageRow" class="form-group" style="display:none;">
+                    <label class="form-label" style="display:flex; align-items:center; gap:0.4rem; cursor:pointer;">
+                        <input type="checkbox" id="ndtDispEditHasMinorDamage" style="width:auto;">
+                        ⚠️ 경미한 손상(균열 등) 동반 — 처짐비가 L/480 이내여도 a 대신 b등급으로 판정
+                    </label>
                 </div>
                 <div class="form-group">
                     <label class="form-label">📊 측정 지점 목록 (지점을 삭제하면 순번이 다시 매겨집니다)</label>
