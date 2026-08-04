@@ -1676,8 +1676,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const items = getCurrentFloorNdtData();
         const currentCat = currentNdtCategory || '실측';
         let filtered = items;
-        if (currentCat === '기울기') {
-            filtered = items.filter(item => item.category === '기울기');
+        if (currentCat === '기울기' || currentCat === '부재변위') {
+            filtered = items.filter(item => item.category === currentCat);
         } else if (currentCat === '변위') {
             filtered = items.filter(item => item.category === '변위');
         } else {
@@ -1872,7 +1872,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.setNdtCategory = function(cat) {
         currentNdtCategory = cat;
-        const catMap = { '실측': 'Dim', '강도': 'Strength', '탄산화': 'Carb', '기울기': 'Tilt', '변위': 'Vert' };
+        const catMap = { '실측': 'Dim', '강도': 'Strength', '탄산화': 'Carb', '기울기': 'Tilt', '변위': 'Vert', '부재변위': 'MemberDisp' };
         Object.values(catMap).forEach(id => {
             const btn = document.getElementById(`btnNdtCat${id}`);
             if (btn) btn.classList.remove('active');
@@ -1918,8 +1918,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Filter NDT pins by current active category tab
         let ndtItems = getCurrentFloorNdtData();
         const currentCat = currentNdtCategory || '실측';
-        if (currentCat === '기울기') {
-            ndtItems = ndtItems.filter(item => item.category === '기울기');
+        if (currentCat === '기울기' || currentCat === '부재변위') {
+            ndtItems = ndtItems.filter(item => item.category === currentCat);
         } else if (currentCat === '변위') {
             ndtItems = ndtItems.filter(item => item.category === '변위');
         } else {
@@ -1956,7 +1956,7 @@ document.addEventListener('DOMContentLoaded', () => {
             noStr = `NO.${numPart.length === 1 ? '0' + numPart : numPart}`;
         }
 
-        if (cat === '기울기' || cat === '변위') {
+        if (cat === '기울기' || cat === '변위' || cat === '부재변위') {
             // CAD Callout Style rendering (100% matching user reference photo & draggable!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
             const dispDir = item.dispDirection || '←';
@@ -2143,14 +2143,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.restore();
         });
 
-        // 그룹 라벨 박스 (측정 구역 번호 + 측정위치)
+        // 그룹 라벨 박스 (측정 구역 번호만 표시)
         ctx.save();
         ctx.translate(boxX, boxY);
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = isGroupDragged ? '#facc15' : color;
         ctx.lineWidth = (isGroupDragged ? 3 : 2) * pinScale;
-        const w = 64 * pinScale;
-        const h = 30 * pinScale;
+        const w = 56 * pinScale;
+        const h = 22 * pinScale;
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 5 * pinScale;
         ctx.fillRect(-w / 2, -h / 2, w, h);
@@ -2160,10 +2160,8 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillStyle = color;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
-        ctx.fillText(group.groupNo, 0, -h * 0.22);
-        ctx.font = `bold ${Math.round(9 * pinScale)}px sans-serif`;
-        ctx.fillText(group.locationType, 0, h * 0.28);
+        ctx.font = `bold ${Math.round(12 * pinScale)}px sans-serif`;
+        ctx.fillText(group.groupNo, 0, 0);
         ctx.restore();
     }
 
@@ -2198,7 +2196,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(0, 0, cw, ch);
 
             const floorLabel = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(floorCode) : (floorCode || '');
-            const title = `${floorLabel} ${group.locationType} 수직변위 (${group.groupNo})`;
+            const title = `${floorLabel} ${group.locationType} 부동침하 기울기 (${group.groupNo})`;
 
             ctx.fillStyle = '#0f172a';
             ctx.font = 'bold 24px sans-serif';
@@ -2786,8 +2784,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        if (currentCat === '기울기') {
-            items = items.filter(x => x.category === '기울기');
+        if (currentCat === '기울기' || currentCat === '부재변위') {
+            items = items.filter(x => x.category === currentCat);
             if (thead) {
                 thead.innerHTML = `
                     <th>조사번호</th>
@@ -2826,7 +2824,8 @@ document.addEventListener('DOMContentLoaded', () => {
             '강도': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4);">🔨 콘크리트 강도</span>',
             '탄산화': '<span class="badge" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4);">🧪 탄산화</span>',
             '기울기': '<span class="badge" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📐 외벽기울기</span>',
-            '변위': '<span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.4);">📉 수직변위</span>'
+            '변위': '<span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.4);">📉 부동침하 기울기</span>',
+            '부재변위': '<span class="badge" style="background:rgba(20,184,166,0.2); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4);">🏗️ 부재변위</span>'
         };
 
         const statusBadges = {
@@ -2843,7 +2842,7 @@ document.addEventListener('DOMContentLoaded', () => {
             'e등급': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (1/150초과)</span>'
         };
 
-        if (currentCat === '기울기') {
+        if (currentCat === '기울기' || currentCat === '부재변위') {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
                     <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
@@ -2894,7 +2893,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (groups.length === 0) {
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 바닥 수직변위 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 부동침하 기울기 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
             return;
         }
 
@@ -2967,7 +2966,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const last = group.points[group.points.length - 1];
                 const delta = (first && last) ? (first.level - last.level) : 0;
                 const calc = calcTiltGrade((group.measureLength || 0) * 1000, delta);
-                csvContent += `"${group.groupNo}","바닥 수직변위","${group.locationType}","${group.measureLength}","${delta.toFixed(1)}","${calc.tiltRatio}","${calc.grade}"\n`;
+                csvContent += `"${group.groupNo}","부동침하 기울기","${group.locationType}","${group.measureLength}","${delta.toFixed(1)}","${calc.tiltRatio}","${calc.grade}"\n`;
             });
         }
 
@@ -2988,7 +2987,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
 
-        if (cat === '기울기' || cat === '변위') {
+        if (cat === '기울기' || cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
             if (statusGrp) statusGrp.style.display = 'none';
             if (tiltGrp) tiltGrp.style.display = 'flex';
@@ -3095,7 +3094,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (nums.length > 0) {
                 const sum = nums.reduce((a, b) => a + b, 0);
                 const avg = (sum / nums.length).toFixed(1);
-                const unitStr = (currentNdtCategory === '기울기' || currentNdtCategory === '변위') ? 'mm' : '';
+                const unitStr = (currentNdtCategory === '기울기' || currentNdtCategory === '부재변위') ? 'mm' : '';
                 if (avgEl) avgEl.value = `${avg}${unitStr}`;
             } else {
                 const raw1 = (v1El?.value || '').trim();
@@ -3106,7 +3105,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         function calcTiltAuto() {
             const cat = document.getElementById('ndtCategory')?.value || '강도';
-            if (cat !== '기울기') return;
+            if (cat !== '기울기' && cat !== '부재변위') return;
 
             const hStr = (heightEl?.value || '').replace(/[^0-9.]/g, '');
             const deltaStr = (avgEl?.value || '').replace(/[^0-9.]/g, '');
@@ -3168,7 +3167,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
                 let grade = document.getElementById('ndtGrade')?.value || '';
 
-                if (cat === '기울기') {
+                if (cat === '기울기' || cat === '부재변위') {
                     const hDigits = (formattedHeight || '').replace(/[^0-9.]/g, '');
                     const avgDigits = (avg || '').replace(/[^0-9.]/g, '');
                     const h = parseFloat(hDigits) || 3000;
@@ -6058,7 +6057,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 `;
 
-                // --- 6. 📉 바닥 수직변위 측정 결과표 + 그래프 (그룹이 있을 때만 추가) ---
+                // --- 6. 📉 부동침하 기울기 측정 결과표 + 그래프 (그룹이 있을 때만 추가) ---
                 const dispGroups = state.ndtDisplacementGroups ? (state.ndtDisplacementGroups[ndtKey] || []) : [];
                 if (dispGroups.length > 0) {
                     reportPagesHtml += `
@@ -6068,7 +6067,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                6. ${floorCode} 바닥 수직변위 측정 결과표
+                                6. ${floorCode} 부동침하 기울기 측정 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -6109,7 +6108,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     `;
 
-                    // --- 7. 📉 바닥 수직변위 그룹별 꺾은선 그래프 (그룹마다 1페이지) ---
+                    // --- 7. 📉 부동침하 기울기 그룹별 꺾은선 그래프 (그룹마다 1페이지) ---
                     dispGroups.forEach(group => {
                         const chartDataUrl = renderNdtDisplacementChartDataUrl(group, floorCode);
                         reportPagesHtml += `
@@ -6119,7 +6118,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
 
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                    7. ${floorCode} 바닥 수직변위 그래프 (${group.groupNo})
+                                    7. ${floorCode} 부동침하 기울기 그래프 (${group.groupNo})
                                 </h2>
 
                                 ${chartDataUrl ? `

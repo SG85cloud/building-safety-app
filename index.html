@@ -393,7 +393,8 @@
                     <button type="button" id="btnNdtCatStrength" class="chip" onclick="window.setNdtCategory('강도')">🔨 콘크리트 강도 (슈미트)</button>
                     <button type="button" id="btnNdtCatCarb" class="chip" onclick="window.setNdtCategory('탄산화')">🧪 콘크리트 탄산화</button>
                     <button type="button" id="btnNdtCatTilt" class="chip" onclick="window.setNdtCategory('기울기')">📐 외벽 기울기</button>
-                    <button type="button" id="btnNdtCatVert" class="chip" onclick="window.setNdtCategory('변위')">📉 바닥 수직변위</button>
+                    <button type="button" id="btnNdtCatVert" class="chip" onclick="window.setNdtCategory('변위')">📉 부동침하 기울기</button>
+                    <button type="button" id="btnNdtCatMemberDisp" class="chip" onclick="window.setNdtCategory('부재변위')">🏗️ 부재변위</button>
                 </div>
             </div>
 
@@ -435,7 +436,7 @@
             <div class="canvas-container" id="ndtCanvasContainer">
                 <div class="canvas-hint" id="ndtCanvasHintText">
                     <i class="fa-solid fa-vial"></i> 
-                    <span>[📍 NDT 위치 마킹] 5대 비파괴 조사 측정 위치를 도면 상에 핀으로 표시하세요</span>
+                    <span>[📍 NDT 위치 마킹] 6대 비파괴 조사 측정 위치를 도면 상에 핀으로 표시하세요</span>
                 </div>
                 <canvas id="ndtCanvas"></canvas>
             </div>
@@ -664,8 +665,8 @@
                             <option value="실측">📏 부재 실측 (규격)</option>
                             <option value="강도">🔨 콘크리트 강도 (슈미트)</option>
                             <option value="탄산화">🧪 콘크리트 탄산화 (중성화)</option>
-                            <option value="기울기">📐 외벽 기울기 (변위)</option>
-                            <option value="변위">📉 바닥 수직변위 (처짐)</option>
+                            <option value="기울기">📐 외벽 기울기</option>
+                            <option value="부재변위">🏗️ 부재변위</option>
                         </select>
                     </div>
                 </div>
@@ -772,11 +773,11 @@
         </div>
     </div>
 
-    <!-- MODAL: 바닥 수직변위 - 그룹 생성/포인트 추가·수정 -->
+    <!-- MODAL: 부동침하 기울기 - 그룹 생성/포인트 추가·수정 -->
     <div class="modal-overlay" id="ndtDisplacementModal">
         <div class="modal-card" style="max-width: 460px; width: 94%;">
             <div class="modal-header" style="background: linear-gradient(135deg, #0284c7, #0f172a); border-bottom: 1px solid #38bdf8;">
-                <h3><i class="fa-solid fa-arrows-up-down" style="color: #38bdf8;"></i> 📉 바닥 수직변위 측정</h3>
+                <h3><i class="fa-solid fa-arrows-up-down" style="color: #38bdf8;"></i> 📉 부동침하 기울기 측정</h3>
                 <button type="button" class="modal-close" id="btnCloseNdtDisplacementModal">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem;">
@@ -815,7 +816,7 @@
         </div>
     </div>
 
-    <!-- MODAL: 바닥 수직변위 - 그룹 정보 수정 (측정위치/측정길이 + 포인트 목록) -->
+    <!-- MODAL: 부동침하 기울기 - 그룹 정보 수정 (측정위치/측정길이 + 포인트 목록) -->
     <div class="modal-overlay" id="ndtDisplacementGroupEditModal">
         <div class="modal-card" style="max-width: 460px; width: 94%;">
             <div class="modal-header" style="background: linear-gradient(135deg, #0284c7, #0f172a); border-bottom: 1px solid #38bdf8;">
@@ -853,11 +854,11 @@
         </div>
     </div>
 
-    <!-- MODAL: 바닥 수직변위 - 꺾은선 그래프 -->
+    <!-- MODAL: 부동침하 기울기 - 꺾은선 그래프 -->
     <div class="modal-overlay" id="ndtDisplacementChartModal">
         <div class="modal-card" style="max-width: 640px; width: 94%;">
             <div class="modal-header" style="background: linear-gradient(135deg, #0284c7, #0f172a); border-bottom: 1px solid #38bdf8;">
-                <h3><i class="fa-solid fa-chart-line" style="color: #38bdf8;"></i> 수직변위 측정 그래프</h3>
+                <h3><i class="fa-solid fa-chart-line" style="color: #38bdf8;"></i> 부동침하 기울기 측정 그래프</h3>
                 <button type="button" class="modal-close" id="btnCloseNdtDispChartModal">&times;</button>
             </div>
             <div class="modal-body" style="display: flex; flex-direction: column; align-items: center;">
