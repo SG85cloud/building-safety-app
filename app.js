@@ -11,8 +11,7 @@ if (!window.state) {
         currentTab: 'tab-home',
         currentFloor: '1F',
         defects: {}, // { 'bldg-id_1F': [ ...defects ] }
-        grids: {},   // { 'bldg-id_1F': { enabled: true, xPrefix: 'X', xCount: 6, yPrefix: 'Y', yCount: 4, xStart: 0.08, xEnd: 0.92, yStart: 0.08, yEnd: 0.92 } }
-        showGridOverlay: true,
+        grids: {},   // { 'bldg-id_1F': { enabled: true, xPrefix: 'X', xCount: 6, yPrefix: 'Y', yCount: 4, xStart: 0.08, xEnd: 0.92, yStart: 0.08, yEnd: 0.92 } } (구버전 백업 호환용, 더 이상 사용 안 함)
         view: { offsetX: 0, offsetY: 0, scale: 1.0 },
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
@@ -1531,158 +1530,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 900);
     };
 
-    // --- GRID CALIBRATION & AUTOMATIC LOCATION CALCULATION ENGINE (v60.0) ---
-
-    function getCurrentFloorGridConfig() {
-        const key = `${state.currentBuildingId}_${state.currentFloor}`;
-        if (!state.grids) state.grids = {};
-        if (!state.grids[key]) {
-            state.grids[key] = {
-                enabled: true,
-                xPrefix: 'X',
-                xCount: 6,
-                yPrefix: 'Y',
-                yCount: 4,
-                xStart: 0.08,
-                xEnd: 0.92,
-                yStart: 0.08,
-                yEnd: 0.92
-            };
-        }
-        return state.grids[key];
-    }
-
-    function calculateGridLocationString(imgX, imgY, component = '기둥') {
-        const cfg = getCurrentFloorGridConfig();
-        const img = state.bgImage;
-        const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
-        const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
-
-        const xStartPx = (cfg.xStart !== undefined ? cfg.xStart : 0.08) * imgW;
-        const xEndPx = (cfg.xEnd !== undefined ? cfg.xEnd : 0.92) * imgW;
-        const yStartPx = (cfg.yStart !== undefined ? cfg.yStart : 0.08) * imgH;
-        const yEndPx = (cfg.yEnd !== undefined ? cfg.yEnd : 0.92) * imgH;
-
-        const xCount = Math.max(1, cfg.xCount || 6);
-        const yCount = Math.max(1, cfg.yCount || 4);
-
-        let xIdx = 0;
-        if (xCount > 1 && xEndPx > xStartPx) {
-            const xStep = (xEndPx - xStartPx) / (xCount - 1);
-            xIdx = Math.round((imgX - xStartPx) / xStep);
-            if (xIdx < 0) xIdx = 0;
-            if (xIdx >= xCount) xIdx = xCount - 1;
-        }
-
-        let yIdx = 0;
-        if (yCount > 1 && yEndPx > yStartPx) {
-            const yStep = (yEndPx - yStartPx) / (yCount - 1);
-            yIdx = Math.round((imgY - yStartPx) / yStep);
-            if (yIdx < 0) yIdx = 0;
-            if (yIdx >= yCount) yIdx = yCount - 1;
-        }
-
-        const xLabelCurrent = `${cfg.xPrefix || 'X'}${xIdx + 1}`;
-        const xLabelNext = `${cfg.xPrefix || 'X'}${Math.min(xCount, xIdx + 2)}`;
-
-        const yLabelCurrent = `${cfg.yPrefix || 'Y'}${yIdx + 1}`;
-        const yLabelNext = `${cfg.yPrefix || 'Y'}${Math.min(yCount, yIdx + 2)}`;
-
-        const flTitle = state.currentFloor || '';
-
-        if (component === '기둥') {
-            return `${xLabelCurrent}/${yLabelCurrent}`;
-        } else if (component === '큰보' || component === '작은보' || component === '보' || component === '벽체' || component === '조적벽체') {
-            const xRange = (xIdx + 1 < xCount) ? `${xLabelCurrent}~${xLabelNext}` : xLabelCurrent;
-            return `${xRange} / ${yLabelCurrent}`;
-        } else {
-            const xRange = (xIdx + 1 < xCount) ? `${xLabelCurrent}~${xLabelNext}` : xLabelCurrent;
-            const yRange = (yIdx + 1 < yCount) ? `${yLabelCurrent}~${yLabelNext}` : yLabelCurrent;
-            return `${xRange} / ${yRange}`;
-        }
-    }
-
-    function drawGridOverlay(ctx, imgW, imgH) {
-        if (state.showGridOverlay === false) return;
-        const cfg = getCurrentFloorGridConfig();
-        if (cfg.enabled === false) return;
-
-        const xStartPx = (cfg.xStart !== undefined ? cfg.xStart : 0.08) * imgW;
-        const xEndPx = (cfg.xEnd !== undefined ? cfg.xEnd : 0.92) * imgW;
-        const yStartPx = (cfg.yStart !== undefined ? cfg.yStart : 0.08) * imgH;
-        const yEndPx = (cfg.yEnd !== undefined ? cfg.yEnd : 0.92) * imgH;
-
-        const xCount = Math.max(1, cfg.xCount || 6);
-        const yCount = Math.max(1, cfg.yCount || 4);
-
-        ctx.save();
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([6, 4]);
-
-        const xPositions = [];
-        for (let i = 0; i < xCount; i++) {
-            const px = xCount === 1 ? (xStartPx + xEndPx) / 2 : xStartPx + (i * (xEndPx - xStartPx) / (xCount - 1));
-            xPositions.push(px);
-            ctx.beginPath();
-            ctx.moveTo(px, Math.max(0, yStartPx - 40));
-            ctx.lineTo(px, Math.min(imgH, yEndPx + 40));
-            ctx.stroke();
-        }
-
-        const yPositions = [];
-        for (let j = 0; j < yCount; j++) {
-            const py = yCount === 1 ? (yStartPx + yEndPx) / 2 : yStartPx + (j * (yEndPx - yStartPx) / (yCount - 1));
-            yPositions.push(py);
-            ctx.beginPath();
-            ctx.moveTo(Math.max(0, xStartPx - 40), py);
-            ctx.lineTo(Math.min(imgW, xEndPx + 40), py);
-            ctx.stroke();
-        }
-
-        ctx.setLineDash([]);
-
-        xPositions.forEach((px, idx) => {
-            const label = `${cfg.xPrefix || 'X'}${idx + 1}`;
-            const bubbleY = Math.max(20, yStartPx - 30);
-            
-            ctx.fillStyle = '#0284c7';
-            ctx.beginPath();
-            ctx.arc(px, bubbleY, 14, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#38bdf8';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 11px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(label, px, bubbleY);
-        });
-
-        yPositions.forEach((py, idx) => {
-            const label = `${cfg.yPrefix || 'Y'}${idx + 1}`;
-            const bubbleX = Math.max(20, xStartPx - 30);
-
-            ctx.fillStyle = '#0369a1';
-            ctx.beginPath();
-            ctx.arc(bubbleX, py, 14, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#38bdf8';
-            ctx.lineWidth = 1.5;
-            ctx.stroke();
-
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 11px sans-serif';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(label, bubbleX, py);
-        });
-
-        ctx.restore();
-    }
-
     function drawCanvas() {
         if (!state.ctx || !state.canvas) return;
         const ctx = state.ctx;
@@ -1717,9 +1564,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.bgImage) {
             ctx.drawImage(state.bgImage, 0, 0);
         }
-
-        // Draw Structural Grid Overlay Lines (v60.0)
-        drawGridOverlay(ctx, imgW, imgH);
 
         // Draw Defect Pins INSIDE the rotated context so pins rotate WITH the drawing!
         const currentDefects = getCurrentFloorFilteredDefects();
@@ -1991,9 +1835,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (ndtBgImage) {
             ctx.drawImage(ndtBgImage, 0, 0);
         }
-
-        // Draw Grid Lines Overlay (v60.0)
-        drawGridOverlay(ctx, imgW, imgH);
 
         // Filter NDT pins by current active category tab
         let ndtItems = getCurrentFloorNdtData();
@@ -2717,11 +2558,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (noEl) noEl.value = noStr;
             if (catEl) catEl.value = cat;
             if (compEl) compEl.value = '기둥';
-            if (cat === '기울기') {
-                if (locEl) locEl.value = '';
-            } else {
-                if (locEl) locEl.value = calculateGridLocationString(imgX, imgY, '기둥');
-            }
+            if (locEl) locEl.value = '';
             if (heightEl) heightEl.value = 'H = 3,000mm';
             if (dispDirEl) dispDirEl.value = extraOpts?.dispDirection || '←';
             if (v1El) v1El.value = '';
@@ -3178,8 +3015,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!isPreview) {
             // 좌상단 모서리에 결함번호 라벨 박스 표시 (핀 박스와 동일한 스타일)
+            // 도면 회전 상태와 무관하게 박스/글자는 항상 화면 기준 수평으로 보이도록 역회전
             ctx.save();
             ctx.translate(x1, y1);
+            const boxRot = state.rotationAngle || 0;
+            if (boxRot === 90) {
+                ctx.rotate((-90 * Math.PI) / 180);
+            } else if (boxRot === 180) {
+                ctx.rotate((-180 * Math.PI) / 180);
+            } else if (boxRot === 270) {
+                ctx.rotate((-270 * Math.PI) / 180);
+            }
             ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
             ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
             ctx.fillStyle = '#ffffff';
@@ -3280,8 +3126,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Pin Box & Text Label Rendering (Transparent Background + Red/Blue/Orange Border & Text)
+        // 도면 회전 상태와 무관하게 박스/글자는 항상 화면 기준 수평으로 보이도록 역회전
         ctx.save();
         ctx.translate(boxX, boxY);
+        const boxRot = state.rotationAngle || 0;
+        if (boxRot === 90) {
+            ctx.rotate((-90 * Math.PI) / 180);
+        } else if (boxRot === 180) {
+            ctx.rotate((-180 * Math.PI) / 180);
+        } else if (boxRot === 270) {
+            ctx.rotate((-270 * Math.PI) / 180);
+        }
 
         ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
         ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
@@ -3895,37 +3750,6 @@ document.addEventListener('DOMContentLoaded', () => {
         initialOffsetX = state.view.offsetX;
         initialOffsetY = state.view.offsetY;
 
-        // 3-Second Grid Calibration Touch Mode Handler (v60.0)
-        if (window._isCalibratingGrid) {
-            const img = state.bgImage;
-            const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
-            const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
-
-            if (window._calibStep === 1) {
-                window._calibPt1 = { x: imgX, y: imgY };
-                window._calibStep = 2;
-                alert('🎯 Step 1/2 완료!\n\n이제 도면 우측 하단 (Xn, Yn) 교차점을 터치해 주세요.');
-            } else if (window._calibStep === 2) {
-                const pt1 = window._calibPt1 || { x: 0, y: 0 };
-                const pt2 = { x: imgX, y: imgY };
-
-                const cfg = getCurrentFloorGridConfig();
-                cfg.xStart = Math.min(pt1.x, pt2.x) / imgW;
-                cfg.xEnd = Math.max(pt1.x, pt2.x) / imgW;
-                cfg.yStart = Math.min(pt1.y, pt2.y) / imgH;
-                cfg.yEnd = Math.max(pt1.y, pt2.y) / imgH;
-                cfg.enabled = true;
-
-                window._isCalibratingGrid = false;
-                window._calibStep = 0;
-
-                saveStateToLocalStorage();
-                drawCanvas();
-                window.showToast('3초 스마트 그리드 캘리브레이션 완료! 도면 상에 그리드망이 정상 배치되었습니다.', 'success', 4500);
-            }
-            return;
-        }
-
         // Check if existing pin box, arrowhead tip, or area handle was clicked.
         // 실제 이동 시작 여부는 handleDragMove에서 이동임계값을 넘는 순간 판정한다(길게 누를 필요 없음).
         const hitInfo = findHitPinPart(imgX, imgY);
@@ -4248,19 +4072,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (areaRect) {
                 // 영역(면적)으로 새로 등록하는 경우
-                const centerX = (areaRect.x1 + areaRect.x2) / 2;
-                const centerY = (areaRect.y1 + areaRect.y2) / 2;
                 if (locEl) {
-                    locEl.value = calculateGridLocationString(centerX, centerY, defaultComp);
+                    locEl.value = '';
                 }
                 window._pendingAreaRect = { x1: areaRect.x1, y1: areaRect.y1, x2: areaRect.x2, y2: areaRect.y2 };
                 window._pendingPinCoords = { x: areaRect.x1, y: areaRect.y1, targetX: undefined, targetY: undefined };
             } else {
-                // Auto-calculate structural grid location (v60.0)
                 const tX = targetX !== undefined ? targetX : (boxX - 35);
                 const tY = targetY !== undefined ? targetY : (boxY + 35);
                 if (locEl) {
-                    locEl.value = calculateGridLocationString(tX, tY, defaultComp);
+                    locEl.value = '';
                 }
                 window._pendingAreaRect = null;
                 // 마킹 추가 체인이면 박스 위치는 그룹의 공유 위치로 고정하고, 클릭한 지점은 화살표 끝(target)으로만 사용
@@ -4272,19 +4093,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     targetY: tY
                 };
             }
-        }
-
-        // Dynamic location calculation update when changing component dropdown (v60.0)
-        if (compEl && locEl) {
-            compEl.onchange = () => {
-                if (window._pendingAreaRect) {
-                    const cx = (window._pendingAreaRect.x1 + window._pendingAreaRect.x2) / 2;
-                    const cy = (window._pendingAreaRect.y1 + window._pendingAreaRect.y2) / 2;
-                    locEl.value = calculateGridLocationString(cx, cy, compEl.value);
-                } else if (window._pendingPinCoords) {
-                    locEl.value = calculateGridLocationString(window._pendingPinCoords.targetX, window._pendingPinCoords.targetY, compEl.value);
-                }
-            };
         }
 
         renderPhotoPreviewList();
@@ -4814,7 +4622,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // arrows: 그룹(마킹 추가로 묶인 결함들)을 한 박스+여러 화살표로 그릴 때 전달하는 {targetX,targetY}[]
-    function drawPinSafe(ctx, defect, arrows) {
+    function drawPinSafe(ctx, defect, arrows, counterRotateDeg) {
         try {
             if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
                 drawAreaRect(ctx, defect, false);
@@ -4859,18 +4667,23 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Draw Pure White Box with Category-colored Border & Text Label
+            // 리포트 상에서도 도면 회전 방향과 무관하게 박스/글자는 항상 수평으로 보이도록 역회전
             ctx.save();
+            ctx.translate(boxX, boxY);
+            if (counterRotateDeg) {
+                ctx.rotate((counterRotateDeg * Math.PI) / 180);
+            }
             ctx.fillStyle = '#ffffff';
             ctx.strokeStyle = color;
             ctx.lineWidth = 2.5;
-            ctx.fillRect(boxX - 22, boxY - 15, 44, 30);
-            ctx.strokeRect(boxX - 22, boxY - 15, 44, 30);
+            ctx.fillRect(-22, -15, 44, 30);
+            ctx.strokeRect(-22, -15, 44, 30);
 
             ctx.fillStyle = color;
             ctx.font = 'bold 13px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(defect.groupNo || defect.no || 'NO.01', boxX, boxY);
+            ctx.fillText(defect.groupNo || defect.no || 'NO.01', 0, 0);
             ctx.restore();
         } catch(e) {
             console.warn('drawPinSafe error:', e);
@@ -5018,7 +4831,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.translate(-imgW / 2, -imgH / 2);
 
                         ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                        renderDefectsGrouped(ctx, defects, drawPinSafe);
+                        renderDefectsGrouped(ctx, defects, (c, d, arr) => drawPinSafe(c, d, arr, 90));
                     } else {
                         // Vertical drawing: scale directly to fit portrait canvas while preserving exact aspect ratio
                         const scale = Math.min(cw / imgW, ch / imgH);
@@ -7032,109 +6845,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function setupGridEvents() {
-        const btnOpenGridModal = document.getElementById('btnOpenGridModal');
-        const btnToggleGridOverlay = document.getElementById('btnToggleGridOverlay');
-        const gridCalibModal = document.getElementById('gridCalibModal');
-        const btnCloseGridModal = document.getElementById('btnCloseGridModal');
-        const btnCancelGridModal = document.getElementById('btnCancelGridModal');
-        const btnSaveGridConfig = document.getElementById('btnSaveGridConfig');
-        const btnClearGridConfig = document.getElementById('btnClearGridConfig');
-        const btnGridResetEqual = document.getElementById('btnGridResetEqual');
-        const btnGridTouchCalib = document.getElementById('btnGridTouchCalib');
-        const checkEnableGrid = document.getElementById('checkEnableGrid');
-
-        function openGridModal() {
-            const cfg = getCurrentFloorGridConfig();
-            const xPre = document.getElementById('gridXPrefix');
-            const xCnt = document.getElementById('gridXCount');
-            const yPre = document.getElementById('gridYPrefix');
-            const yCnt = document.getElementById('gridYCount');
-            if (xPre) xPre.value = cfg.xPrefix || 'X';
-            if (xCnt) xCnt.value = cfg.xCount || 6;
-            if (yPre) yPre.value = cfg.yPrefix || 'Y';
-            if (yCnt) yCnt.value = cfg.yCount || 4;
-            if (checkEnableGrid) checkEnableGrid.checked = (cfg.enabled !== false);
-
-            if (gridCalibModal) {
-                gridCalibModal.style.display = 'flex';
-                gridCalibModal.classList.add('open');
-            }
-        }
-
-        function closeGridModal() {
-            if (gridCalibModal) {
-                gridCalibModal.style.display = 'none';
-                gridCalibModal.classList.remove('open');
-            }
-        }
-
-        if (btnOpenGridModal) btnOpenGridModal.addEventListener('click', openGridModal);
-        if (btnCloseGridModal) btnCloseGridModal.addEventListener('click', closeGridModal);
-        if (btnCancelGridModal) btnCancelGridModal.addEventListener('click', closeGridModal);
-
-        if (btnToggleGridOverlay) {
-            btnToggleGridOverlay.addEventListener('click', () => {
-                state.showGridOverlay = !state.showGridOverlay;
-                btnToggleGridOverlay.style.background = state.showGridOverlay ? 'rgba(56,189,248,0.2)' : 'rgba(255,255,255,0.08)';
-                drawCanvas();
-            });
-        }
-
-        if (btnSaveGridConfig) {
-            btnSaveGridConfig.addEventListener('click', () => {
-                const cfg = getCurrentFloorGridConfig();
-                const xPre = (document.getElementById('gridXPrefix')?.value || 'X').trim();
-                const xCnt = parseInt(document.getElementById('gridXCount')?.value || '6', 10);
-                const yPre = (document.getElementById('gridYPrefix')?.value || 'Y').trim();
-                const yCnt = parseInt(document.getElementById('gridYCount')?.value || '4', 10);
-                
-                cfg.xPrefix = xPre || 'X';
-                cfg.xCount = Math.max(1, xCnt);
-                cfg.yPrefix = yPre || 'Y';
-                cfg.yCount = Math.max(1, yCnt);
-                cfg.enabled = checkEnableGrid ? checkEnableGrid.checked : true;
-
-                saveStateToLocalStorage();
-                drawCanvas();
-                closeGridModal();
-            });
-        }
-
-        if (btnClearGridConfig) {
-            btnClearGridConfig.addEventListener('click', () => {
-                const cfg = getCurrentFloorGridConfig();
-                cfg.enabled = false;
-                if (checkEnableGrid) checkEnableGrid.checked = false;
-                saveStateToLocalStorage();
-                drawCanvas();
-                closeGridModal();
-            });
-        }
-
-        if (btnGridResetEqual) {
-            btnGridResetEqual.addEventListener('click', () => {
-                const cfg = getCurrentFloorGridConfig();
-                cfg.xStart = 0.08;
-                cfg.xEnd = 0.92;
-                cfg.yStart = 0.08;
-                cfg.yEnd = 0.92;
-                saveStateToLocalStorage();
-                drawCanvas();
-                window.showToast('그리드 간격이 균등 분할로 리셋되었습니다.', 'success');
-            });
-        }
-
-        if (btnGridTouchCalib) {
-            btnGridTouchCalib.addEventListener('click', () => {
-                closeGridModal();
-                alert('🎯 3초 캘리브레이션 시작!\n\n1단계: 도면 좌측 상단 (X1, Y1) 교차점을 터치해 주세요.');
-                window._isCalibratingGrid = true;
-                window._calibStep = 1;
-            });
-        }
-    }
-
     // --- 11. INITIALIZATION ---
     function init() {
         loadStateFromLocalStorage();
@@ -7143,7 +6853,6 @@ document.addEventListener('DOMContentLoaded', () => {
         window.switchTab('tab-home');
         initFirebaseSync();
         initAuthEvents();
-        setupGridEvents();
         if (typeof setupNdtModalEvents === 'function') setupNdtModalEvents();
         showLoginOverlay();
     }

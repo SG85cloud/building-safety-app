@@ -174,12 +174,6 @@
                         </div>
 
                         <div class="toolbar-action-group">
-                            <button type="button" id="btnOpenGridModal" class="btn-rotate-hero" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #38bdf8;" title="도면 3초 스마트 그리드(열) 설정">
-                                <i class="fa-solid fa-ruler-combined"></i> 📐 그리드 설정
-                            </button>
-                            <button type="button" id="btnToggleGridOverlay" class="btn-rotate-hero" style="background: rgba(255,255,255,0.08); border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="그리드선 표시/숨김">
-                                <i class="fa-solid fa-border-all"></i> 🌐 그리드
-                            </button>
                             <button type="button" id="btnRotateDrawing" class="btn-rotate-hero" title="세로 도면 가로로 90도 회전">
                                 <i class="fa-solid fa-rotate-right"></i> 🔄 회전
                             </button>
@@ -453,7 +447,7 @@
                             <tr>
                                 <th>번호</th>
                                 <th>조사 항목</th>
-                                <th>측정 위치 (그리드)</th>
+                                <th>측정 위치</th>
                                 <th>부재명</th>
                                 <th>측정 수치 / 결과</th>
                                 <th>평균 / 판정</th>
@@ -640,67 +634,6 @@
         </div>
     </div>
 
-    <!-- MODAL: 3-Second Smart Grid Calibration Modal (v60.0) -->
-    <div class="modal-overlay" id="gridCalibModal">
-        <div class="modal-card" style="max-width: 580px; width: 94%;">
-            <div class="modal-header" style="background: linear-gradient(135deg, #0369a1, #0f172a); border-bottom: 1px solid #38bdf8;">
-                <h3><i class="fa-solid fa-ruler-combined" style="color: #38bdf8;"></i> 📐 3초 스마트 그리드(X1~Xn / Y1~Yn) 설정</h3>
-                <button type="button" class="modal-close" id="btnCloseGridModal">&times;</button>
-            </div>
-            <div class="modal-body" style="display: flex; flex-direction: column; gap: 1rem; max-height: 75vh; overflow-y: auto;">
-                <div class="alert alert-info" style="background: rgba(56,189,248,0.12); border: 1px solid rgba(56,189,248,0.3); color: #7dd3fc; font-size: 0.85rem; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 0.2rem;">
-                    <i class="fa-solid fa-lightbulb"></i> <strong>3초 간편 설정 팁:</strong> 도면의 X축/Y축 열 개수 지정 후 <strong>[🎯 2점 터치로 3초 자동 간격 세팅]</strong> 버튼을 눌러 도면 좌측 상단(X1,Y1)과 우측 하단(Xn,Yn)을 터치하면 3초 만에 그리드가 완벽하게 배치됩니다.
-                </div>
-
-                <div class="form-row" style="display: flex; gap: 0.8rem; flex-wrap: wrap;">
-                    <div class="form-group" style="flex: 1; min-width: 200px;">
-                        <label class="form-label">↔️ X축 그리드 (가로열)</label>
-                        <div style="display: flex; gap: 0.4rem; align-items: center;">
-                            <span style="font-size: 0.85rem; color: #94a3b8;">접두사:</span>
-                            <input type="text" id="gridXPrefix" class="form-control" value="X" style="width: 55px; text-align: center; font-weight: 700;">
-                            <span style="font-size: 0.85rem; color: #94a3b8;">개수:</span>
-                            <input type="number" id="gridXCount" class="form-control" min="1" max="30" value="6" style="width: 65px; font-weight: 700;">
-                        </div>
-                    </div>
-                    <div class="form-group" style="flex: 1; min-width: 200px;">
-                        <label class="form-label">↕️ Y축 그리드 (세로열)</label>
-                        <div style="display: flex; gap: 0.4rem; align-items: center;">
-                            <span style="font-size: 0.85rem; color: #94a3b8;">접두사:</span>
-                            <input type="text" id="gridYPrefix" class="form-control" value="Y" style="width: 55px; text-align: center; font-weight: 700;">
-                            <span style="font-size: 0.85rem; color: #94a3b8;">개수:</span>
-                            <input type="number" id="gridYCount" class="form-control" min="1" max="30" value="4" style="width: 65px; font-weight: 700;">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">🎯 간격 및 위치 맞춤 조작</label>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button type="button" id="btnGridTouchCalib" class="btn" style="flex: 1.2; min-width: 210px; background: linear-gradient(135deg, #0284c7, #0369a1); color: #fff; font-weight: 700; padding: 0.65rem 0.6rem; border-radius: 8px;">
-                            <i class="fa-solid fa-crosshairs"></i> 🎯 도면 2점 터치 3초 캘리브레이션
-                        </button>
-                        <button type="button" id="btnGridResetEqual" class="btn btn-outline" style="flex: 1; min-width: 140px; border-color: #64748b; color: #cbd5e1; font-weight: 700;">
-                            <i class="fa-solid fa-arrows-split-up-and-left"></i> 🔄 균등 분할 리셋
-                        </button>
-                    </div>
-                </div>
-
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label class="checkbox-chip" style="font-size: 0.9rem; font-weight: 700; color: #38bdf8; background: rgba(56,189,248,0.1); border-color: rgba(56,189,248,0.3);">
-                        <input type="checkbox" id="checkEnableGrid" checked> 🌐 도면 상에 옥색 그리드 오버레이선 항상 표시
-                    </label>
-                </div>
-            </div>
-            <div class="modal-footer" style="justify-content: space-between;">
-                <button type="button" class="btn btn-danger-outline" id="btnClearGridConfig"><i class="fa-solid fa-trash-can"></i> 그리드 해제</button>
-                <div>
-                    <button type="button" class="btn btn-outline" id="btnCancelGridModal">취소</button>
-                    <button type="button" class="btn btn-primary" id="btnSaveGridConfig" style="background: linear-gradient(135deg, #0284c7, #0369a1);"><i class="fa-solid fa-check"></i> 저장 및 적용</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- MODAL: Add/Edit NDT Measurement Details Modal (v60.0) -->
     <div class="modal-overlay" id="ndtModal">
         <div class="modal-card" style="max-width: 580px; width: 94%;">
@@ -742,8 +675,8 @@
                         </select>
                     </div>
                     <div class="form-group" style="flex: 1;">
-                        <label class="form-label">📍 그리드 측정 위치 *</label>
-                        <input type="text" id="ndtLocation" class="form-control" placeholder="예: X1~X2 / Y3">
+                        <label class="form-label">📍 측정 위치 *</label>
+                        <input type="text" id="ndtLocation" class="form-control" placeholder="예: 101동 1F 기둥 C1 하부">
                     </div>
                 </div>
 
