@@ -19,6 +19,8 @@ if (!window.state) {
         tipShape: 'arrow',  // 'arrow' | 'circle'
         pinSizeScale: 1.0,
         arrowSizeScale: 1.0,
+        ndtPinSizeScale: 1.0,
+        ndtArrowSizeScale: 1.0,
         bgImage: null,
         canvas: null,
         ctx: null,
@@ -296,7 +298,11 @@ document.addEventListener('DOMContentLoaded', () => {
         pinSizeLabel: document.getElementById('pinSizeLabel'),
         arrowSizeRange: document.getElementById('arrowSizeRange'),
         arrowSizeLabel: document.getElementById('arrowSizeLabel'),
-        
+        ndtPinSizeRange: document.getElementById('ndtPinSizeRange'),
+        ndtPinSizeLabel: document.getElementById('ndtPinSizeLabel'),
+        ndtArrowSizeRange: document.getElementById('ndtArrowSizeRange'),
+        ndtArrowSizeLabel: document.getElementById('ndtArrowSizeLabel'),
+
         // Tables & Albums
         surveyTableBody: document.getElementById('surveyTableBody'),
         photoAlbumGrid: document.getElementById('photoAlbumGrid'),
@@ -1665,6 +1671,9 @@ document.addEventListener('DOMContentLoaded', () => {
             filtered = items.filter(item => ['실측', '강도', '탄산화'].includes(item.category));
         }
 
+        const pinScale = state.ndtPinSizeScale || 1.0;
+        const arrowScale = state.ndtArrowSizeScale || 1.0;
+
         for (let i = filtered.length - 1; i >= 0; i--) {
             const item = filtered[i];
             const boxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
@@ -1672,13 +1681,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const targetX = item.targetX !== undefined ? item.targetX : (item.x || boxX);
             const targetY = item.targetY !== undefined ? item.targetY : (item.y || boxY);
 
-            if (Math.hypot(vx - targetX, vy - targetY) < 30) {
+            if (Math.hypot(vx - targetX, vy - targetY) < 30 * arrowScale) {
                 return { item, part: 'target' };
             }
-            if (Math.hypot(vx - boxX, vy - boxY) < 50) {
+            if (Math.hypot(vx - boxX, vy - boxY) < 50 * pinScale) {
                 return { item, part: 'box' };
             }
-            if (Math.hypot(vx - (item.x || 100), vy - (item.y || 100)) < 40) {
+            if (Math.hypot(vx - (item.x || 100), vy - (item.y || 100)) < 40 * pinScale) {
                 return { item, part: 'all' };
             }
         }
@@ -1864,6 +1873,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetX = item.targetX !== undefined ? item.targetX : (item.x || x);
         const targetY = item.targetY !== undefined ? item.targetY : (item.y || y);
         const isBeingDragged = (typeof activeDragNdtPin !== 'undefined' && activeDragNdtPin && activeDragNdtPin === item);
+        const pinScale = state.ndtPinSizeScale || 1.0;
+        const arrowScale = state.ndtArrowSizeScale || 1.0;
 
         const cat = item.category || '강도';
         let noStr = item.no || 'NO.01';
@@ -1882,7 +1893,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 1. Draw Arrow pointing from Box to Target Point
             ctx.strokeStyle = isBeingDragged ? '#facc15' : '#f97316';
             ctx.fillStyle = isBeingDragged ? '#facc15' : '#f97316';
-            ctx.lineWidth = isBeingDragged ? 4.5 : 3.5;
+            ctx.lineWidth = (isBeingDragged ? 4.5 : 3.5) * arrowScale;
 
             const dx = targetX - x;
             const dy = targetY - y;
@@ -1898,7 +1909,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Arrow Head at targetX, targetY (pointing to the wall)
             if (dist > 5) {
                 const angle = Math.atan2(dy, dx);
-                const headLen = isBeingDragged ? 16 : 14;
+                const headLen = (isBeingDragged ? 16 : 14) * arrowScale;
                 ctx.beginPath();
                 ctx.moveTo(targetX, targetY);
                 ctx.lineTo(targetX - headLen * Math.cos(angle - Math.PI / 6), targetY - headLen * Math.sin(angle - Math.PI / 6));
@@ -1909,7 +1920,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Target Point Handle Circle
             ctx.beginPath();
-            ctx.arc(targetX, targetY, isBeingDragged ? 6 : 4, 0, Math.PI * 2);
+            ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4) * arrowScale, 0, Math.PI * 2);
             ctx.fill();
 
             // 2. Draw 3-Column CAD Table Box at (x, y) - Un-rotated to stay 100% horizontal on user screen!
@@ -1922,19 +1933,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.rotate((-270 * Math.PI) / 180);
             }
 
-            const boxW = 190;
-            const boxH = 50;
-            const col1W = 60;
-            const col2W = 65;
-            const col3W = 65;
+            const boxW = 190 * pinScale;
+            const boxH = 50 * pinScale;
+            const col1W = 60 * pinScale;
+            const col2W = 65 * pinScale;
+            const col3W = 65 * pinScale;
 
             // Box Background (White) & Outer Border
             ctx.fillStyle = '#ffffff';
             ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
-            ctx.lineWidth = isBeingDragged ? 3.5 : 2.5;
+            ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
             if (isBeingDragged) {
                 ctx.shadowColor = '#facc15';
-                ctx.shadowBlur = 12;
+                ctx.shadowBlur = 12 * pinScale;
             }
             ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
             ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
@@ -1942,7 +1953,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Vertical & Horizontal Grid Dividers
             ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.5 * pinScale;
             ctx.beginPath();
             ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
             ctx.lineTo(-boxW / 2 + col1W, boxH / 2);
@@ -1960,19 +1971,19 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.textBaseline = 'middle';
 
             // Column 1: NO.01
-            ctx.font = 'bold 13px monospace';
+            ctx.font = `bold ${Math.round(13 * pinScale)}px monospace`;
             ctx.fillText(noStr, -boxW / 2 + col1W / 2, 0);
 
             // Column 2: Top "변 위 량", Bottom "변위방향"
-            ctx.font = 'bold 11px sans-serif';
+            ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
             ctx.fillText('변 위 량', -boxW / 2 + col1W + col2W / 2, -boxH / 4);
             ctx.fillText('변위방향', -boxW / 2 + col1W + col2W / 2, boxH / 4);
 
             // Column 3: Top tiltVal (e.g. 3mm), Bottom dispDir (e.g. ←)
-            ctx.font = 'bold 12px sans-serif';
+            ctx.font = `bold ${Math.round(12 * pinScale)}px sans-serif`;
             ctx.fillText(tiltVal, -boxW / 2 + col1W + col2W + col3W / 2, -boxH / 4);
 
-            ctx.font = 'bold 16px sans-serif';
+            ctx.font = `bold ${Math.round(16 * pinScale)}px sans-serif`;
             ctx.fillText(dispDir, -boxW / 2 + col1W + col2W + col3W / 2, boxH / 4);
 
             ctx.restore();
@@ -1992,20 +2003,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
         ctx.strokeStyle = color;
-        ctx.lineWidth = isBeingDragged ? 3.5 : 2.5;
+        ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
         ctx.shadowColor = color;
-        ctx.shadowBlur = isBeingDragged ? 16 : 8;
+        ctx.shadowBlur = (isBeingDragged ? 16 : 8) * pinScale;
 
-        const w = 78;
-        const h = 26;
+        const w = 78 * pinScale;
+        const h = 26 * pinScale;
         ctx.beginPath();
-        ctx.roundRect(-w/2, -h/2, w, h, 6);
+        ctx.roundRect(-w/2, -h/2, w, h, 6 * pinScale);
         ctx.fill();
         ctx.stroke();
 
         ctx.shadowBlur = 0;
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 11px sans-serif';
+        ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(noStr, 0, 0);
@@ -4511,6 +4522,24 @@ document.addEventListener('DOMContentLoaded', () => {
             state.arrowSizeScale = parseFloat(e.target.value);
             if (elements.arrowSizeLabel) elements.arrowSizeLabel.textContent = `${Math.round(state.arrowSizeScale * 100)}%`;
             drawCanvas();
+        });
+    }
+
+    // NDT Pin Size Adjuster Slider
+    if (elements.ndtPinSizeRange) {
+        elements.ndtPinSizeRange.addEventListener('input', (e) => {
+            state.ndtPinSizeScale = parseFloat(e.target.value);
+            if (elements.ndtPinSizeLabel) elements.ndtPinSizeLabel.textContent = `${Math.round(state.ndtPinSizeScale * 100)}%`;
+            drawNdtCanvas();
+        });
+    }
+
+    // NDT Arrow Size Adjuster Slider
+    if (elements.ndtArrowSizeRange) {
+        elements.ndtArrowSizeRange.addEventListener('input', (e) => {
+            state.ndtArrowSizeScale = parseFloat(e.target.value);
+            if (elements.ndtArrowSizeLabel) elements.ndtArrowSizeLabel.textContent = `${Math.round(state.ndtArrowSizeScale * 100)}%`;
+            drawNdtCanvas();
         });
     }
 
