@@ -2133,6 +2133,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.save();
         ctx.translate(x, y);
+        // 보는 방향(도면 회전)과 무관하게 번호 박스는 항상 똑바로 보이도록 역회전
+        if (ndtRotationAngle === 90) {
+            ctx.rotate((-90 * Math.PI) / 180);
+        } else if (ndtRotationAngle === 180) {
+            ctx.rotate((-180 * Math.PI) / 180);
+        } else if (ndtRotationAngle === 270) {
+            ctx.rotate((-270 * Math.PI) / 180);
+        }
 
         ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
         ctx.strokeStyle = color;
@@ -2180,6 +2188,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 포인트 원 (순번 + 레벨값)
+        const groupCounterRotate = ndtRotationAngle === 90 ? -90 : (ndtRotationAngle === 180 ? -180 : (ndtRotationAngle === 270 ? -270 : 0));
         group.points.forEach((p, idx) => {
             const isPtDragged = activeDragNdtDisplacementGroup === group && activeDragNdtDisplacementPoint === p;
             const r = (isPtDragged ? 15 : 12) * pinScale;
@@ -2193,19 +2202,20 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineWidth = 1.5 * pinScale;
             ctx.stroke();
 
+            // 보는 방향(도면 회전)과 무관하게 순번 숫자는 항상 똑바로 보이도록 역회전, 측정값은 표시하지 않음
+            if (groupCounterRotate) ctx.rotate((groupCounterRotate * Math.PI) / 180);
             ctx.fillStyle = '#ffffff';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.font = `bold ${Math.round(9 * pinScale)}px sans-serif`;
-            ctx.fillText(`${idx + 1}`, 0, -r * 0.35);
-            ctx.font = `bold ${Math.round(7.5 * pinScale)}px sans-serif`;
-            ctx.fillText(`${p.level}`, 0, r * 0.42);
+            ctx.font = `bold ${Math.round(10 * pinScale)}px sans-serif`;
+            ctx.fillText(`${idx + 1}`, 0, 0);
             ctx.restore();
         });
 
-        // 그룹 라벨 박스 (측정 구역 번호만 표시)
+        // 그룹 라벨 박스 (측정 구역 번호만 표시) — 보는 방향과 무관하게 항상 똑바로 보이도록 역회전
         ctx.save();
         ctx.translate(boxX, boxY);
+        if (groupCounterRotate) ctx.rotate((groupCounterRotate * Math.PI) / 180);
         ctx.fillStyle = '#ffffff';
         ctx.strokeStyle = isGroupDragged ? '#facc15' : color;
         ctx.lineWidth = (isGroupDragged ? 3 : 2) * pinScale;
