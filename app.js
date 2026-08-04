@@ -3273,12 +3273,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Dynamic Defect Type Presets & Custom Adding ---
     const categoryDefectPreset = {
         '구조체': [
-            '균열 (Crack)', 
-            '누수 (Leakage)', 
-            '철근노출 (Rebar Exposure)', 
-            '백태/유출 (Efflorescence)', 
-            '박리/박락 (Spalling)', 
-            '신축이음/재료분리 손상', 
+            '균열',
+            '누수',
+            '철근노출',
+            '백태/유출',
+            '박리/박락',
+            '신축이음/재료분리 손상',
             '기타'
         ],
         '비구조체': [
@@ -3294,7 +3294,7 @@ document.addEventListener('DOMContentLoaded', () => {
             '몰탈 균열', 
             '도장 페인트 변색/탈락', 
             '방수층 손상/들뜸', 
-            '석재 팟칭/Crack', 
+            '석재 팟칭',
             '기타'
         ]
     };
@@ -3343,7 +3343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         '균열': ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '신축이음 불량', '온도변화/열응력', '기타'],
         '누수': ['상부 방수층 파손', '수분침투', '배관 파손/연결부 누수', '지하수 유입', '균열부 틈새 유입', '기타'],
         '철근노출': ['피복두께 부족', '콘크리트 중성화', '염해 손상', '시공 다짐불량', '기타'],
-        '백태': ['수분 유입 및 찌꺼기 용해', '방수 손상', '백태 현상(Efflorescence)', '기타'],
+        '백태': ['수분 유입 및 찌꺼기 용해', '방수 손상', '백태 현상', '기타'],
         '박리': ['철근 부식 부팽창', '동결융해 팽창', '부착력 저하', '기타'],
         '조적': ['기단부 침하', '지진/진동', '접합부 마감재 이격', '기타'],
         '타일': ['부착 접착제 경화', '온도변화 열팽창', '습기 침투', '기타'],
@@ -3902,7 +3902,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (noEl) noEl.value = defectNoStr;
             if (catEl) catEl.value = '구조체';
             updateDefectTypeDropdown('구조체');
-            updateDefectCauseDropdown('균열 (Crack)');
+            updateDefectCauseDropdown('균열');
             const defaultComp = '기둥';
             if (compEl) compEl.value = defaultComp;
             if (sizeEl) sizeEl.value = '';

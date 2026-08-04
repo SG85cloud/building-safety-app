@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260804_0300">
+    <link rel="stylesheet" href="styles.css?v=20260804_0400">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -312,11 +312,11 @@
                             <span class="filter-label" style="color: #e11d48; font-weight: 800;"><i class="fa-solid fa-filter"></i> 손상 유형:</span>
                             <select id="filterDamageType" class="form-control" style="width: 100%; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #e11d48; border: 1px solid #f43f5e; font-weight: 700; margin-top: 0.3rem;">
                                 <option value="ALL" selected>🔍 전체 손상 보기</option>
-                                <option value="균열">🔴 균열 (Crack)</option>
-                                <option value="누수">💧 누수 (Leak)</option>
-                                <option value="백태">⚪ 백태 (Efflorescence)</option>
-                                <option value="철근노출">🟠 철근노출 (Rebar Exposed)</option>
-                                <option value="박리/박락">🟡 박리/박락 (Spalling)</option>
+                                <option value="균열">🔴 균열</option>
+                                <option value="누수">💧 누수</option>
+                                <option value="백태">⚪ 백태</option>
+                                <option value="철근노출">🟠 철근노출</option>
+                                <option value="박리/박락">🟡 박리/박락</option>
                                 <option value="기타">🟣 기타 손상</option>
                             </select>
                         </div>
@@ -497,9 +497,9 @@
                         <div class="form-group">
                             <label class="form-label">부재 분류 *</label>
                             <select id="defectCategory" class="form-select">
-                                <option value="구조체">구조체 (🔴 Red)</option>
-                                <option value="비구조체">비구조체 (🔵 Blue)</option>
-                                <option value="마감재">마감재 (🟠 Orange)</option>
+                                <option value="구조체">🔴 구조체</option>
+                                <option value="비구조체">🔵 비구조체</option>
+                                <option value="마감재">🟠 마감재</option>
                             </select>
                         </div>
                     </div>
@@ -521,11 +521,11 @@
                         <div class="form-group">
                             <label class="form-label">결함 종류 *</label>
                             <select id="defectType" class="form-select">
-                                <option value="균열">균열 (Crack)</option>
-                                <option value="누수">누수 (Leakage)</option>
-                                <option value="백태">백태 (Efflorescence)</option>
-                                <option value="박리/박락">박리/박락 (Spalling)</option>
-                                <option value="철근노출">철근노출 (Rebar Exposure)</option>
+                                <option value="균열">균열</option>
+                                <option value="누수">누수</option>
+                                <option value="백태">백태</option>
+                                <option value="박리/박락">박리/박락</option>
+                                <option value="철근노출">철근노출</option>
                                 <option value="손상">기타 손상</option>
                             </select>
                         </div>
@@ -1221,7 +1221,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260804_0300"></script>
+    <script src="app.js?v=20260804_0400"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
