@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260804_0400">
+    <link rel="stylesheet" href="styles.css?v=20260804_0600">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -506,7 +506,10 @@
 
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">부재 명칭 *</label>
+                            <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>부재 명칭 *</span>
+                                <button type="button" id="btnManageComponent" class="btn-option-manage" title="부재 명칭 항목 관리"><i class="fa-solid fa-gear"></i></button>
+                            </label>
                             <select id="defectComponent" class="form-select">
                                 <option value="기둥">기둥</option>
                                 <option value="큰보">큰보</option>
@@ -519,7 +522,10 @@
                             </select>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">결함 종류 *</label>
+                            <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>결함 종류 *</span>
+                                <button type="button" id="btnManageDefectType" class="btn-option-manage" title="결함 종류 항목 관리"><i class="fa-solid fa-gear"></i></button>
+                            </label>
                             <select id="defectType" class="form-select">
                                 <option value="균열">균열</option>
                                 <option value="누수">누수</option>
@@ -552,7 +558,10 @@
                             <input type="text" id="defectSize" class="form-control" placeholder="예: W=0.2mm, L=1.5m">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">🔍 결함 원인 추정 *</label>
+                            <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>🔍 결함 원인 추정 *</span>
+                                <button type="button" id="btnManageCause" class="btn-option-manage" title="결함 원인 항목 관리"><i class="fa-solid fa-gear"></i></button>
+                            </label>
                             <select id="defectCause" class="form-select">
                                 <option value="건조수축">건조수축</option>
                                 <option value="내력부족">내력부족</option>
@@ -610,8 +619,28 @@
                 <button class="btn btn-danger-outline" id="btnDeleteDefect"><i class="fa-solid fa-trash"></i> 삭제</button>
                 <div>
                     <button class="btn btn-outline" id="btnCancelDefect">취소</button>
+                    <button class="btn btn-outline" id="btnAddAnotherMarking" style="border-color:#0284c7; color:#0284c7;" title="같은 결함 정보를 유지한 채 위치만 바꿔서 계속 마킹합니다">
+                        <i class="fa-solid fa-location-dot"></i> 저장 후 같은 결함 계속 마킹
+                    </button>
                     <button class="btn btn-primary" id="btnSaveDefect"><i class="fa-solid fa-check"></i> 저장</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 부재 명칭/결함 종류/결함 원인 항목 관리 (추가/삭제) -->
+    <div class="modal-overlay" id="optionManagerModal">
+        <div class="modal-card" style="max-width: 420px; width: 92%;">
+            <div class="modal-header">
+                <h3 id="optionManagerTitle"><i class="fa-solid fa-list-check"></i> 항목 관리</h3>
+                <button type="button" class="modal-close" id="btnCloseOptionManager">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div style="display:flex; gap:0.5rem; margin-bottom:0.9rem;">
+                    <input type="text" id="optionManagerNewInput" class="form-control" placeholder="새 항목 입력...">
+                    <button type="button" id="btnOptionManagerAdd" class="btn btn-primary btn-sm" style="white-space:nowrap;"><i class="fa-solid fa-plus"></i> 추가</button>
+                </div>
+                <div id="optionManagerList" class="option-manager-list"></div>
             </div>
         </div>
     </div>
@@ -1221,7 +1250,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260804_0400"></script>
+    <script src="app.js?v=20260804_0600"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

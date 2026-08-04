@@ -505,6 +505,69 @@ body {
     color: #ef4444;
 }
 
+/* 부재명/결함종류/결함원인 항목 관리 버튼 & 모달 */
+.btn-option-manage {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-muted);
+    width: 22px;
+    height: 22px;
+    font-size: 0.75rem;
+    line-height: 1;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.btn-option-manage:hover {
+    border-color: var(--accent-blue);
+    color: var(--accent-blue);
+}
+
+.option-manager-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.option-manager-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.5rem 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.option-manager-item-delete {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.85rem;
+}
+
+.option-manager-item-delete:hover:not(:disabled) {
+    color: #ef4444;
+}
+
+.option-manager-item-delete:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
 /* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
 .inspect-layout {
     display: flex;

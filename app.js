@@ -373,7 +373,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 buildings: window.state.buildings || [],
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 customDefectTypes: window.state.customDefectTypes || {},
-                customDefectCauses: window.state.customDefectCauses || {}
+                customDefectCauses: window.state.customDefectCauses || {},
+                customDefectComponents: window.state.customDefectComponents || [],
+                hiddenDefectComponents: window.state.hiddenDefectComponents || [],
+                hiddenDefectTypes: window.state.hiddenDefectTypes || {},
+                hiddenDefectCauses: window.state.hiddenDefectCauses || {}
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
             if (typeof syncStateToFirebase === 'function') {
@@ -430,6 +434,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.customDefectCauses) {
                     window.state.customDefectCauses = parsed.customDefectCauses;
+                }
+                if (parsed.customDefectComponents) {
+                    window.state.customDefectComponents = parsed.customDefectComponents;
+                }
+                if (parsed.hiddenDefectComponents) {
+                    window.state.hiddenDefectComponents = parsed.hiddenDefectComponents;
+                }
+                if (parsed.hiddenDefectTypes) {
+                    window.state.hiddenDefectTypes = parsed.hiddenDefectTypes;
+                }
+                if (parsed.hiddenDefectCauses) {
+                    window.state.hiddenDefectCauses = parsed.hiddenDefectCauses;
                 }
             }
 
@@ -3270,6 +3286,46 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
+    // --- Dynamic Defect Component(부재 명칭) Presets & Custom Adding/Removing ---
+    const DEFECT_COMPONENT_PRESET = ['기둥', '큰보', '작은보', '슬래브', '벽체', '조적벽체', '계단', '기타'];
+
+    function populateDefectComponentDropdown(currentVal = null) {
+        const select = document.getElementById('defectComponent');
+        if (!select) return;
+
+        if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
+        if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = [];
+
+        const hidden = window.state.hiddenDefectComponents;
+        const presetList = DEFECT_COMPONENT_PRESET.filter(c => !hidden.includes(c));
+        const customList = window.state.customDefectComponents;
+
+        let html = '';
+        presetList.forEach(item => {
+            const label = item === '기타' ? '기타 부재' : item;
+            const sel = (currentVal && currentVal === item) ? 'selected' : '';
+            html += `<option value="${item}" ${sel}>${label}</option>`;
+        });
+
+        customList.forEach(item => {
+            if (!presetList.includes(item)) {
+                const sel = (currentVal && currentVal === item) ? 'selected' : '';
+                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
+            }
+        });
+
+        html += `<option value="__ADD_CUSTOM_COMPONENT__">➕ [부재 직접 추가...]</option>`;
+        select.innerHTML = html;
+
+        if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
+            const customOpt = document.createElement('option');
+            customOpt.value = currentVal;
+            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.selected = true;
+            select.insertBefore(customOpt, select.lastElementChild);
+        }
+    }
+
     // --- Dynamic Defect Type Presets & Custom Adding ---
     const categoryDefectPreset = {
         '구조체': [
@@ -3306,8 +3362,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!window.state.customDefectTypes) {
             window.state.customDefectTypes = { '구조체': [], '비구조체': [], '마감재': [] };
         }
+        if (!window.state.hiddenDefectTypes) window.state.hiddenDefectTypes = {};
 
-        const presetList = categoryDefectPreset[category] || categoryDefectPreset['구조체'];
+        const hidden = window.state.hiddenDefectTypes[category] || [];
+        const presetList = (categoryDefectPreset[category] || categoryDefectPreset['구조체']).filter(t => !hidden.includes(t));
         const customList = window.state.customDefectTypes[category] || [];
 
         let html = '';
@@ -3370,9 +3428,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!window.state.customDefectCauses) {
             window.state.customDefectCauses = {};
         }
+        if (!window.state.hiddenDefectCauses) window.state.hiddenDefectCauses = {};
 
         const key = getCauseKey(defectType);
-        const presetList = defectCausePreset[key] || ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '방수층 파손', '자연 노후화', '기타'];
+        const hidden = window.state.hiddenDefectCauses[key] || [];
+        const presetList = (defectCausePreset[key] || ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '방수층 파손', '자연 노후화', '기타']).filter(c => !hidden.includes(c));
         const customList = window.state.customDefectCauses[key] || [];
 
         let html = '';
@@ -3405,6 +3465,26 @@ document.addEventListener('DOMContentLoaded', () => {
     if (defectCategorySelect) {
         defectCategorySelect.addEventListener('change', (e) => {
             updateDefectTypeDropdown(e.target.value);
+        });
+    }
+
+    const defectComponentSelect = document.getElementById('defectComponent');
+    if (defectComponentSelect) {
+        defectComponentSelect.addEventListener('change', (e) => {
+            if (e.target.value === '__ADD_CUSTOM_COMPONENT__') {
+                const newComp = prompt('추가하실 부재 명칭을 입력하세요 (예: 옹벽):');
+                if (newComp && newComp.trim()) {
+                    const trimmed = newComp.trim();
+                    if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
+                    if (!window.state.customDefectComponents.includes(trimmed)) {
+                        window.state.customDefectComponents.push(trimmed);
+                        saveStateToLocalStorage();
+                    }
+                    populateDefectComponentDropdown(trimmed);
+                } else {
+                    populateDefectComponentDropdown();
+                }
+            }
         });
     }
 
@@ -3452,6 +3532,183 @@ document.addEventListener('DOMContentLoaded', () => {
                     updateDefectCauseDropdown(dType);
                 }
             }
+        });
+    }
+
+    // --- 부재 명칭 / 결함 종류 / 결함 원인 항목 관리(추가·삭제) 모달 ---
+    function getOptionManagerContext() {
+        const field = window._optionManagerField;
+
+        if (field === 'component') {
+            if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
+            if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = [];
+            return {
+                title: '부재 명칭 관리',
+                presetList: DEFECT_COMPONENT_PRESET,
+                hiddenList: window.state.hiddenDefectComponents,
+                customList: window.state.customDefectComponents,
+                labelFor: (item) => (item === '기타' ? '기타 부재' : item),
+                refresh: () => populateDefectComponentDropdown(document.getElementById('defectComponent')?.value)
+            };
+        }
+
+        if (field === 'type') {
+            const cat = document.getElementById('defectCategory')?.value || '구조체';
+            if (!window.state.customDefectTypes) window.state.customDefectTypes = { '구조체': [], '비구조체': [], '마감재': [] };
+            if (!window.state.hiddenDefectTypes) window.state.hiddenDefectTypes = {};
+            if (!window.state.hiddenDefectTypes[cat]) window.state.hiddenDefectTypes[cat] = [];
+            if (!window.state.customDefectTypes[cat]) window.state.customDefectTypes[cat] = [];
+            return {
+                title: `결함 종류 관리 (${cat})`,
+                presetList: categoryDefectPreset[cat] || categoryDefectPreset['구조체'],
+                hiddenList: window.state.hiddenDefectTypes[cat],
+                customList: window.state.customDefectTypes[cat],
+                labelFor: (item) => item,
+                refresh: () => updateDefectTypeDropdown(cat, document.getElementById('defectType')?.value)
+            };
+        }
+
+        if (field === 'cause') {
+            const dType = document.getElementById('defectType')?.value || '균열';
+            const key = getCauseKey(dType);
+            if (!window.state.customDefectCauses) window.state.customDefectCauses = {};
+            if (!window.state.hiddenDefectCauses) window.state.hiddenDefectCauses = {};
+            if (!window.state.hiddenDefectCauses[key]) window.state.hiddenDefectCauses[key] = [];
+            if (!window.state.customDefectCauses[key]) window.state.customDefectCauses[key] = [];
+            return {
+                title: `결함 원인 관리 (${key})`,
+                presetList: defectCausePreset[key] || [],
+                hiddenList: window.state.hiddenDefectCauses[key],
+                customList: window.state.customDefectCauses[key],
+                labelFor: (item) => item,
+                refresh: () => updateDefectCauseDropdown(dType, document.getElementById('defectCause')?.value)
+            };
+        }
+
+        return null;
+    }
+
+    function renderOptionManagerList() {
+        const ctx = getOptionManagerContext();
+        const titleEl = document.getElementById('optionManagerTitle');
+        const listEl = document.getElementById('optionManagerList');
+        if (!ctx || !listEl) return;
+
+        if (titleEl) titleEl.innerHTML = `<i class="fa-solid fa-list-check"></i> ${ctx.title}`;
+
+        const visiblePreset = ctx.presetList.filter(item => !ctx.hiddenList.includes(item));
+        const visibleItems = visiblePreset.map(item => ({ text: item, isPreset: true }))
+            .concat(ctx.customList.map(item => ({ text: item, isPreset: false })));
+
+        listEl.innerHTML = '';
+        if (visibleItems.length === 0) {
+            listEl.innerHTML = '<div class="defect-list-empty">표시할 항목이 없습니다.</div>';
+            return;
+        }
+
+        visibleItems.forEach(({ text, isPreset }) => {
+            const row = document.createElement('div');
+            row.className = 'option-manager-item';
+
+            const label = document.createElement('span');
+            label.textContent = ctx.labelFor(text);
+            row.appendChild(label);
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'option-manager-item-delete';
+            delBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+            delBtn.disabled = visibleItems.length <= 1;
+            delBtn.title = delBtn.disabled ? '최소 1개는 남아있어야 합니다' : '삭제';
+            delBtn.addEventListener('click', () => deleteOptionItem(text, isPreset));
+            row.appendChild(delBtn);
+
+            listEl.appendChild(row);
+        });
+    }
+
+    function deleteOptionItem(item, isPreset) {
+        const ctx = getOptionManagerContext();
+        if (!ctx) return;
+
+        const visibleCount = ctx.presetList.filter(p => !ctx.hiddenList.includes(p)).length + ctx.customList.length;
+        if (visibleCount <= 1) {
+            window.showToast('최소 1개는 남아있어야 합니다.', 'warning');
+            return;
+        }
+
+        if (isPreset) {
+            if (!ctx.hiddenList.includes(item)) ctx.hiddenList.push(item);
+        } else {
+            const idx = ctx.customList.indexOf(item);
+            if (idx !== -1) ctx.customList.splice(idx, 1);
+        }
+
+        saveStateToLocalStorage();
+        renderOptionManagerList();
+        ctx.refresh();
+    }
+
+    window.openOptionManagerModal = function(fieldType) {
+        window._optionManagerField = fieldType;
+        const modal = document.getElementById('optionManagerModal');
+        const input = document.getElementById('optionManagerNewInput');
+        if (input) input.value = '';
+        renderOptionManagerList();
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    };
+
+    function closeOptionManagerModal() {
+        const modal = document.getElementById('optionManagerModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    const btnManageComponent = document.getElementById('btnManageComponent');
+    if (btnManageComponent) btnManageComponent.addEventListener('click', () => window.openOptionManagerModal('component'));
+
+    const btnManageDefectType = document.getElementById('btnManageDefectType');
+    if (btnManageDefectType) btnManageDefectType.addEventListener('click', () => window.openOptionManagerModal('type'));
+
+    const btnManageCause = document.getElementById('btnManageCause');
+    if (btnManageCause) btnManageCause.addEventListener('click', () => window.openOptionManagerModal('cause'));
+
+    const btnCloseOptionManager = document.getElementById('btnCloseOptionManager');
+    if (btnCloseOptionManager) btnCloseOptionManager.addEventListener('click', closeOptionManagerModal);
+
+    const btnOptionManagerAdd = document.getElementById('btnOptionManagerAdd');
+    if (btnOptionManagerAdd) {
+        btnOptionManagerAdd.addEventListener('click', () => {
+            const input = document.getElementById('optionManagerNewInput');
+            const val = (input?.value || '').trim();
+            if (!val) return;
+
+            const ctx = getOptionManagerContext();
+            if (!ctx) return;
+
+            const isVisiblePreset = ctx.presetList.includes(val) && !ctx.hiddenList.includes(val);
+            if (isVisiblePreset || ctx.customList.includes(val)) {
+                window.showToast('이미 있는 항목입니다.', 'info');
+                return;
+            }
+
+            const hiddenIdx = ctx.hiddenList.indexOf(val);
+            if (hiddenIdx !== -1) {
+                // 숨겨뒀던 기본 항목을 다시 추가하는 경우 -> 숨김 해제
+                ctx.hiddenList.splice(hiddenIdx, 1);
+            } else {
+                ctx.customList.push(val);
+            }
+
+            saveStateToLocalStorage();
+            if (input) input.value = '';
+            renderOptionManagerList();
+            ctx.refresh();
         });
     }
 
@@ -3513,14 +3770,24 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
 
-            // 0. Area(면적) 결함: 사각형 내부 클릭이면 전체 이동 대상으로 인식
+            // 0. Area(면적) 결함: 사각형 내부 또는 번호 라벨 박스 클릭이면 전체 이동 대상으로 인식
             if (d.shapeType === 'area' && d.areaX1 !== undefined) {
                 const pad = 10;
-                const rx1 = Math.min(d.areaX1, d.areaX2) - pad;
+                const x1 = Math.min(d.areaX1, d.areaX2);
+                const y1 = Math.min(d.areaY1, d.areaY2);
+                const rx1 = x1 - pad;
                 const rx2 = Math.max(d.areaX1, d.areaX2) + pad;
-                const ry1 = Math.min(d.areaY1, d.areaY2) - pad;
+                const ry1 = y1 - pad;
                 const ry2 = Math.max(d.areaY1, d.areaY2) + pad;
-                if (imgX >= rx1 && imgX <= rx2 && imgY >= ry1 && imgY <= ry2) {
+                const inRect = imgX >= rx1 && imgX <= rx2 && imgY >= ry1 && imgY <= ry2;
+
+                // 번호 라벨 박스는 좌상단 모서리 "바깥쪽"(위)에 그려지므로(drawAreaRect 참고)
+                // 사각형 히트 영역만으로는 라벨을 눌러서 드래그를 시작할 수 없었음 — 라벨 영역도 별도로 포함
+                const labelW = 38 * scale;
+                const labelH = 26 * scale;
+                const inLabel = imgX >= x1 - pad && imgX <= x1 + labelW + pad && imgY >= y1 - labelH - pad && imgY <= y1 + pad;
+
+                if (inRect || inLabel) {
                     return { defect: d, part: 'AREA_MOVE' };
                 }
                 continue;
@@ -3854,6 +4121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function closeDefectModal() {
+        window._defectMarkingTemplate = null;
         if (elements.defectModal) {
             elements.defectModal.style.display = 'none';
             elements.defectModal.classList.remove('open');
@@ -3879,7 +4147,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (catEl) catEl.value = existingPin.category || '구조체';
             updateDefectTypeDropdown(existingPin.category || '구조체', existingPin.defectType);
             updateDefectCauseDropdown(existingPin.defectType || '균열', existingPin.cause);
-            if (compEl) compEl.value = existingPin.component || '기둥';
+            populateDefectComponentDropdown(existingPin.component || '기둥');
             if (locEl) locEl.value = existingPin.location || `${state.currentFloor} ${existingPin.component || '기둥'}`;
             if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
             if (progCheckEl) progCheckEl.checked = !!existingPin.isProgress;
@@ -3898,14 +4166,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
             const defectNoStr = `NO.${seqStr}`;
 
+            // "마킹 추가"로 이어서 등록하는 경우, 직전 결함의 부재/종류/원인/규모를 그대로 이어받는다
+            const tmpl = window._defectMarkingTemplate;
+
             if (pinIdEl) pinIdEl.value = '';
             if (noEl) noEl.value = defectNoStr;
-            if (catEl) catEl.value = '구조체';
-            updateDefectTypeDropdown('구조체');
-            updateDefectCauseDropdown('균열');
-            const defaultComp = '기둥';
-            if (compEl) compEl.value = defaultComp;
-            if (sizeEl) sizeEl.value = '';
+            const defaultCat = (tmpl && tmpl.category) || '구조체';
+            if (catEl) catEl.value = defaultCat;
+            updateDefectTypeDropdown(defaultCat, (tmpl && tmpl.defectType) || null);
+            updateDefectCauseDropdown((tmpl && tmpl.defectType) || '균열', (tmpl && tmpl.cause) || null);
+            const defaultComp = (tmpl && tmpl.component) || '기둥';
+            populateDefectComponentDropdown(defaultComp);
+            if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
             window._pendingPhotos = [];
@@ -4074,78 +4346,108 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 결함 모달의 현재 입력값을 저장(신규 생성 또는 기존 결함 수정)하고 저장된 결함 객체를 반환
+    async function commitDefectFromForm() {
+        if (!state.currentBuildingId) return null;
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        if (!state.defects[key]) state.defects[key] = [];
+        pushDefectHistory();
+
+        const pinId = document.getElementById('defectPinId').value;
+        const coords = window._pendingPinCoords || { x: 200, y: 200, targetX: 165, targetY: 235 };
+
+        const locVal = document.getElementById('defectLocation')?.value || `${state.currentFloor} ${document.getElementById('defectComponent')?.value || '기둥'}`;
+        const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
+        const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
+        const photosVal = window._pendingPhotos || [];
+
+        let savedDefect = null;
+
+        if (pinId) {
+            // Update existing defect
+            const idx = state.defects[key].findIndex(d => d.id === pinId);
+            if (idx !== -1) {
+                state.defects[key][idx].no = document.getElementById('defectNo')?.value || 'NO.01';
+                state.defects[key][idx].category = document.getElementById('defectCategory')?.value || '구조체';
+                state.defects[key][idx].component = document.getElementById('defectComponent')?.value || '기둥';
+                state.defects[key][idx].location = locVal;
+                state.defects[key][idx].defectType = document.getElementById('defectType')?.value || '균열';
+                state.defects[key][idx].cause = document.getElementById('defectCause')?.value || '건조수축';
+                state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
+                state.defects[key][idx].isProgress = isProgress;
+                state.defects[key][idx].isLeak = isLeak;
+                state.defects[key][idx].photos = photosVal;
+                if (!state.defects[key][idx].inspectorName) {
+                    state.defects[key][idx].inspectorName = window.state.userName || '';
+                }
+                savedDefect = state.defects[key][idx];
+            }
+        } else {
+            // Add new defect
+            const newDefect = {
+                id: 'pin-' + Date.now(),
+                no: document.getElementById('defectNo')?.value || 'NO.01',
+                category: document.getElementById('defectCategory')?.value || '구조체',
+                component: document.getElementById('defectComponent')?.value || '기둥',
+                location: locVal,
+                defectType: document.getElementById('defectType')?.value || '균열',
+                cause: document.getElementById('defectCause')?.value || '건조수축',
+                size: document.getElementById('defectSize')?.value || 'W=0.2mm',
+                isProgress: isProgress,
+                isLeak: isLeak,
+                photos: photosVal,
+                inspectorName: window.state.userName || '',
+                x: coords.x,
+                y: coords.y,
+                targetX: coords.targetX,
+                targetY: coords.targetY
+            };
+            if (window._pendingAreaRect) {
+                newDefect.shapeType = 'area';
+                newDefect.areaX1 = window._pendingAreaRect.x1;
+                newDefect.areaY1 = window._pendingAreaRect.y1;
+                newDefect.areaX2 = window._pendingAreaRect.x2;
+                newDefect.areaY2 = window._pendingAreaRect.y2;
+            }
+            state.defects[key].push(newDefect);
+            savedDefect = newDefect;
+        }
+
+        if (savedDefect && photosVal.length > 0) {
+            await uploadDefectPhotos(savedDefect.id, photosVal);
+        }
+
+        saveStateToLocalStorage();
+        return savedDefect;
+    }
+
     const btnSaveDefect = document.getElementById('btnSaveDefect');
     if (btnSaveDefect) {
         btnSaveDefect.addEventListener('click', async () => {
-            if (!state.currentBuildingId) return;
-            const key = `${state.currentBuildingId}_${state.currentFloor}`;
-            if (!state.defects[key]) state.defects[key] = [];
-            pushDefectHistory();
+            await commitDefectFromForm();
+            closeDefectModal(); // 일반 저장은 연속 마킹 종료로 간주 (closeDefectModal이 템플릿을 정리함)
+            drawCanvas();
+        });
+    }
 
-            const pinId = document.getElementById('defectPinId').value;
-            const coords = window._pendingPinCoords || { x: 200, y: 200, targetX: 165, targetY: 235 };
-
-            const locVal = document.getElementById('defectLocation')?.value || `${state.currentFloor} ${document.getElementById('defectComponent')?.value || '기둥'}`;
-            const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
-            const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
-            const photosVal = window._pendingPhotos || [];
-
-            if (pinId) {
-                // Update existing defect
-                const idx = state.defects[key].findIndex(d => d.id === pinId);
-                if (idx !== -1) {
-                    state.defects[key][idx].no = document.getElementById('defectNo')?.value || 'NO.01';
-                    state.defects[key][idx].category = document.getElementById('defectCategory')?.value || '구조체';
-                    state.defects[key][idx].component = document.getElementById('defectComponent')?.value || '기둥';
-                    state.defects[key][idx].location = locVal;
-                    state.defects[key][idx].defectType = document.getElementById('defectType')?.value || '균열';
-                    state.defects[key][idx].cause = document.getElementById('defectCause')?.value || '건조수축';
-                    state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
-                    state.defects[key][idx].isProgress = isProgress;
-                    state.defects[key][idx].isLeak = isLeak;
-                    state.defects[key][idx].photos = photosVal;
-                    if (!state.defects[key][idx].inspectorName) {
-                        state.defects[key][idx].inspectorName = window.state.userName || '';
-                    }
-                }
-            } else {
-                // Add new defect
-                const newDefect = {
-                    id: 'pin-' + Date.now(),
-                    no: document.getElementById('defectNo')?.value || 'NO.01',
-                    category: document.getElementById('defectCategory')?.value || '구조체',
-                    component: document.getElementById('defectComponent')?.value || '기둥',
-                    location: locVal,
-                    defectType: document.getElementById('defectType')?.value || '균열',
-                    cause: document.getElementById('defectCause')?.value || '건조수축',
-                    size: document.getElementById('defectSize')?.value || 'W=0.2mm',
-                    isProgress: isProgress,
-                    isLeak: isLeak,
-                    photos: photosVal,
-                    inspectorName: window.state.userName || '',
-                    x: coords.x,
-                    y: coords.y,
-                    targetX: coords.targetX,
-                    targetY: coords.targetY
-                };
-                if (window._pendingAreaRect) {
-                    newDefect.shapeType = 'area';
-                    newDefect.areaX1 = window._pendingAreaRect.x1;
-                    newDefect.areaY1 = window._pendingAreaRect.y1;
-                    newDefect.areaX2 = window._pendingAreaRect.x2;
-                    newDefect.areaY2 = window._pendingAreaRect.y2;
-                }
-                state.defects[key].push(newDefect);
-            }
-
-            const savedDefectId = pinId || (state.defects[key][state.defects[key].length - 1] && state.defects[key][state.defects[key].length - 1].id);
-            if (savedDefectId && photosVal.length > 0) {
-                await uploadDefectPhotos(savedDefectId, photosVal);
-            }
-
-            saveStateToLocalStorage();
+    // 같은 결함 정보(부재/종류/원인/규모)를 유지한 채 위치만 바꿔서 여러 곳에 반복 마킹
+    const btnAddAnotherMarking = document.getElementById('btnAddAnotherMarking');
+    if (btnAddAnotherMarking) {
+        btnAddAnotherMarking.addEventListener('click', async () => {
+            const saved = await commitDefectFromForm();
             closeDefectModal();
             drawCanvas();
+            if (saved) {
+                window._defectMarkingTemplate = {
+                    category: saved.category,
+                    component: saved.component,
+                    defectType: saved.defectType,
+                    cause: saved.cause,
+                    size: saved.size
+                };
+                setDrawMode(saved.shapeType === 'area' ? 'AREA' : 'MARK');
+                window.showToast('같은 결함 정보를 유지했습니다. 도면에서 다음 위치를 클릭해 표시하세요.', 'info', 3500);
+            }
         });
     }
 
@@ -4194,16 +4496,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Mode Toggle (PAN vs MARK vs AREA)
+    function setDrawMode(mode) {
+        state.mode = mode;
+        const pan = document.getElementById('btnModePan');
+        const mark = document.getElementById('btnModeMark');
+        const area = document.getElementById('btnModeArea');
+        if (pan) pan.classList.toggle('active', mode === 'PAN');
+        if (mark) mark.classList.toggle('active', mode === 'MARK');
+        if (area) area.classList.toggle('active', mode === 'AREA');
+    }
+
     const btnModePan = document.getElementById('btnModePan');
     const btnModeMark = document.getElementById('btnModeMark');
     const btnModeArea = document.getElementById('btnModeArea');
     if (btnModePan && btnModeMark) {
-        const setDrawMode = (mode) => {
-            state.mode = mode;
-            btnModePan.classList.toggle('active', mode === 'PAN');
-            btnModeMark.classList.toggle('active', mode === 'MARK');
-            if (btnModeArea) btnModeArea.classList.toggle('active', mode === 'AREA');
-        };
         btnModePan.addEventListener('click', () => setDrawMode('PAN'));
         btnModeMark.addEventListener('click', () => setDrawMode('MARK'));
         if (btnModeArea) btnModeArea.addEventListener('click', () => setDrawMode('AREA'));
@@ -6064,16 +6370,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
 
                     if (isChanged) {
-                        // 로컬 캐시 갱신
-                        try {
-                            localStorage.setItem('building_safety_app_state_v2', JSON.stringify({
-                                defects: window.state.defects || {},
-                                ndtData: window.state.ndtData || {},
-                                grids: window.state.grids || {},
-                                buildings: window.state.buildings || [],
-                                lastUsedBuildingId: window.state.currentBuildingId || null
-                            }));
-                        } catch (e) {}
+                        // 로컬 캐시 갱신 (공용 저장 함수 재사용 — customDefectTypes 등 다른 로컬 설정을 덮어쓰지 않도록)
+                        // isRemoteSyncing이 true인 상태라 syncStateToFirebase() 내부 가드에 의해 재동기화는 발생하지 않음
+                        if (typeof saveStateToLocalStorage === 'function') saveStateToLocalStorage();
 
                         // 실시간 UI 자동 업데이트
                         if (typeof renderDashboard === 'function') renderDashboard();
