@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260804_0100">
+    <link rel="stylesheet" href="styles.css?v=20260804_0200">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -148,152 +148,174 @@
 
         <!-- TAB 1: 층별 위치도 (Interactive Drawing Map) -->
         <section id="tab-map" class="tab-content">
-            <!-- Inspection Filter Controls Toolbar -->
-            <div class="map-controls-toolbar">
-                <div class="toolbar-left">
-                    <!-- Inspection Type / Year / Period Selector Group -->
-                    <div class="filter-group" style="background: rgba(2, 132, 199, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(2, 132, 199, 0.25); display: flex; align-items: center; gap: 0.4rem;">
-                        <span class="filter-label" style="color: #0284c7; font-weight: 800;"><i class="fa-solid fa-clipboard-check"></i> 점검 설정:</span>
-                        <select id="selectInspectionType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
-                            <option value="정밀안전점검" selected>정밀안전점검</option>
-                            <option value="정기안전점검">정기안전점검</option>
-                            <option value="정밀안전진단">정밀안전진단</option>
-                        </select>
-                        <select id="selectInspectionYear" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
-                            <option value="2026년" selected>2026년</option>
-                            <option value="2025년">2025년</option>
-                            <option value="2027년">2027년</option>
-                            <option value="2028년">2028년</option>
-                        </select>
-                        <select id="selectInspectionPeriod" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; display: inline-block;">
-                            <option value="하반기" selected>하반기</option>
-                            <option value="상반기">상반기</option>
-                            <option value="수시점검">수시점검</option>
-                        </select>
+            <div class="inspect-layout">
+
+                <!-- LEFT: 등록된 결함 빠른 목록 -->
+                <aside class="inspect-sidebar-left">
+                    <h4 class="inspect-sidebar-title"><i class="fa-solid fa-list-check"></i> 등록된 결함 목록</h4>
+                    <div id="defectListPanel" class="defect-list-panel"></div>
+                </aside>
+
+                <!-- CENTER: 캔버스 + 최소 툴바 -->
+                <div class="inspect-canvas-col">
+                    <!-- Unified Top Drawing Controls Toolbar -->
+                    <div class="canvas-top-toolbar">
+                        <div class="toolbar-mode-group">
+                            <button type="button" id="btnModePan" class="mode-btn active" title="화면 자유 이동/확대 모드">
+                                <i class="fa-solid fa-hand"></i> ✋ 이동
+                            </button>
+                            <button type="button" id="btnModeMark" class="mode-btn btn-mark-mode" title="결함 위치 마킹 모드">
+                                <i class="fa-solid fa-location-dot"></i> 📍 핀 마킹
+                            </button>
+                            <button type="button" id="btnModeArea" class="mode-btn btn-area-mode" title="결함 영역(면적) 마킹 모드">
+                                <i class="fa-solid fa-draw-square"></i> 🟧 영역 마킹
+                            </button>
+                        </div>
+
+                        <div class="toolbar-action-group">
+                            <button type="button" id="btnOpenGridModal" class="btn-rotate-hero" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #38bdf8;" title="도면 3초 스마트 그리드(열) 설정">
+                                <i class="fa-solid fa-ruler-combined"></i> 📐 그리드 설정
+                            </button>
+                            <button type="button" id="btnToggleGridOverlay" class="btn-rotate-hero" style="background: rgba(255,255,255,0.08); border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="그리드선 표시/숨김">
+                                <i class="fa-solid fa-border-all"></i> 🌐 그리드
+                            </button>
+                            <button type="button" id="btnRotateDrawing" class="btn-rotate-hero" title="세로 도면 가로로 90도 회전">
+                                <i class="fa-solid fa-rotate-right"></i> 🔄 회전
+                            </button>
+                            <div class="zoom-pill-group">
+                                <button id="btnZoomIn" class="zoom-pill-btn" title="확대 (+)"><i class="fa-solid fa-plus"></i></button>
+                                <span id="zoomScaleText" class="zoom-pill-badge">100%</span>
+                                <button id="btnZoomOut" class="zoom-pill-btn" title="축소 (-)"><i class="fa-solid fa-minus"></i></button>
+                                <button id="btnZoomFit" class="zoom-pill-btn text-btn" title="화면에 맞추기"><i class="fa-solid fa-expand"></i> 맞춤</button>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Period Filter -->
-                    <div class="filter-group">
-                        <span class="filter-label">점검 차수:</span>
-                        <label class="checkbox-chip">
-                            <input type="checkbox" id="filterPeriod2026H2" checked> 2026 하반기
-                        </label>
-                        <label class="checkbox-chip">
-                            <input type="checkbox" id="filterPeriod2026H1" checked> 2026 상반기
-                        </label>
-                        <label class="checkbox-chip">
-                            <input type="checkbox" id="filterPeriod2025H2"> 2025 하반기
-                        </label>
-                    </div>
+                    <!-- Canvas Viewport -->
+                    <div class="canvas-container" id="canvasContainer">
+                        <div class="canvas-hint" id="canvasHintText">
+                            <i class="fa-solid fa-hand-pointer"></i>
+                            <span>[✋ 이동 모드] 손가락으로 도면 자유 이동 및 확대/축소 | 핀을 찍으려면 <strong>📍 핀 마킹</strong>, 영역으로 표시하려면 <strong>🟧 영역 마킹</strong> 버튼 클릭</span>
+                        </div>
 
-                    <!-- Category Filter -->
-                    <div class="filter-group">
-                        <span class="filter-label">부재 분류:</span>
-                        <label class="checkbox-chip tag-structural">
-                            <input type="checkbox" id="filterCatStructural" checked> 🔴 구조체
-                        </label>
-                        <label class="checkbox-chip tag-nonstructural">
-                            <input type="checkbox" id="filterCatNonStructural" checked> 🔵 비구조체
-                        </label>
-                        <label class="checkbox-chip tag-finishing">
-                            <input type="checkbox" id="filterCatFinishing" checked> 🟠 마감재
-                        </label>
-                        <label class="checkbox-chip" style="border-color: #facc15; color: #facc15;">
-                            <input type="checkbox" id="filterOnlyBookmark"> ⭐ 중요 결함만 보기
-                        </label>
-                    </div>
-
-                    <!-- Damage Type Filter -->
-                    <div class="filter-group" style="background: rgba(244, 63, 94, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.25);">
-                        <span class="filter-label" style="color: #e11d48; font-weight: 800;"><i class="fa-solid fa-filter"></i> 손상 유형:</span>
-                        <select id="filterDamageType" class="form-control" style="width: auto; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #e11d48; border: 1px solid #f43f5e; font-weight: 700; display: inline-block;">
-                            <option value="ALL" selected>🔍 전체 손상 보기</option>
-                            <option value="균열">🔴 균열 (Crack)</option>
-                            <option value="누수">💧 누수 (Leak)</option>
-                            <option value="백태">⚪ 백태 (Efflorescence)</option>
-                            <option value="철근노출">🟠 철근노출 (Rebar Exposed)</option>
-                            <option value="박리/박락">🟡 박리/박락 (Spalling)</option>
-                            <option value="기타">🟣 기타 손상</option>
-                        </select>
-                    </div>
-
-                    <!-- Pin Marker Shape Selector -->
-                    <div class="filter-group">
-                        <span class="filter-label">박스 모양:</span>
-                        <button type="button" id="btnPinShapeSquare" class="chip active">🔲 네모 박스 (01-1)</button>
-                        <button type="button" id="btnPinShapeCircle" class="chip">⚪ 동그라미 (01-1)</button>
-                    </div>
-
-                    <!-- Target Tip Shape Selector -->
-                    <div class="filter-group">
-                        <span class="filter-label">지시선 끝:</span>
-                        <button type="button" id="btnTipShapeArrow" class="chip active">➔ 화살표 끝</button>
-                        <button type="button" id="btnTipShapeCircle" class="chip">● 동그라미 끝</button>
-                    </div>
-
-                    <!-- Pin Size Adjuster Slider -->
-                    <div class="filter-group">
-                        <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
-                        <input type="range" id="pinSizeRange" min="0.6" max="2.2" step="0.1" value="1.0" style="width: 80px; vertical-align: middle;">
-                        <span id="pinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
-                    </div>
-
-                    <!-- Arrow Size Adjuster Slider -->
-                    <div class="filter-group">
-                        <span class="filter-label"><i class="fa-solid fa-location-arrow"></i> 화살표 크기:</span>
-                        <input type="range" id="arrowSizeRange" min="0.6" max="2.5" step="0.1" value="1.0" style="width: 80px; vertical-align: middle;">
-                        <span id="arrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
+                        <canvas id="planCanvas"></canvas>
                     </div>
                 </div>
 
-                <div class="toolbar-right">
-                    <button id="btnUndo" class="btn btn-outline" title="실행 취소 (Ctrl+Z)" style="border-color: #6366f1; color: #a5b4fc;">
-                        <i class="fa-solid fa-rotate-left"></i> ↩️ 되돌리기 (Ctrl+Z)
-                    </button>
-                    <button id="btnClearPins" class="btn btn-danger-outline">
-                        <i class="fa-solid fa-trash-can"></i> 핀 전체 초기화
-                    </button>
-                </div>
-            </div>
+                <!-- RIGHT: 도구 패널 -->
+                <aside class="inspect-sidebar-right">
+                    <div class="inspect-tool-panel">
+                        <!-- Pin Marker Shape Selector -->
+                        <div class="filter-group">
+                            <span class="filter-label">박스 모양:</span>
+                            <button type="button" id="btnPinShapeSquare" class="chip active">🔲 네모</button>
+                            <button type="button" id="btnPinShapeCircle" class="chip">⚪ 동그라미</button>
+                        </div>
 
-            <!-- Unified Top Drawing Controls Toolbar -->
-            <div class="canvas-top-toolbar">
-                <div class="toolbar-mode-group">
-                    <button type="button" id="btnModePan" class="mode-btn active" title="화면 자유 이동/확대 모드">
-                        <i class="fa-solid fa-hand"></i> ✋ 화면 자유 이동
-                    </button>
-                    <button type="button" id="btnModeMark" class="mode-btn btn-mark-mode" title="결함 위치 마킹 모드">
-                        <i class="fa-solid fa-location-dot"></i> 📍 [결함 위치 마킹]
-                    </button>
-                </div>
-                
-                <div class="toolbar-action-group">
-                    <button type="button" id="btnOpenGridModal" class="btn-rotate-hero" style="background: linear-gradient(135deg, #0284c7, #0369a1); border-color: #38bdf8;" title="도면 3초 스마트 그리드(열) 설정">
-                        <i class="fa-solid fa-ruler-combined"></i> 📐 3초 그리드 설정
-                    </button>
-                    <button type="button" id="btnToggleGridOverlay" class="btn-rotate-hero" style="background: rgba(255,255,255,0.08); border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="그리드선 표시/숨김">
-                        <i class="fa-solid fa-border-all"></i> 🌐 그리드 보기
-                    </button>
-                    <button type="button" id="btnRotateDrawing" class="btn-rotate-hero" title="세로 도면 가로로 90도 회전">
-                        <i class="fa-solid fa-rotate-right"></i> 🔄 도면 90° 가로회전
-                    </button>
-                    <div class="zoom-pill-group">
-                        <button id="btnZoomIn" class="zoom-pill-btn" title="확대 (+)"><i class="fa-solid fa-plus"></i></button>
-                        <span id="zoomScaleText" class="zoom-pill-badge">100%</span>
-                        <button id="btnZoomOut" class="zoom-pill-btn" title="축소 (-)"><i class="fa-solid fa-minus"></i></button>
-                        <button id="btnZoomFit" class="zoom-pill-btn text-btn" title="화면에 맞추기"><i class="fa-solid fa-expand"></i> 맞춤</button>
+                        <!-- Target Tip Shape Selector -->
+                        <div class="filter-group">
+                            <span class="filter-label">지시선 끝:</span>
+                            <button type="button" id="btnTipShapeArrow" class="chip active">➔ 화살표</button>
+                            <button type="button" id="btnTipShapeCircle" class="chip">● 동그라미</button>
+                        </div>
+
+                        <!-- Pin Size Adjuster Slider -->
+                        <div class="filter-group">
+                            <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
+                            <input type="range" id="pinSizeRange" min="0.6" max="2.2" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
+                            <span id="pinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
+                        </div>
+
+                        <!-- Arrow Size Adjuster Slider -->
+                        <div class="filter-group">
+                            <span class="filter-label"><i class="fa-solid fa-location-arrow"></i> 화살표 크기:</span>
+                            <input type="range" id="arrowSizeRange" min="0.6" max="2.5" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
+                            <span id="arrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
+                        </div>
+
+                        <div class="filter-group">
+                            <button id="btnUndo" class="btn btn-outline" title="실행 취소 (Ctrl+Z)" style="border-color: #6366f1; color: #a5b4fc; width: 100%;">
+                                <i class="fa-solid fa-rotate-left"></i> ↩️ 되돌리기
+                            </button>
+                        </div>
+                        <div class="filter-group">
+                            <button id="btnClearPins" class="btn btn-danger-outline" style="width: 100%;">
+                                <i class="fa-solid fa-trash-can"></i> 핀 전체 초기화
+                            </button>
+                        </div>
                     </div>
-                </div>
-            </div>
 
-            <!-- Canvas Viewport -->
-            <div class="canvas-container" id="canvasContainer">
-                <div class="canvas-hint" id="canvasHintText">
-                    <i class="fa-solid fa-hand-pointer"></i> 
-                    <span>[✋ 화면 이동 모드] 손가락으로 도면 자유 이동 및 확대/축소 | 핀을 찍으려면 <strong>📍[결함 위치 마킹]</strong> 버튼 클릭</span>
-                </div>
+                    <details class="advanced-filter-panel">
+                        <summary>🔧 고급 필터</summary>
 
-                <canvas id="planCanvas"></canvas>
+                        <!-- Inspection Type / Year / Period Selector Group -->
+                        <div class="filter-group" style="background: rgba(2, 132, 199, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(2, 132, 199, 0.25);">
+                            <span class="filter-label" style="color: #0284c7; font-weight: 800;"><i class="fa-solid fa-clipboard-check"></i> 점검 설정:</span>
+                            <select id="selectInspectionType" class="form-control" style="width: 100%; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; margin-top: 0.3rem;">
+                                <option value="정밀안전점검" selected>정밀안전점검</option>
+                                <option value="정기안전점검">정기안전점검</option>
+                                <option value="정밀안전진단">정밀안전진단</option>
+                            </select>
+                            <select id="selectInspectionYear" class="form-control" style="width: 100%; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; margin-top: 0.3rem;">
+                                <option value="2026년" selected>2026년</option>
+                                <option value="2025년">2025년</option>
+                                <option value="2027년">2027년</option>
+                                <option value="2028년">2028년</option>
+                            </select>
+                            <select id="selectInspectionPeriod" class="form-control" style="width: 100%; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #0284c7; border: 1px solid #0284c7; font-weight: 700; margin-top: 0.3rem;">
+                                <option value="하반기" selected>하반기</option>
+                                <option value="상반기">상반기</option>
+                                <option value="수시점검">수시점검</option>
+                            </select>
+                        </div>
+
+                        <!-- Period Filter -->
+                        <div class="filter-group">
+                            <span class="filter-label">점검 차수:</span>
+                            <label class="checkbox-chip">
+                                <input type="checkbox" id="filterPeriod2026H2" checked> 2026 하반기
+                            </label>
+                            <label class="checkbox-chip">
+                                <input type="checkbox" id="filterPeriod2026H1" checked> 2026 상반기
+                            </label>
+                            <label class="checkbox-chip">
+                                <input type="checkbox" id="filterPeriod2025H2"> 2025 하반기
+                            </label>
+                        </div>
+
+                        <!-- Category Filter -->
+                        <div class="filter-group">
+                            <span class="filter-label">부재 분류:</span>
+                            <label class="checkbox-chip tag-structural">
+                                <input type="checkbox" id="filterCatStructural" checked> 🔴 구조체
+                            </label>
+                            <label class="checkbox-chip tag-nonstructural">
+                                <input type="checkbox" id="filterCatNonStructural" checked> 🔵 비구조체
+                            </label>
+                            <label class="checkbox-chip tag-finishing">
+                                <input type="checkbox" id="filterCatFinishing" checked> 🟠 마감재
+                            </label>
+                            <label class="checkbox-chip" style="border-color: #facc15; color: #facc15;">
+                                <input type="checkbox" id="filterOnlyBookmark"> ⭐ 중요 결함만 보기
+                            </label>
+                        </div>
+
+                        <!-- Damage Type Filter -->
+                        <div class="filter-group" style="background: rgba(244, 63, 94, 0.08); padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid rgba(244, 63, 94, 0.25);">
+                            <span class="filter-label" style="color: #e11d48; font-weight: 800;"><i class="fa-solid fa-filter"></i> 손상 유형:</span>
+                            <select id="filterDamageType" class="form-control" style="width: 100%; height: 30px; font-size: 0.82rem; padding: 0 0.4rem; background: #ffffff; color: #e11d48; border: 1px solid #f43f5e; font-weight: 700; margin-top: 0.3rem;">
+                                <option value="ALL" selected>🔍 전체 손상 보기</option>
+                                <option value="균열">🔴 균열 (Crack)</option>
+                                <option value="누수">💧 누수 (Leak)</option>
+                                <option value="백태">⚪ 백태 (Efflorescence)</option>
+                                <option value="철근노출">🟠 철근노출 (Rebar Exposed)</option>
+                                <option value="박리/박락">🟡 박리/박락 (Spalling)</option>
+                                <option value="기타">🟣 기타 손상</option>
+                            </select>
+                        </div>
+                    </details>
+                </aside>
+
             </div>
         </section>
 
@@ -479,13 +501,13 @@
                         <div class="form-group">
                             <label class="form-label">부재 명칭 *</label>
                             <select id="defectComponent" class="form-select">
-                                <option value="기둥">기둥 (C - Column)</option>
-                                <option value="큰보">큰보 (G - Girder)</option>
-                                <option value="작은보">작은보 (b - Sub-Beam)</option>
-                                <option value="슬래브">슬래브 (S - Slab)</option>
-                                <option value="벽체">벽체 (W - Wall)</option>
-                                <option value="조적벽체">조적벽체 (MW - Masonry Wall)</option>
-                                <option value="계단">계단 (ST - Stairs)</option>
+                                <option value="기둥">기둥</option>
+                                <option value="큰보">큰보</option>
+                                <option value="작은보">작은보</option>
+                                <option value="슬래브">슬래브</option>
+                                <option value="벽체">벽체</option>
+                                <option value="조적벽체">조적벽체</option>
+                                <option value="계단">계단</option>
                                 <option value="기타">기타 부재</option>
                             </select>
                         </div>
@@ -679,12 +701,12 @@
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label">부재 구분 *</label>
                         <select id="ndtComponent" class="form-select">
-                            <option value="기둥">기둥 (C)</option>
-                            <option value="큰보">큰보 (G)</option>
-                            <option value="작은보">작은보 (b)</option>
-                            <option value="슬래브">슬래브 (S)</option>
-                            <option value="벽체">벽체 (W)</option>
-                            <option value="조적벽체">조적벽체 (MW)</option>
+                            <option value="기둥">기둥</option>
+                            <option value="큰보">큰보</option>
+                            <option value="작은보">작은보</option>
+                            <option value="슬래브">슬래브</option>
+                            <option value="벽체">벽체</option>
+                            <option value="조적벽체">조적벽체</option>
                             <option value="기타">기타</option>
                         </select>
                     </div>
@@ -1192,7 +1214,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260804_0100"></script>
+    <script src="app.js?v=20260804_0200"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

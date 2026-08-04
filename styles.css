@@ -456,6 +456,200 @@ body {
     }
 }
 
+/* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
+.inspect-layout {
+    display: flex;
+    gap: 0.8rem;
+    flex: 1;
+    min-height: 0;
+    align-items: flex-start;
+}
+
+.inspect-canvas-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.inspect-sidebar-left,
+.inspect-sidebar-right {
+    width: 230px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.inspect-sidebar-title {
+    font-size: 0.85rem;
+    font-weight: 800;
+    color: var(--text-secondary);
+    margin: 0 0 0.5rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.defect-list-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.5rem;
+    max-height: 560px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.defect-list-empty {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-align: center;
+    padding: 1.2rem 0.5rem;
+    line-height: 1.5;
+}
+
+.defect-list-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left: 4px solid #ef4444;
+    border-radius: var(--radius-sm);
+    padding: 0.4rem 0.55rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.defect-list-item:hover {
+    border-color: var(--accent-blue);
+    background: rgba(56, 189, 248, 0.08);
+}
+
+.defect-list-item.cat-nonstructural { border-left-color: #3b82f6; }
+.defect-list-item.cat-finishing { border-left-color: #f97316; }
+
+.defect-list-item-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.defect-list-item-edit {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.15rem 0.3rem;
+    font-size: 0.85rem;
+}
+
+.defect-list-item-edit:hover {
+    color: var(--accent-blue);
+}
+
+.inspect-tool-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.7rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.inspect-tool-panel .filter-group {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+}
+
+.advanced-filter-panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.6rem 0.7rem;
+}
+
+.advanced-filter-panel summary {
+    cursor: pointer;
+    font-size: 0.83rem;
+    font-weight: 800;
+    color: var(--text-secondary);
+    list-style: none;
+}
+
+.advanced-filter-panel summary::-webkit-details-marker {
+    display: none;
+}
+
+.advanced-filter-panel[open] summary {
+    margin-bottom: 0.6rem;
+}
+
+.advanced-filter-panel .filter-group {
+    flex-direction: column;
+    align-items: stretch;
+    margin-bottom: 0.6rem;
+}
+
+.advanced-filter-panel .filter-group:last-child {
+    margin-bottom: 0;
+}
+
+.btn-area-mode.active {
+    background: linear-gradient(135deg, #f97316, #ea580c) !important;
+    color: #ffffff !important;
+    border-color: #fb923c !important;
+    box-shadow: 0 0 15px rgba(249, 115, 22, 0.6) !important;
+}
+
+@media (max-width: 768px) {
+    .inspect-layout {
+        flex-direction: column;
+    }
+
+    .inspect-canvas-col {
+        order: 1;
+    }
+
+    .inspect-sidebar-left {
+        order: 2;
+        width: 100%;
+    }
+
+    .inspect-sidebar-right {
+        order: 3;
+        width: 100%;
+    }
+
+    .defect-list-panel {
+        max-height: none;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+    }
+
+    .defect-list-item {
+        flex-shrink: 0;
+        min-width: 150px;
+    }
+
+    .inspect-tool-panel .filter-group {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+
 
 #planCanvas {
     touch-action: none;

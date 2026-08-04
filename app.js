@@ -1470,6 +1470,51 @@ document.addEventListener('DOMContentLoaded', () => {
         return { x: vx, y: vy };
     }
 
+    // viewToImgCoords()의 역변환: 이미지 좌표 -> 회전 반영된 view 좌표
+    function imgToViewCoords(imgX, imgY) {
+        const angle = state.rotationAngle || 0;
+        const img = state.bgImage;
+        const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
+        const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
+
+        if (angle === 90) {
+            return { x: imgH - imgY, y: imgX };
+        } else if (angle === 180) {
+            return { x: imgW - imgX, y: imgH - imgY };
+        } else if (angle === 270) {
+            return { x: imgY, y: imgW - imgX };
+        }
+        return { x: imgX, y: imgY };
+    }
+
+    // 좌측 결함 목록에서 특정 결함을 클릭했을 때 캔버스를 그 위치로 이동/확대하고 잠깐 강조 표시
+    window.focusDefectOnCanvas = function(defectId) {
+        const defects = getCurrentFloorDefects();
+        const defect = defects.find(d => d.id === defectId);
+        if (!defect || !state.canvas) return;
+
+        const centerImgX = defect.shapeType === 'area'
+            ? (defect.areaX1 + defect.areaX2) / 2
+            : (defect.x || 100);
+        const centerImgY = defect.shapeType === 'area'
+            ? (defect.areaY1 + defect.areaY2) / 2
+            : (defect.y || 100);
+
+        const targetScale = 1.6;
+        const v = imgToViewCoords(centerImgX, centerImgY);
+        state.view.scale = targetScale;
+        state.view.offsetX = state.canvas.width / 2 - v.x * targetScale;
+        state.view.offsetY = state.canvas.height / 2 - v.y * targetScale;
+        if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(targetScale * 100)}%`;
+
+        activeDragPin = defect;
+        drawCanvas();
+        setTimeout(() => {
+            if (activeDragPin === defect) activeDragPin = null;
+            drawCanvas();
+        }, 900);
+    };
+
     // --- GRID CALIBRATION & AUTOMATIC LOCATION CALCULATION ENGINE (v60.0) ---
 
     function getCurrentFloorGridConfig() {
@@ -1679,6 +1724,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        // Draw Live Area(면적) Marking Drag Preview
+        if (isAreaDrag) {
+            drawAreaRect(ctx, {
+                areaX1: areaStartImgX,
+                areaY1: areaStartImgY,
+                areaX2: areaCurImgX,
+                areaY2: areaCurImgY,
+                category: document.getElementById('defectCategory')?.value || '구조체',
+                no: ''
+            }, true);
+        }
+
         ctx.restore(); // Restore drawing rotation matrix
 
         ctx.restore(); // Restore view offset & scale
@@ -1688,6 +1745,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!state.floorSnapshots) state.floorSnapshots = {};
                 state.floorSnapshots[state.currentFloor] = state.canvas.toDataURL('image/png');
             } catch(e) {}
+        }
+
+        // 드래그/패닝 중이 아닐 때만 좌측 결함 목록을 갱신 (매 프레임 DOM 재생성 방지)
+        if (!isDragging && !isMarkingDrag && !isDraggingPin && !isAreaDrag && typeof renderDefectListPanel === 'function') {
+            renderDefectListPanel();
         }
     }
 
@@ -2908,7 +2970,110 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 좌측 사이드바에 표시되는 "현재 층에 등록된 결함" 간단 목록 렌더링
+    function renderDefectListPanel() {
+        const panel = document.getElementById('defectListPanel');
+        if (!panel) return;
+
+        if (!state.currentBuildingId) {
+            panel.innerHTML = '';
+            return;
+        }
+
+        const defects = getCurrentFloorFilteredDefects();
+        if (defects.length === 0) {
+            panel.innerHTML = '<div class="defect-list-empty">아직 등록된 결함이 없습니다.<br>도면에서 핀을 찍어보세요.</div>';
+            return;
+        }
+
+        panel.innerHTML = '';
+        defects.forEach(d => {
+            const catClass = d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : '');
+            const shapeIcon = d.shapeType === 'area' ? '🟧 ' : '';
+            const labelText = `${shapeIcon}${d.no || ''} ${d.component || ''} ${d.defectType || ''}`.trim();
+
+            const row = document.createElement('div');
+            row.className = `defect-list-item ${catClass}`.trim();
+            row.title = d.location || labelText;
+
+            const textSpan = document.createElement('span');
+            textSpan.className = 'defect-list-item-text';
+            textSpan.textContent = labelText;
+            row.appendChild(textSpan);
+
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'defect-list-item-edit';
+            editBtn.title = '수정';
+            editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+            row.appendChild(editBtn);
+
+            row.addEventListener('click', (e) => {
+                if (e.target === editBtn || editBtn.contains(e.target)) return;
+                window.focusDefectOnCanvas(d.id);
+            });
+            editBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
+            });
+
+            panel.appendChild(row);
+        });
+    }
+    window.renderDefectListPanel = renderDefectListPanel;
+
+    // 영역(면적) 형태 결함 렌더링 — 화면 캔버스와 보고서 캔버스(drawPinSafe) 양쪽에서 공용으로 사용
+    function drawAreaRect(ctx, defect, isPreview) {
+        const x1 = Math.min(defect.areaX1, defect.areaX2);
+        const y1 = Math.min(defect.areaY1, defect.areaY2);
+        const x2 = Math.max(defect.areaX1, defect.areaX2);
+        const y2 = Math.max(defect.areaY1, defect.areaY2);
+        const scale = state.pinSizeScale || 1.0;
+        const isBeingDragged = (!isPreview && typeof activeDragPin !== 'undefined' && activeDragPin && activeDragPin.id === defect.id);
+
+        let mainColor = '#ef4444'; // 구조체 Red
+        if (defect.category === '비구조체') mainColor = '#3b82f6'; // Blue
+        if (defect.category === '마감재') mainColor = '#f97316'; // Orange
+        const activeColor = isBeingDragged ? '#facc15' : mainColor;
+
+        ctx.save();
+        ctx.globalAlpha = 0.15;
+        ctx.fillStyle = activeColor;
+        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = activeColor;
+        ctx.lineWidth = isBeingDragged ? 3 : 2.5;
+        if (isPreview) ctx.setLineDash([6, 4]);
+        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+        ctx.restore();
+
+        if (!isPreview) {
+            // 좌상단 모서리에 결함번호 라벨 박스 표시 (핀 박스와 동일한 스타일)
+            ctx.save();
+            ctx.translate(x1, y1);
+            ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
+            ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = activeColor;
+            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
+            const w = 38 * scale;
+            const h = 26 * scale;
+            ctx.fillRect(0, -h, w, h);
+            ctx.strokeRect(0, -h, w, h);
+            ctx.fillStyle = activeColor;
+            ctx.font = `bold ${Math.round(13 * scale)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(defect.no || 'NO.01', w / 2, -h / 2);
+            ctx.restore();
+        }
+    }
+
     function drawPin(ctx, defect) {
+        if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
+            drawAreaRect(ctx, defect, false);
+            return;
+        }
         const boxX = defect.x || 100;
         const boxY = defect.y || 100;
         const scale = state.pinSizeScale || 1.0;
@@ -3183,7 +3348,16 @@ document.addEventListener('DOMContentLoaded', () => {
     let longPressTimer = null;
     let isDraggingPin = false;
     let activeDragPin = null;
-    let activeDragPart = 'BOX'; // 'BOX' or 'TIP'
+    let activeDragPart = 'BOX'; // 'BOX', 'TIP', or 'AREA_MOVE'
+
+    // Area(면적) Marking Mode State
+    let isAreaDrag = false;
+    let areaStartImgX = 0;
+    let areaStartImgY = 0;
+    let areaCurImgX = 0;
+    let areaCurImgY = 0;
+    let areaMoveLastImgX = 0;
+    let areaMoveLastImgY = 0;
 
     // Multi-Touch Pinch Zoom & Pan Variables
     let isPinching = false;
@@ -3225,7 +3399,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
-            
+
+            // 0. Area(면적) 결함: 사각형 내부 클릭이면 전체 이동 대상으로 인식
+            if (d.shapeType === 'area' && d.areaX1 !== undefined) {
+                const pad = 10;
+                const rx1 = Math.min(d.areaX1, d.areaX2) - pad;
+                const rx2 = Math.max(d.areaX1, d.areaX2) + pad;
+                const ry1 = Math.min(d.areaY1, d.areaY2) - pad;
+                const ry2 = Math.max(d.areaY1, d.areaY2) + pad;
+                if (imgX >= rx1 && imgX <= rx2 && imgY >= ry1 && imgY <= ry2) {
+                    return { defect: d, part: 'AREA_MOVE' };
+                }
+                continue;
+            }
+
             // 1. Check Hit on Arrowhead Tip (targetX, targetY)
             if (d.targetX !== undefined && d.targetY !== undefined) {
                 const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
@@ -3295,11 +3482,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // Check if existing pin box or arrowhead tip was clicked
         const hitInfo = findHitPinPart(imgX, imgY);
         if (hitInfo) {
-            // Start 1-second (1000ms) long-press timer for moving box or tip
+            // Start 1-second (1000ms) long-press timer for moving box, tip, or area rect
             longPressTimer = setTimeout(() => {
                 isDraggingPin = true;
                 activeDragPin = hitInfo.defect;
                 activeDragPart = hitInfo.part;
+                if (activeDragPart === 'AREA_MOVE') {
+                    areaMoveLastImgX = imgX;
+                    areaMoveLastImgY = imgY;
+                }
                 elements.planCanvas.style.cursor = 'move';
                 drawCanvas();
             }, 1000);
@@ -3312,6 +3503,13 @@ document.addEventListener('DOMContentLoaded', () => {
             markTargetImgY = imgY;
             liveBoxImgX = markTargetImgX + 35;
             liveBoxImgY = markTargetImgY - 35;
+            drawCanvas();
+        } else if (state.mode === 'AREA') {
+            isAreaDrag = true;
+            areaStartImgX = imgX;
+            areaStartImgY = imgY;
+            areaCurImgX = imgX;
+            areaCurImgY = imgY;
             drawCanvas();
         } else {
             isDragging = true;
@@ -3347,6 +3545,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeDragPart === 'TIP') {
                 activeDragPin.targetX = currentImgX;
                 activeDragPin.targetY = currentImgY;
+            } else if (activeDragPart === 'AREA_MOVE') {
+                const dx = currentImgX - areaMoveLastImgX;
+                const dy = currentImgY - areaMoveLastImgY;
+                activeDragPin.areaX1 += dx;
+                activeDragPin.areaY1 += dy;
+                activeDragPin.areaX2 += dx;
+                activeDragPin.areaY2 += dy;
+                activeDragPin.x = activeDragPin.areaX1;
+                activeDragPin.y = activeDragPin.areaY1;
+                areaMoveLastImgX = currentImgX;
+                areaMoveLastImgY = currentImgY;
             } else {
                 activeDragPin.x = currentImgX;
                 activeDragPin.y = currentImgY;
@@ -3360,6 +3569,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const coords = viewToImgCoords(vx, vy);
             liveBoxImgX = coords.x;
             liveBoxImgY = coords.y;
+            drawCanvas();
+        } else if (isAreaDrag) {
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            const vx = (mouseX - state.view.offsetX) / state.view.scale;
+            const vy = (mouseY - state.view.offsetY) / state.view.scale;
+            const coords = viewToImgCoords(vx, vy);
+            areaCurImgX = coords.x;
+            areaCurImgY = coords.y;
             drawCanvas();
         } else if (isDragging) {
             const dx = clientX - startMouseX;
@@ -3405,9 +3623,23 @@ document.addEventListener('DOMContentLoaded', () => {
             openAddDefectModal(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
         }
 
+        if (isAreaDrag) {
+            isAreaDrag = false;
+            const x1 = Math.min(areaStartImgX, areaCurImgX);
+            const y1 = Math.min(areaStartImgY, areaCurImgY);
+            const x2 = Math.max(areaStartImgX, areaCurImgX);
+            const y2 = Math.max(areaStartImgY, areaCurImgY);
+            if (Math.hypot(x2 - x1, y2 - y1) < 15) {
+                // 너무 작게 그려짐(단순 클릭) - 무시하고 취소
+                drawCanvas();
+            } else {
+                openAddDefectModal(x1, y1, undefined, undefined, null, { x1, y1, x2, y2 });
+            }
+        }
+
         isDragging = false;
         if (elements.planCanvas) {
-            elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : 'grab';
+            elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
         }
     }
 
@@ -3418,11 +3650,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragMove(e.clientX, e.clientY);
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || longPressTimer) handleDragMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('mouseup', () => {
-            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragEnd();
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || longPressTimer) handleDragEnd();
         });
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
@@ -3438,6 +3670,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isMarkingDrag = false;
                 isDragging = false;
                 isDraggingPin = false;
+                isAreaDrag = false;
                 activeDragPin = null;
 
                 isPinching = true;
@@ -3474,7 +3707,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     drawCanvas();
                 }
             } else if (!isPinching && e.touches.length === 1) {
-                if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) {
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || longPressTimer) {
                     handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
                 }
             }
@@ -3486,13 +3719,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     isPinching = false;
                 }
             } else {
-                if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragEnd();
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || longPressTimer) handleDragEnd();
             }
         });
 
         window.addEventListener('touchcancel', () => {
             isPinching = false;
-            if (isDragging || isMarkingDrag || isDraggingPin || longPressTimer) handleDragEnd();
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || longPressTimer) handleDragEnd();
         });
 
 
@@ -3513,7 +3746,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null) {
+    function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         const defects = state.defects[key] || [];
 
@@ -3539,7 +3772,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (leakCheckEl) leakCheckEl.checked = !!existingPin.isLeak;
 
             window._pendingPhotos = existingPin.photos || [];
-            window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: existingPin.targetX, targetY: existingPin.targetY };
+            if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
+                window._pendingAreaRect = { x1: existingPin.areaX1, y1: existingPin.areaY1, x2: existingPin.areaX2, y2: existingPin.areaY2 };
+                window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: undefined, targetY: undefined };
+            } else {
+                window._pendingAreaRect = null;
+                window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: existingPin.targetX, targetY: existingPin.targetY };
+            }
         } else {
             const seq = defects.length + 1;
             const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
@@ -3552,30 +3791,45 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDefectCauseDropdown('균열 (Crack)');
             const defaultComp = '기둥';
             if (compEl) compEl.value = defaultComp;
-            
-            // Auto-calculate structural grid location (v60.0)
-            const tX = targetX !== undefined ? targetX : (boxX - 35);
-            const tY = targetY !== undefined ? targetY : (boxY + 35);
-            if (locEl) {
-                locEl.value = calculateGridLocationString(tX, tY, defaultComp);
-            }
             if (sizeEl) sizeEl.value = '';
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
-
             window._pendingPhotos = [];
-            window._pendingPinCoords = { 
-                x: boxX, 
-                y: boxY, 
-                targetX: tX, 
-                targetY: tY 
-            };
+
+            if (areaRect) {
+                // 영역(면적)으로 새로 등록하는 경우
+                const centerX = (areaRect.x1 + areaRect.x2) / 2;
+                const centerY = (areaRect.y1 + areaRect.y2) / 2;
+                if (locEl) {
+                    locEl.value = calculateGridLocationString(centerX, centerY, defaultComp);
+                }
+                window._pendingAreaRect = { x1: areaRect.x1, y1: areaRect.y1, x2: areaRect.x2, y2: areaRect.y2 };
+                window._pendingPinCoords = { x: areaRect.x1, y: areaRect.y1, targetX: undefined, targetY: undefined };
+            } else {
+                // Auto-calculate structural grid location (v60.0)
+                const tX = targetX !== undefined ? targetX : (boxX - 35);
+                const tY = targetY !== undefined ? targetY : (boxY + 35);
+                if (locEl) {
+                    locEl.value = calculateGridLocationString(tX, tY, defaultComp);
+                }
+                window._pendingAreaRect = null;
+                window._pendingPinCoords = {
+                    x: boxX,
+                    y: boxY,
+                    targetX: tX,
+                    targetY: tY
+                };
+            }
         }
 
         // Dynamic location calculation update when changing component dropdown (v60.0)
         if (compEl && locEl) {
             compEl.onchange = () => {
-                if (window._pendingPinCoords) {
+                if (window._pendingAreaRect) {
+                    const cx = (window._pendingAreaRect.x1 + window._pendingAreaRect.x2) / 2;
+                    const cy = (window._pendingAreaRect.y1 + window._pendingAreaRect.y2) / 2;
+                    locEl.value = calculateGridLocationString(cx, cy, compEl.value);
+                } else if (window._pendingPinCoords) {
                     locEl.value = calculateGridLocationString(window._pendingPinCoords.targetX, window._pendingPinCoords.targetY, compEl.value);
                 }
             };
@@ -3759,6 +4013,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     targetX: coords.targetX,
                     targetY: coords.targetY
                 };
+                if (window._pendingAreaRect) {
+                    newDefect.shapeType = 'area';
+                    newDefect.areaX1 = window._pendingAreaRect.x1;
+                    newDefect.areaY1 = window._pendingAreaRect.y1;
+                    newDefect.areaX2 = window._pendingAreaRect.x2;
+                    newDefect.areaY2 = window._pendingAreaRect.y2;
+                }
                 state.defects[key].push(newDefect);
             }
 
@@ -3817,20 +4078,20 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Mode Toggle (PAN vs MARK)
+    // Mode Toggle (PAN vs MARK vs AREA)
     const btnModePan = document.getElementById('btnModePan');
     const btnModeMark = document.getElementById('btnModeMark');
+    const btnModeArea = document.getElementById('btnModeArea');
     if (btnModePan && btnModeMark) {
-        btnModePan.addEventListener('click', () => {
-            state.mode = 'PAN';
-            btnModePan.classList.add('active');
-            btnModeMark.classList.remove('active');
-        });
-        btnModeMark.addEventListener('click', () => {
-            state.mode = 'MARK';
-            btnModeMark.classList.add('active');
-            btnModePan.classList.remove('active');
-        });
+        const setDrawMode = (mode) => {
+            state.mode = mode;
+            btnModePan.classList.toggle('active', mode === 'PAN');
+            btnModeMark.classList.toggle('active', mode === 'MARK');
+            if (btnModeArea) btnModeArea.classList.toggle('active', mode === 'AREA');
+        };
+        btnModePan.addEventListener('click', () => setDrawMode('PAN'));
+        btnModeMark.addEventListener('click', () => setDrawMode('MARK'));
+        if (btnModeArea) btnModeArea.addEventListener('click', () => setDrawMode('AREA'));
     }
 
     // Zoom Buttons
@@ -3991,6 +4252,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function drawPinSafe(ctx, defect) {
         try {
+            if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
+                drawAreaRect(ctx, defect, false);
+                return;
+            }
             const boxX = defect.x || 100;
             const boxY = defect.y || 100;
 
