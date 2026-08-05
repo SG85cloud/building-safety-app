@@ -4521,14 +4521,19 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleDefectSizeInputMode();
     }
 
-    // 결함 종류가 '균열'이면 균열폭/균열길이 숫자 입력 2칸을, 그 외에는 기존 자유텍스트 입력 1칸을 보여준다.
+    // 자유텍스트(규모 및 상태) 입력칸은 결함 종류와 상관없이 항상 보이고,
+    // 결함 종류가 '균열'이면 균열폭/균열길이 숫자 입력 2칸을 추가로 보여줘서 둘 중 편한 방식으로 입력 가능
     function toggleDefectSizeInputMode() {
         const dType = document.getElementById('defectType')?.value;
         const isCrack = dType === '균열';
-        const freeGroup = document.getElementById('defectSizeFreeGroup');
         const crackGroup = document.getElementById('defectCrackSizeGroup');
-        if (freeGroup) freeGroup.style.display = isCrack ? 'none' : '';
+        const freeLabel = document.getElementById('defectSizeFreeLabel');
         if (crackGroup) crackGroup.style.display = isCrack ? '' : 'none';
+        if (freeLabel) {
+            freeLabel.textContent = isCrack
+                ? '규모 및 상태 (직접 입력 — 아래 균열폭/길이 칸을 대신 써도 됩니다)'
+                : '규모 및 상태 (수치 입력) *';
+        }
     }
 
     // --- Dynamic Defect Cause Presets & Custom Adding ---

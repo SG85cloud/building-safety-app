@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260805_2600">
+    <link rel="stylesheet" href="styles.css?v=20260805_2700">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -516,24 +516,25 @@
                         <input type="text" id="defectLocation" class="form-control" placeholder="예: 101동 1F 기둥 C1 하부, 슬래브 중앙">
                     </div>
 
+                    <div class="form-group" id="defectSizeFreeGroup">
+                        <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                            <span id="defectSizeFreeLabel">규모 및 상태 (수치 입력) *</span>
+                            <button type="button" id="btnSpeechSize" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; font-size:0.78rem; padding:0.1rem 0.5rem;" title="음성으로 상태 입력">
+                                <i class="fa-solid fa-microphone"></i> 🎤 음성입력
+                            </button>
+                        </label>
+                        <input type="text" id="defectSize" class="form-control" placeholder="예: W=0.2mm, L=1.5m">
+                    </div>
+
                     <div class="form-row">
-                        <div class="form-group" id="defectSizeFreeGroup">
-                            <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>규모 및 상태 (수치 입력) *</span>
-                                <button type="button" id="btnSpeechSize" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; font-size:0.78rem; padding:0.1rem 0.5rem;" title="음성으로 상태 입력">
-                                    <i class="fa-solid fa-microphone"></i> 🎤 음성입력
-                                </button>
-                            </label>
-                            <input type="text" id="defectSize" class="form-control" placeholder="예: W=0.2mm, L=1.5m">
-                        </div>
-                        <div class="form-group" id="defectCrackSizeGroup" style="display:none;">
-                            <label class="form-label">균열폭(mm) / 균열길이(m) *</label>
+                        <div class="form-group" id="defectCrackSizeGroup" style="display:none; flex:1;">
+                            <label class="form-label">균열폭(mm) / 균열길이(m)</label>
                             <div style="display:flex; gap:0.5rem;">
                                 <input type="number" step="0.01" id="defectCrackWidth" class="form-control" placeholder="균열폭 예: 0.15">
                                 <input type="number" step="0.01" id="defectCrackLength" class="form-control" placeholder="균열길이 예: 1.5">
                             </div>
                         </div>
-                        <div class="form-group">
+                        <div class="form-group" style="flex:1;">
                             <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
                                 <span>🔍 결함 원인 추정 *</span>
                                 <button type="button" id="btnManageCause" class="btn-option-manage" title="결함 원인 항목 관리"><i class="fa-solid fa-gear"></i></button>
@@ -1515,7 +1516,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260805_2600"></script>
+    <script src="app.js?v=20260805_2700"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
