@@ -278,7 +278,6 @@ document.addEventListener('DOMContentLoaded', () => {
         headerReportActions: document.getElementById('headerReportActions'),
         mainNavTabs: document.getElementById('mainNavTabs'),
         navBuildingTabs: document.getElementById('navBuildingTabs'),
-        projectSelect: document.getElementById('projectSelect'),
         floorSelect: document.getElementById('floorSelect'),
         buildingListGrid: document.getElementById('buildingListGrid'),
         
@@ -617,21 +616,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (bldg.inspectionPeriod && document.getElementById('selectInspectionPeriod')) document.getElementById('selectInspectionPeriod').value = bldg.inspectionPeriod;
 
         // Populate Header Selectors
-        updateProjectSelectDropdown();
         populateFloorSelectDropdown(bldg);
 
         // Switch to Map Tab & Load Drawing
         loadFloorDrawing(window.state.currentFloor || '1F');
         window.switchTab('tab-map');
     };
-
-    function updateProjectSelectDropdown() {
-        if (!elements.projectSelect) return;
-        const bldgs = window.state.buildings || [];
-        elements.projectSelect.innerHTML = bldgs.map(b => 
-            `<option value="${b.id}" ${b.id === window.state.currentBuildingId ? 'selected' : ''}>${b.name}</option>`
-        ).join('');
-    }
 
     window.getFloorLabelFromCode = function(code) {
         if (!code) return '1F';
@@ -1248,7 +1238,6 @@ document.addEventListener('DOMContentLoaded', () => {
             window.closeEditBuildingModalFunc();
 
             renderDashboard();
-            updateProjectSelectDropdown();
             populateFloorSelectDropdown(bldg);
 
             if (window.state.currentBuildingId === bldg.id) {
@@ -2342,7 +2331,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const groupSize = getStyleSize(groupStyleKey);
         const pinScale = groupSize.pin;
         const arrowScale = groupSize.arrow;
-        const color = getStyleColor(groupStyleKey);
+        const color = group.color || getStyleColor(groupStyleKey);
         const boxX = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
         const boxY = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
         const isGroupDragged = activeDragNdtDisplacementGroup === group && !activeDragNdtDisplacementPoint;
@@ -2441,7 +2430,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(0, 0, cw, ch);
 
             const floorLabel = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(floorCode) : (floorCode || '');
-            const chartColor = getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
+            const chartColor = group.color || getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
             const catLabel = group.category === '부재변위' ? '부재변위(처짐)' : '부동침하 기울기';
             const title = `${floorLabel} ${group.locationType} ${catLabel} (${group.groupNo})`;
 
@@ -3153,7 +3142,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const calc = calcGroupDisplacement(group);
             return `
                 <tr>
-                    <td style="font-weight:800; color:${getStyleColor(isMemberDisp ? 'ndtMemberDisp' : 'ndtSettlement')};">${group.groupNo}</td>
+                    <td style="font-weight:800; color:${group.color || getStyleColor(isMemberDisp ? 'ndtMemberDisp' : 'ndtSettlement')};">${group.groupNo}</td>
                     <td style="font-weight:700;">${group.locationType} (${group.points.length}개 지점)</td>
                     <td style="font-weight:700; color:#38bdf8;">${group.measureLength}</td>
                     <td style="font-weight:800; color:#f8fafc;">${calc.delta.toFixed(1)}</td>
@@ -3756,6 +3745,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('ndtDispGroupEditTitle').textContent = `${group.groupNo} 측정 구역 정보`;
         document.getElementById('ndtDispEditLocationType').value = group.locationType;
         document.getElementById('ndtDispEditMeasureLength').value = group.measureLength;
+        const colorEl = document.getElementById('ndtDispEditColor');
+        if (colorEl) colorEl.value = group.color || getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
         const damageRow = document.getElementById('ndtDispEditMinorDamageRow');
         const damageEl = document.getElementById('ndtDispEditHasMinorDamage');
         const isMemberDisp = group.category === '부재변위';
@@ -3886,6 +3877,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 group.locationType = document.getElementById('ndtDispEditLocationType').value || '보';
                 group.measureLength = len;
+                const colorVal = document.getElementById('ndtDispEditColor')?.value;
+                if (colorVal) group.color = colorVal;
                 if (group.category === '부재변위') {
                     group.hasMinorDamage = !!document.getElementById('ndtDispEditHasMinorDamage')?.checked;
                 }
@@ -5852,13 +5845,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCancelAddBuilding = document.getElementById('btnCancelAddBuilding');
     if (btnCancelAddBuilding) btnCancelAddBuilding.addEventListener('click', () => window.closeAddBuildingModalFunc());
 
-    // Project Select Change
-    if (elements.projectSelect) {
-        elements.projectSelect.addEventListener('change', (e) => {
-            window.selectBuildingAndInspect(e.target.value);
-        });
-    }
-
     // Floor Select Change
     if (elements.floorSelect) {
         elements.floorSelect.addEventListener('change', (e) => {
@@ -6011,7 +5997,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return d.size || 'W=0.2mm';
             }
             case 'crackWidth': {
-                if (isCrack) return (d.crackWidth !== undefined && d.crackWidth !== '') ? `${d.crackWidth}mm` : '-';
+                if (!isCrack) return '-';
+                if (d.crackWidth !== undefined && d.crackWidth !== '') return `${d.crackWidth}mm`;
+                // 균열폭/길이 분리 입력 이전에 자유텍스트(size)로 저장된 구버전 데이터: 값이 사라지지 않도록 그대로 표시
                 return d.size || '-';
             }
             case 'crackLength': {
