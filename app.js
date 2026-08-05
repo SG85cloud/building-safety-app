@@ -4110,6 +4110,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const badge = document.createElement('span');
         badge.className = 'defect-badge-no';
+        if (d.defectType === '상태양호') badge.classList.add('badge-good');
         badge.textContent = badgeNo;
         row.appendChild(badge);
 
