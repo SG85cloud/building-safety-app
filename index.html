@@ -211,6 +211,11 @@
                 <!-- RIGHT: 도구 패널 -->
                 <aside class="inspect-sidebar-right">
                     <div class="inspect-tool-panel">
+                        <!-- Category Color Settings -->
+                        <div class="filter-group">
+                            <button type="button" id="btnOpenStyleColorModal" class="chip"><i class="fa-solid fa-palette"></i> 색상 설정</button>
+                        </div>
+
                         <!-- Pin Marker Shape Selector -->
                         <div class="filter-group">
                             <span class="filter-label">박스 모양:</span>
@@ -410,6 +415,9 @@
                 </div>
 
                 <div class="toolbar-action-group">
+                    <div class="filter-group">
+                        <button type="button" id="btnOpenStyleColorModalNdt" class="chip"><i class="fa-solid fa-palette"></i> 색상 설정</button>
+                    </div>
                     <div class="filter-group">
                         <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
                         <input type="range" id="ndtPinSizeRange" min="0.6" max="4.4" step="0.1" value="1.0" style="width: 90px; vertical-align: middle;">
@@ -641,6 +649,61 @@
                     <button type="button" id="btnOptionManagerAdd" class="btn btn-primary btn-sm" style="white-space:nowrap;"><i class="fa-solid fa-plus"></i> 추가</button>
                 </div>
                 <div id="optionManagerList" class="option-manager-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 카테고리별 핀/박스 색상 설정 -->
+    <div class="modal-overlay" id="styleColorModal">
+        <div class="modal-card" style="max-width: 420px; width: 92%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-palette"></i> 색상 설정</h3>
+                <button type="button" class="modal-close" id="btnCloseStyleColorModal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="style-color-section-title">결함 위치도</div>
+                <div class="style-color-row">
+                    <span>🔴 구조체</span>
+                    <input type="color" id="styleColorDefectStructural">
+                </div>
+                <div class="style-color-row">
+                    <span>🔵 비구조체</span>
+                    <input type="color" id="styleColorDefectNonStructural">
+                </div>
+                <div class="style-color-row">
+                    <span>🟠 마감재</span>
+                    <input type="color" id="styleColorDefectFinish">
+                </div>
+
+                <div class="style-color-section-title">비파괴 장비 조사</div>
+                <div class="style-color-row">
+                    <span>부재 실측</span>
+                    <input type="color" id="styleColorNdtMeasure">
+                </div>
+                <div class="style-color-row">
+                    <span>강도</span>
+                    <input type="color" id="styleColorNdtStrength">
+                </div>
+                <div class="style-color-row">
+                    <span>탄산화</span>
+                    <input type="color" id="styleColorNdtCarbonation">
+                </div>
+                <div class="style-color-row">
+                    <span>기울기</span>
+                    <input type="color" id="styleColorNdtTilt">
+                </div>
+                <div class="style-color-row">
+                    <span>부동침하 기울기</span>
+                    <input type="color" id="styleColorNdtSettlement">
+                </div>
+                <div class="style-color-row">
+                    <span>부재변위</span>
+                    <input type="color" id="styleColorNdtMemberDisp">
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" id="btnResetStyleColors" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
+                <button type="button" id="btnCloseStyleColorModal2" class="btn btn-primary">닫기</button>
             </div>
         </div>
     </div>

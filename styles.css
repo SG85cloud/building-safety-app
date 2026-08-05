@@ -568,6 +568,46 @@ body {
     cursor: not-allowed;
 }
 
+/* 카테고리별 핀/박스 색상 설정 모달 */
+.style-color-section-title {
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: var(--text-muted);
+    margin: 0.9rem 0 0.4rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.style-color-section-title:first-child {
+    margin-top: 0;
+}
+
+.style-color-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.45rem 0.7rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.4rem;
+}
+
+.style-color-row input[type="color"] {
+    width: 44px;
+    height: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0;
+    background: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
 /* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
 .inspect-layout {
     display: flex;

@@ -21,6 +21,7 @@ if (!window.state) {
         arrowSizeScale: 1.0,
         ndtPinSizeScale: 1.0,
         ndtArrowSizeScale: 1.0,
+        styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
         bgImage: null,
         canvas: null,
         ctx: null,
@@ -383,7 +384,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 customDefectComponents: window.state.customDefectComponents || [],
                 hiddenDefectComponents: window.state.hiddenDefectComponents || [],
                 hiddenDefectTypes: window.state.hiddenDefectTypes || {},
-                hiddenDefectCauses: window.state.hiddenDefectCauses || {}
+                hiddenDefectCauses: window.state.hiddenDefectCauses || {},
+                styleColors: window.state.styleColors || null
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
             if (typeof syncStateToFirebase === 'function') {
@@ -455,6 +457,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.hiddenDefectCauses) {
                     window.state.hiddenDefectCauses = parsed.hiddenDefectCauses;
+                }
+                if (parsed.styleColors) {
+                    window.state.styleColors = parsed.styleColors;
                 }
             }
 
@@ -1715,6 +1720,30 @@ document.addEventListener('DOMContentLoaded', () => {
         return state.ndtData[key];
     }
 
+    // --- 카테고리별 핀/박스 색상 커스터마이징 ---
+    const DEFAULT_STYLE_COLORS = {
+        defectStructural: '#ef4444',    // 결함위치도 - 구조체
+        defectNonStructural: '#3b82f6', // 결함위치도 - 비구조체
+        defectFinish: '#f97316',        // 결함위치도 - 마감재
+        ndtMeasure: '#0284c7',          // 부재 실측
+        ndtStrength: '#ef4444',         // 강도
+        ndtCarbonation: '#eab308',      // 탄산화
+        ndtTilt: '#ef4444',             // 기울기
+        ndtSettlement: '#a855f7',       // 부동침하 기울기
+        ndtMemberDisp: '#22c55e'        // 부재변위
+    };
+
+    function getStyleColor(key) {
+        return (state.styleColors && state.styleColors[key]) || DEFAULT_STYLE_COLORS[key];
+    }
+
+    // 결함(구조체/비구조체/마감재) 카테고리에 해당하는 사용자 지정 색상 조회
+    function getDefectColor(category) {
+        if (category === '비구조체') return getStyleColor('defectNonStructural');
+        if (category === '마감재') return getStyleColor('defectFinish');
+        return getStyleColor('defectStructural');
+    }
+
     // --- 바닥 수직변위: 그룹(NO.박스) + 다중 레벨 포인트 데이터 ---
     const NDT_DISPLACEMENT_COLORS = ['#ef4444', '#3b82f6', '#f97316', '#22c55e', '#a855f7', '#eab308', '#06b6d4', '#ec4899'];
     const NDT_GRADE_BADGES = {
@@ -2022,12 +2051,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // CAD Callout Style rendering (100% matching user reference photo & draggable!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
             const dispDir = item.dispDirection || '←';
+            const calloutColor = getStyleColor(cat === '부재변위' ? 'ndtMemberDisp' : (cat === '변위' ? 'ndtSettlement' : 'ndtTilt'));
 
             ctx.save();
 
             // 1. Draw Arrow pointing from Box to Target Point
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#f97316';
-            ctx.fillStyle = isBeingDragged ? '#facc15' : '#f97316';
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
+            ctx.fillStyle = isBeingDragged ? '#facc15' : calloutColor;
             ctx.lineWidth = (isBeingDragged ? 4.5 : 3.5) * arrowScale;
 
             const dx = targetX - x;
@@ -2076,7 +2106,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Box Background (White) & Outer Border
             ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
             ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
             if (isBeingDragged) {
                 ctx.shadowColor = '#facc15';
@@ -2087,7 +2117,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.shadowBlur = 0;
 
             // Vertical & Horizontal Grid Dividers
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : '#ef4444';
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
             ctx.lineWidth = 1.5 * pinScale;
             ctx.beginPath();
             ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
@@ -2101,7 +2131,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.stroke();
 
             // Cell Text Formatting
-            ctx.fillStyle = isBeingDragged ? '#d97706' : '#ea580c';
+            ctx.fillStyle = isBeingDragged ? '#d97706' : calloutColor;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
@@ -2128,9 +2158,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Standard Pin for other NDT items
         const catColors = {
-            '실측': '#0284c7',   // Blue
-            '강도': '#ef4444',   // Red
-            '탄산화': '#eab308'  // Yellow
+            '실측': getStyleColor('ndtMeasure'),
+            '강도': getStyleColor('ndtStrength'),
+            '탄산화': getStyleColor('ndtCarbonation')
         };
         const color = isBeingDragged ? '#facc15' : (catColors[cat] || '#38bdf8');
 
@@ -2203,7 +2233,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawNdtDisplacementGroup(ctx, group) {
         const pinScale = state.ndtPinSizeScale || 1.0;
         const arrowScale = state.ndtArrowSizeScale || 1.0;
-        const color = group.color || '#ef4444';
+        const color = getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
         const boxX = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
         const boxY = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
         const isGroupDragged = activeDragNdtDisplacementGroup === group && !activeDragNdtDisplacementPoint;
@@ -2300,7 +2330,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fillRect(0, 0, cw, ch);
 
             const floorLabel = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(floorCode) : (floorCode || '');
-            const title = `${floorLabel} ${group.locationType} 부동침하 기울기 (${group.groupNo})`;
+            const chartColor = getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
+            const catLabel = group.category === '부재변위' ? '부재변위(처짐)' : '부동침하 기울기';
+            const title = `${floorLabel} ${group.locationType} ${catLabel} (${group.groupNo})`;
 
             ctx.fillStyle = '#0f172a';
             ctx.font = 'bold 24px sans-serif';
@@ -2349,7 +2381,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.setLineDash([]);
             }
 
-            ctx.strokeStyle = group.color || '#ef4444';
+            ctx.strokeStyle = chartColor;
             ctx.lineWidth = 3;
             ctx.beginPath();
             points.forEach((p, idx) => {
@@ -2362,7 +2394,7 @@ document.addEventListener('DOMContentLoaded', () => {
             points.forEach((p, idx) => {
                 const x = xFor(idx);
                 const y = yFor(p.level);
-                ctx.fillStyle = group.color || '#ef4444';
+                ctx.fillStyle = chartColor;
                 ctx.beginPath();
                 ctx.arc(x, y, 6, 0, Math.PI * 2);
                 ctx.fill();
@@ -3010,7 +3042,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const calc = calcGroupDisplacement(group);
             return `
                 <tr>
-                    <td style="font-weight:800; color:${group.color};">${group.groupNo}</td>
+                    <td style="font-weight:800; color:${getStyleColor(isMemberDisp ? 'ndtMemberDisp' : 'ndtSettlement')};">${group.groupNo}</td>
                     <td style="font-weight:700;">${group.locationType} (${group.points.length}개 지점)</td>
                     <td style="font-weight:700; color:#38bdf8;">${group.measureLength}</td>
                     <td style="font-weight:800; color:#f8fafc;">${calc.delta.toFixed(1)}</td>
@@ -3974,9 +4006,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const scale = state.pinSizeScale || 1.0;
         const isBeingDragged = (!isPreview && typeof activeDragPin !== 'undefined' && activeDragPin && activeDragPin.id === defect.id);
 
-        let mainColor = '#ef4444'; // 구조체 Red
-        if (defect.category === '비구조체') mainColor = '#3b82f6'; // Blue
-        if (defect.category === '마감재') mainColor = '#f97316'; // Orange
+        const mainColor = getDefectColor(defect.category);
         const activeColor = isBeingDragged ? '#facc15' : mainColor;
 
         ctx.save();
@@ -4055,10 +4085,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const isBeingDragged = (typeof activeDragPin !== 'undefined' && activeDragPin &&
             (activeDragPin.id === defect.id || (defect.groupId && activeDragPin.groupId === defect.groupId)));
 
-        // Category Theme Color: Red (구조체), Blue (비구조체), Orange (마감재)
-        let mainColor = '#ef4444'; // Red
-        if (defect.category === '비구조체') mainColor = '#3b82f6'; // Blue
-        if (defect.category === '마감재') mainColor = '#f97316'; // Orange
+        // Category Theme Color: 사용자 지정 색상(styleColors) 우선, 없으면 기본값
+        const mainColor = getDefectColor(defect.category);
 
         const activeColor = isBeingDragged ? '#facc15' : mainColor;
 
@@ -4526,6 +4554,85 @@ document.addEventListener('DOMContentLoaded', () => {
         if (modal) {
             modal.style.display = 'none';
             modal.classList.remove('open');
+        }
+    }
+
+    // --- 카테고리별 핀/박스 색상 설정 모달 ---
+    const STYLE_COLOR_FIELDS = [
+        ['styleColorDefectStructural', 'defectStructural'],
+        ['styleColorDefectNonStructural', 'defectNonStructural'],
+        ['styleColorDefectFinish', 'defectFinish'],
+        ['styleColorNdtMeasure', 'ndtMeasure'],
+        ['styleColorNdtStrength', 'ndtStrength'],
+        ['styleColorNdtCarbonation', 'ndtCarbonation'],
+        ['styleColorNdtTilt', 'ndtTilt'],
+        ['styleColorNdtSettlement', 'ndtSettlement'],
+        ['styleColorNdtMemberDisp', 'ndtMemberDisp']
+    ];
+
+    function refreshAllStyleColoredCanvases() {
+        if (typeof drawCanvas === 'function') drawCanvas();
+        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+    }
+
+    window.openStyleColorModal = function() {
+        STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
+            const input = document.getElementById(inputId);
+            if (input) input.value = getStyleColor(key);
+        });
+        const modal = document.getElementById('styleColorModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    };
+
+    function closeStyleColorModal() {
+        const modal = document.getElementById('styleColorModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    function setupStyleColorModalEvents() {
+        const btnOpen1 = document.getElementById('btnOpenStyleColorModal');
+        if (btnOpen1) btnOpen1.addEventListener('click', window.openStyleColorModal);
+        const btnOpen2 = document.getElementById('btnOpenStyleColorModalNdt');
+        if (btnOpen2) btnOpen2.addEventListener('click', window.openStyleColorModal);
+
+        const btnClose1 = document.getElementById('btnCloseStyleColorModal');
+        if (btnClose1) btnClose1.addEventListener('click', closeStyleColorModal);
+        const btnClose2 = document.getElementById('btnCloseStyleColorModal2');
+        if (btnClose2) btnClose2.addEventListener('click', closeStyleColorModal);
+
+        STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            input.addEventListener('input', () => {
+                if (!state.styleColors) state.styleColors = {};
+                state.styleColors[key] = input.value;
+                refreshAllStyleColoredCanvases();
+            });
+            input.addEventListener('change', () => {
+                saveStateToLocalStorage();
+            });
+        });
+
+        const btnReset = document.getElementById('btnResetStyleColors');
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                if (!confirm('모든 색상 설정을 기본값으로 초기화하시겠습니까?')) return;
+                state.styleColors = {};
+                STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
+                    const input = document.getElementById(inputId);
+                    if (input) input.value = DEFAULT_STYLE_COLORS[key];
+                });
+                refreshAllStyleColoredCanvases();
+                saveStateToLocalStorage();
+            });
         }
     }
 
@@ -5626,9 +5733,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const boxX = defect.x || 100;
             const boxY = defect.y || 100;
 
-            let color = '#ef4444'; // 구조체 Red
-            if (defect.category === '비구조체') color = '#3b82f6'; // 비구조체 Blue
-            if (defect.category === '마감재') color = '#f97316'; // 마감재 Orange
+            const color = getDefectColor(defect.category);
 
             const targets = (arrows && arrows.length > 0)
                 ? arrows
@@ -7626,6 +7731,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 grids: window.state.grids || {},
                 buildings: sanitizedBuildings,
                 lastUsedBuildingId: window.state.currentBuildingId || null,
+                styleColors: window.state.styleColors || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -7675,6 +7781,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.grids) {
                         window.state.grids = data.grids;
+                        isChanged = true;
+                    }
+                    if (data.styleColors) {
+                        window.state.styleColors = data.styleColors;
                         isChanged = true;
                     }
 
@@ -8250,6 +8360,7 @@ document.addEventListener('DOMContentLoaded', () => {
         initAuthEvents();
         if (typeof setupNdtModalEvents === 'function') setupNdtModalEvents();
         if (typeof setupNdtDisplacementModalEvents === 'function') setupNdtDisplacementModalEvents();
+        if (typeof setupStyleColorModalEvents === 'function') setupStyleColorModalEvents();
         showLoginOverlay();
     }
 
