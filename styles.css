@@ -230,11 +230,26 @@ body {
 /* Main Navigation Tabs */
 .main-tabs {
     display: flex;
+    align-items: center;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
-    padding: 0 1rem;
+    padding: 0.5rem 1rem;
     gap: 0.5rem;
     overflow-x: auto;
+}
+
+.nav-building-tabs {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.nav-building-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    padding: 0 0.3rem;
 }
 
 .tab-btn {
@@ -1586,7 +1601,7 @@ body {
         margin: 8mm;
     }
 
-    .app-header, .main-tabs, .map-toolbar, .header-actions, .canvas-hint, .btn, .modal-overlay, .app-content {
+    .main-tabs, .map-toolbar, .header-actions, .canvas-hint, .btn, .modal-overlay, .app-content {
         display: none !important;
     }
 

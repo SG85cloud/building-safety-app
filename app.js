@@ -19,6 +19,8 @@ if (!window.state) {
         styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
         styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
         styleShapes: null, // 카테고리별 사용자 지정 박스 모양/채우기/번호형식 (미지정 시 DEFAULT_STYLE_SHAPES 사용)
+        surveyColumns: null, // 상태조사표 컬럼 순서/이름 커스터마이징 (미지정 시 DEFAULT_SURVEY_COLUMNS 사용)
+        defectSizeMode: 'combined', // 'combined' | 'split' - 결함크기(균열폭/균열길이) 표시 방식
         bgImage: null,
         canvas: null,
         ctx: null,
@@ -271,11 +273,11 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // UI Elements Map
     const elements = {
-        appTitle: document.querySelector('.app-title'),
-        appSubtitle: document.querySelector('.app-subtitle'),
+        appTitle: document.getElementById('navBuildingName'),
         headerSelectorGroup: document.getElementById('headerSelectorGroup'),
         headerReportActions: document.getElementById('headerReportActions'),
         mainNavTabs: document.getElementById('mainNavTabs'),
+        navBuildingTabs: document.getElementById('navBuildingTabs'),
         projectSelect: document.getElementById('projectSelect'),
         floorSelect: document.getElementById('floorSelect'),
         buildingListGrid: document.getElementById('buildingListGrid'),
@@ -377,6 +379,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 styleShapes: window.state.styleShapes || null,
+                surveyColumns: window.state.surveyColumns || null,
+                defectSizeMode: window.state.defectSizeMode || 'combined',
                 tipShape: window.state.tipShape || 'arrow'
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
@@ -459,6 +463,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (parsed.styleShapes) {
                     window.state.styleShapes = parsed.styleShapes;
                 }
+                if (parsed.surveyColumns) {
+                    window.state.surveyColumns = parsed.surveyColumns;
+                }
+                if (parsed.defectSizeMode) {
+                    window.state.defectSizeMode = parsed.defectSizeMode;
+                }
                 if (parsed.tipShape) {
                     window.state.tipShape = parsed.tipShape;
                 }
@@ -498,15 +508,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (targetTabId === 'tab-home') {
             if (elements.headerSelectorGroup) elements.headerSelectorGroup.style.display = 'none';
             if (elements.headerReportActions) elements.headerReportActions.style.display = 'none';
-            if (elements.mainNavTabs) elements.mainNavTabs.style.display = 'none';
+            if (elements.navBuildingTabs) elements.navBuildingTabs.style.display = 'none';
+            if (elements.appTitle) elements.appTitle.style.display = 'none';
 
-            if (elements.appTitle) elements.appTitle.textContent = '스마트 건축물 안전점검 시스템';
-            if (elements.appSubtitle) elements.appSubtitle.textContent = 'PC · 갤럭시 탭 · 스마트폰 실시간 연동 현장점검';
             window.renderDashboard();
         } else {
             if (elements.headerSelectorGroup) elements.headerSelectorGroup.style.display = 'flex';
             if (elements.headerReportActions) elements.headerReportActions.style.display = 'flex';
-            if (elements.mainNavTabs) elements.mainNavTabs.style.display = 'flex';
+            if (elements.navBuildingTabs) elements.navBuildingTabs.style.display = 'flex';
+            if (elements.appTitle) elements.appTitle.style.display = 'inline-flex';
 
             if (targetTabId === 'tab-map') {
                 setTimeout(() => {
@@ -598,10 +608,9 @@ document.addEventListener('DOMContentLoaded', () => {
         window.state.currentBuilding = bldg;
         window.state.currentBuildingId = bldg.id;
 
-        // Header Title Update
+        // Nav 건물명 표시 업데이트
         const cleanName = bldg.name ? bldg.name.replace(/^🏢\s*/, '') : '건축물';
-        if (elements.appTitle) elements.appTitle.textContent = `${cleanName} 점검 시스템`;
-        if (elements.appSubtitle) elements.appSubtitle.textContent = `📍 주소: ${bldg.address || '서울특별시 강남구'} | 👤 책임점검자: ${bldg.inspector || '홍길동 수석점검자'} | 📅 점검일: ${bldg.date || '2026-07-28'}`;
+        if (elements.appTitle) elements.appTitle.textContent = cleanName;
 
         if (bldg.inspectionType && document.getElementById('selectInspectionType')) document.getElementById('selectInspectionType').value = bldg.inspectionType;
         if (bldg.inspectionYear && document.getElementById('selectInspectionYear')) document.getElementById('selectInspectionYear').value = bldg.inspectionYear;
@@ -4450,6 +4459,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Trigger cause update for current defect type
         updateDefectCauseDropdown(select.value);
+        toggleDefectSizeInputMode();
+    }
+
+    // 결함 종류가 '균열'이면 균열폭/균열길이 숫자 입력 2칸을, 그 외에는 기존 자유텍스트 입력 1칸을 보여준다.
+    function toggleDefectSizeInputMode() {
+        const dType = document.getElementById('defectType')?.value;
+        const isCrack = dType === '균열';
+        const freeGroup = document.getElementById('defectSizeFreeGroup');
+        const crackGroup = document.getElementById('defectCrackSizeGroup');
+        if (freeGroup) freeGroup.style.display = isCrack ? 'none' : '';
+        if (crackGroup) crackGroup.style.display = isCrack ? '' : 'none';
     }
 
     // --- Dynamic Defect Cause Presets & Custom Adding ---
@@ -4564,6 +4584,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else {
                 updateDefectCauseDropdown(e.target.value);
+                toggleDefectSizeInputMode();
             }
         });
     }
@@ -5438,6 +5459,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carriedOverEl) carriedOverEl.checked = !!existingPin.isCarriedOver;
             if (locEl) locEl.value = existingPin.location || `${state.currentFloor} ${existingPin.component || '기둥'}`;
             if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
+            const crackWidthElExisting = document.getElementById('defectCrackWidth');
+            const crackLengthElExisting = document.getElementById('defectCrackLength');
+            if (crackWidthElExisting) crackWidthElExisting.value = (existingPin.crackWidth !== undefined && existingPin.crackWidth !== null) ? existingPin.crackWidth : '';
+            if (crackLengthElExisting) crackLengthElExisting.value = (existingPin.crackLength !== undefined && existingPin.crackLength !== null) ? existingPin.crackLength : '';
             if (progCheckEl) progCheckEl.checked = !!existingPin.isProgress;
             if (leakCheckEl) leakCheckEl.checked = !!existingPin.isLeak;
 
@@ -5467,6 +5492,10 @@ document.addEventListener('DOMContentLoaded', () => {
             populateDefectComponentDropdown(defaultComp);
             if (carriedOverEl) carriedOverEl.checked = false;
             if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
+            const crackWidthElNew = document.getElementById('defectCrackWidth');
+            const crackLengthElNew = document.getElementById('defectCrackLength');
+            if (crackWidthElNew) crackWidthElNew.value = (tmpl && tmpl.crackWidth) || '';
+            if (crackLengthElNew) crackLengthElNew.value = (tmpl && tmpl.crackLength) || '';
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
             window._pendingPhotos = [];
@@ -5636,6 +5665,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
         const photosVal = window._pendingPhotos || [];
+        const dTypeVal = document.getElementById('defectType')?.value || '균열';
+        const isCrackType = dTypeVal === '균열';
+        const crackWidthVal = isCrackType ? (document.getElementById('defectCrackWidth')?.value || '') : '';
+        const crackLengthVal = isCrackType ? (document.getElementById('defectCrackLength')?.value || '') : '';
 
         let savedDefect = null;
 
@@ -5647,9 +5680,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].category = document.getElementById('defectCategory')?.value || '구조체';
                 state.defects[key][idx].component = document.getElementById('defectComponent')?.value || '기둥';
                 state.defects[key][idx].location = locVal;
-                state.defects[key][idx].defectType = document.getElementById('defectType')?.value || '균열';
+                state.defects[key][idx].defectType = dTypeVal;
                 state.defects[key][idx].cause = document.getElementById('defectCause')?.value || '건조수축';
                 state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
+                state.defects[key][idx].crackWidth = crackWidthVal;
+                state.defects[key][idx].crackLength = crackLengthVal;
                 state.defects[key][idx].isProgress = isProgress;
                 state.defects[key][idx].isLeak = isLeak;
                 state.defects[key][idx].isCarriedOver = isCarriedOver;
@@ -5667,9 +5702,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 category: document.getElementById('defectCategory')?.value || '구조체',
                 component: document.getElementById('defectComponent')?.value || '기둥',
                 location: locVal,
-                defectType: document.getElementById('defectType')?.value || '균열',
+                defectType: dTypeVal,
                 cause: document.getElementById('defectCause')?.value || '건조수축',
                 size: document.getElementById('defectSize')?.value || 'W=0.2mm',
+                crackWidth: crackWidthVal,
+                crackLength: crackLengthVal,
                 isProgress: isProgress,
                 isLeak: isLeak,
                 isCarriedOver: isCarriedOver,
@@ -5745,6 +5782,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     defectType: saved.defectType,
                     cause: saved.cause,
                     size: saved.size,
+                    crackWidth: saved.crackWidth,
+                    crackLength: saved.crackLength,
                     groupId: isArea ? null : saved.groupId,
                     groupNo: isArea ? null : saved.groupNo,
                     boxX: saved.x,
@@ -5770,13 +5809,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     });
-
-    // Logo & Persistent Home
-    const btnLogoHome = document.getElementById('btnLogoHome');
-    if (btnLogoHome) btnLogoHome.addEventListener('click', () => window.switchTab('tab-home'));
-
-    const btnPersistentHome = document.getElementById('btnPersistentHome');
-    if (btnPersistentHome) btnPersistentHome.addEventListener('click', () => window.switchTab('tab-home'));
 
     // Open Add Building Modal CTA
     const btnOpenAddBuildingModal = document.getElementById('btnOpenAddBuildingModal');
@@ -5903,10 +5935,112 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 10. SURVEY TABLE & ALBUM RENDERING ---
 
+    // 상태조사표 컬럼 기본 정의 (화면/PDF/엑셀 공통). size와 crackWidth/crackLength는 상호 배타적으로
+    // defectSizeMode에 따라 필터링되어 노출된다.
+    const DEFAULT_SURVEY_COLUMNS = [
+        { key: 'no', label: '결함번호' },
+        { key: 'location', label: '위치' },
+        { key: 'defectType', label: '조사내용' },
+        { key: 'category', label: '구조체여부' },
+        { key: 'size', label: '결함크기' },
+        { key: 'crackWidth', label: '균열폭' },
+        { key: 'crackLength', label: '균열길이' },
+        { key: 'progress', label: '진행여부' },
+        { key: 'leak', label: '누수여부' },
+        { key: 'cause', label: '결함원인추정' },
+        { key: 'remark', label: '비고' }
+    ];
+
+    function getActiveSurveyColumns() {
+        const cols = (state.surveyColumns && state.surveyColumns.length) ? state.surveyColumns : DEFAULT_SURVEY_COLUMNS;
+        const mode = state.defectSizeMode || 'combined';
+        return cols.filter(c => {
+            if (mode === 'combined' && (c.key === 'crackWidth' || c.key === 'crackLength')) return false;
+            if (mode === 'split' && c.key === 'size') return false;
+            return true;
+        });
+    }
+
+    // 컬럼 키별 표시 텍스트를 계산하는 단일 소스. 화면/PDF/엑셀 3곳이 모두 이 함수를 사용해 값을 동기화한다.
+    function getSurveyCellText(colKey, d, ctx) {
+        ctx = ctx || {};
+        const isCrack = d.defectType === '균열';
+        switch (colKey) {
+            case 'no': return d.no || '';
+            case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
+            case 'defectType': return d.defectType || '';
+            case 'category': return d.category === '구조체' ? '○' : '-';
+            case 'size': {
+                if (isCrack && (d.crackWidth !== undefined && d.crackWidth !== '' || d.crackLength !== undefined && d.crackLength !== '')) {
+                    const w = (d.crackWidth !== undefined && d.crackWidth !== '') ? d.crackWidth : '-';
+                    const l = (d.crackLength !== undefined && d.crackLength !== '') ? d.crackLength : '-';
+                    return `${w}/${l}`;
+                }
+                return d.size || 'W=0.2mm';
+            }
+            case 'crackWidth': {
+                if (isCrack) return (d.crackWidth !== undefined && d.crackWidth !== '') ? `${d.crackWidth}mm` : '-';
+                return d.size || '-';
+            }
+            case 'crackLength': {
+                if (isCrack) return (d.crackLength !== undefined && d.crackLength !== '') ? `${d.crackLength}m` : '-';
+                return '-';
+            }
+            case 'progress': return d.isProgress ? '진행중' : '-';
+            case 'leak': return d.isLeak ? '누수중' : '-';
+            case 'cause': return d.cause || '건조수축';
+            case 'remark': return ctx.photoRemark || '-';
+            default: return '';
+        }
+    }
+
+    // 화면(스크린) 상태조사표 한 셀의 스타일 있는 HTML을 만든다 (renderSurveyTable에서 사용)
+    function renderScreenSurveyCellHtml(colKey, d, ctx) {
+        const text = getSurveyCellText(colKey, d, ctx);
+        switch (colKey) {
+            case 'no': return `<strong style="color:#0284c7; font-size:0.95rem;">${text}</strong>`;
+            case 'location': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
+            case 'defectType': return `<span style="font-weight:700; color:#0369a1;">${text}</span>`;
+            case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#94a3b8'};">${text}</span>`;
+            case 'size': case 'crackWidth': case 'crackLength': return text;
+            case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
+            case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};">${text}</span>`;
+            case 'cause': return `<span style="font-weight:700; color:#334155;">🔍 ${text}</span>`;
+            case 'remark': return `<span style="font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};">${text}</span>`;
+            default: return text;
+        }
+    }
+
+    // PDF/엑셀 상태조사표 셀의 인라인 색상/굵기 스타일 (텍스트는 getSurveyCellText로 통일, 테두리/여백은 각 출력물에서 처리)
+    function getSurveyCellColorStyle(colKey, d, ctx) {
+        const text = getSurveyCellText(colKey, d, ctx);
+        switch (colKey) {
+            case 'no': return 'font-weight:700; color:#0284c7;';
+            case 'location': return 'font-weight:700;';
+            case 'defectType': return 'font-weight:700; color:#0369a1;';
+            case 'category': return `font-weight:800; color:${text === '○' ? '#ef4444' : '#94a3b8'};`;
+            case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};`;
+            case 'leak': return `font-weight:800; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};`;
+            case 'cause': return 'font-weight:700;';
+            case 'remark': return `font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};`;
+            default: return '';
+        }
+    }
+
+    function renderSurveyTableHeader() {
+        const theadEl = document.getElementById('surveyTableHead');
+        if (!theadEl) return;
+        const columns = getActiveSurveyColumns();
+        theadEl.innerHTML = `<tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>등록자</th><th>관리</th></tr>`;
+    }
+
     function renderSurveyTable() {
         if (!elements.surveyTableBody) return;
         const defects = getCurrentFloorDefects();
         if (elements.surveyFloorTitle) elements.surveyFloorTitle.textContent = state.currentFloor;
+
+        renderSurveyTableHeader();
+        const columns = getActiveSurveyColumns();
 
         // 📊 현재 층 결함 통계 차트 자동 업데이트
         if (typeof window.renderDefectStatisticsChart === 'function') {
@@ -5914,7 +6048,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (defects.length === 0) {
-            elements.surveyTableBody.innerHTML = `<tr><td colspan="11" style="text-align:center; padding: 2.5rem; color:#64748b; font-weight:600;">등록된 결함이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</td></tr>`;
+            elements.surveyTableBody.innerHTML = `<tr><td colspan="${columns.length + 2}" style="text-align:center; padding: 2.5rem; color:#64748b; font-weight:600;">등록된 결함이 없습니다. 도면 점검 탭에서 결함을 마킹해 보세요.</td></tr>`;
             return;
         }
 
@@ -5939,28 +6073,136 @@ document.addEventListener('DOMContentLoaded', () => {
             const defectKey = d.id || `idx_${dIdx}`;
             const labels = defectPhotoLabels[defectKey] || [];
             const photoRemark = labels.length > 0 ? labels.join(' ') : '-';
-
-            const structDisplay = (d.category === '구조체') ? '○' : '-';
-            const progressDisplay = d.isProgress ? '진행중' : '-';
-            const leakDisplay = d.isLeak ? '누수중' : '-';
+            const ctx = { floorCode: state.currentFloor, photoRemark };
 
             return `
                 <tr>
-                    <td><strong style="color:#0284c7; font-size:0.95rem;">${d.no}</strong></td>
-                    <td><span style="font-weight:700; color:#1e293b;">${d.location || (state.currentFloor + ' ' + (d.component || '기둥'))}</span></td>
-                    <td><span style="font-weight:700; color:#0369a1;">${d.defectType}</span></td>
-                    <td><span style="font-weight:800; font-size:1.15rem; color:${structDisplay === '○' ? '#ef4444' : '#94a3b8'};">${structDisplay}</span></td>
-                    <td>${d.size || 'W=0.2mm'}</td>
-                    <td><span style="font-weight:800; font-size:0.92rem; color:${progressDisplay === '진행중' ? '#dc2626' : '#94a3b8'};">${progressDisplay}</span></td>
-                    <td><span style="font-weight:800; font-size:0.92rem; color:${leakDisplay === '누수중' ? '#0284c7' : '#94a3b8'};">${leakDisplay}</span></td>
-                    <td><span style="font-weight:700; color:#334155;">🔍 ${d.cause || '건조수축'}</span></td>
-                    <td><span style="font-weight:700; color:${photoRemark !== '-' ? '#2563eb' : '#94a3b8'};">${photoRemark}</span></td>
+                    ${columns.map(c => `<td>${renderScreenSurveyCellHtml(c.key, d, ctx)}</td>`).join('')}
                     <td><span class="badge badge-info">${d.inspectorName || '-'}</span></td>
                     <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="deleteDefectById('${d.id}')">삭제</button></td>
                 </tr>
             `;
         }).join('');
         if (typeof renderPhotoAlbum === 'function') renderPhotoAlbum();
+    }
+
+    // --- 상태조사표 컬럼 설정 모달 ---
+    function ensureSurveyColumnsInitialized() {
+        if (!state.surveyColumns || !state.surveyColumns.length) {
+            state.surveyColumns = DEFAULT_SURVEY_COLUMNS.map(c => ({ key: c.key, label: c.label }));
+        }
+        return state.surveyColumns;
+    }
+
+    function renderSurveyColumnModalList() {
+        const listEl = document.getElementById('surveyColumnListBody');
+        if (!listEl) return;
+
+        const modeCombinedEl = document.getElementById('defectSizeModeCombined');
+        const modeSplitEl = document.getElementById('defectSizeModeSplit');
+        const mode = state.defectSizeMode || 'combined';
+        if (modeCombinedEl) modeCombinedEl.checked = (mode === 'combined');
+        if (modeSplitEl) modeSplitEl.checked = (mode === 'split');
+
+        const columns = getActiveSurveyColumns();
+        const defaultLabelByKey = {};
+        DEFAULT_SURVEY_COLUMNS.forEach(c => { defaultLabelByKey[c.key] = c.label; });
+
+        listEl.innerHTML = columns.map((c, idx) => `
+            <div class="style-cat-card" style="display:flex; align-items:center; gap:0.5rem;">
+                <div style="display:flex; flex-direction:column; gap:0.15rem;">
+                    <button type="button" class="btn btn-sm btn-outline" style="padding:0.1rem 0.4rem;" ${idx === 0 ? 'disabled' : ''} onclick="window.moveSurveyColumnOrder('${c.key}', -1)"><i class="fa-solid fa-chevron-up"></i></button>
+                    <button type="button" class="btn btn-sm btn-outline" style="padding:0.1rem 0.4rem;" ${idx === columns.length - 1 ? 'disabled' : ''} onclick="window.moveSurveyColumnOrder('${c.key}', 1)"><i class="fa-solid fa-chevron-down"></i></button>
+                </div>
+                <input type="text" class="form-control" value="${c.label}" style="flex:1;" onchange="window.renameSurveyColumn('${c.key}', this.value)" placeholder="${defaultLabelByKey[c.key] || ''}">
+            </div>
+        `).join('');
+    }
+
+    window.openSurveyColumnModal = function() {
+        ensureSurveyColumnsInitialized();
+        renderSurveyColumnModalList();
+        const modal = document.getElementById('surveyColumnModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    };
+
+    function closeSurveyColumnModal() {
+        const modal = document.getElementById('surveyColumnModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    window.moveSurveyColumnOrder = function(key, direction) {
+        const cols = ensureSurveyColumnsInitialized();
+        // 현재 모드에서 실제로 보이는 컬럼들 기준으로 이동 대상을 찾는다 (숨겨진 size/crackWidth/crackLength는 건너뜀)
+        const activeKeys = getActiveSurveyColumns().map(c => c.key);
+        const curPos = activeKeys.indexOf(key);
+        const targetPos = curPos + direction;
+        if (curPos === -1 || targetPos < 0 || targetPos >= activeKeys.length) return;
+        const swapKey = activeKeys[targetPos];
+
+        const idxA = cols.findIndex(c => c.key === key);
+        const idxB = cols.findIndex(c => c.key === swapKey);
+        if (idxA === -1 || idxB === -1) return;
+        const tmp = cols[idxA];
+        cols[idxA] = cols[idxB];
+        cols[idxB] = tmp;
+
+        renderSurveyColumnModalList();
+        renderSurveyTable();
+        saveStateToLocalStorage();
+    };
+
+    window.renameSurveyColumn = function(key, newLabel) {
+        const cols = ensureSurveyColumnsInitialized();
+        const trimmed = (newLabel || '').trim();
+        if (!trimmed) { renderSurveyColumnModalList(); return; }
+        const col = cols.find(c => c.key === key);
+        if (col) col.label = trimmed;
+        renderSurveyTable();
+        saveStateToLocalStorage();
+    };
+
+    function setDefectSizeMode(mode) {
+        state.defectSizeMode = mode;
+        renderSurveyColumnModalList();
+        renderSurveyTable();
+        saveStateToLocalStorage();
+    }
+
+    function resetSurveyColumns() {
+        state.surveyColumns = null;
+        renderSurveyColumnModalList();
+        renderSurveyTable();
+        saveStateToLocalStorage();
+    }
+
+    function setupSurveyColumnModalEvents() {
+        const btnOpen = document.getElementById('btnOpenSurveyColumnModal');
+        if (btnOpen) btnOpen.addEventListener('click', window.openSurveyColumnModal);
+
+        const btnClose1 = document.getElementById('btnCloseSurveyColumnModal');
+        if (btnClose1) btnClose1.addEventListener('click', closeSurveyColumnModal);
+        const btnClose2 = document.getElementById('btnCloseSurveyColumnModal2');
+        if (btnClose2) btnClose2.addEventListener('click', closeSurveyColumnModal);
+
+        const modeCombinedEl = document.getElementById('defectSizeModeCombined');
+        if (modeCombinedEl) modeCombinedEl.addEventListener('change', () => { if (modeCombinedEl.checked) setDefectSizeMode('combined'); });
+        const modeSplitEl = document.getElementById('defectSizeModeSplit');
+        if (modeSplitEl) modeSplitEl.addEventListener('change', () => { if (modeSplitEl.checked) setDefectSizeMode('split'); });
+
+        const btnReset = document.getElementById('btnResetSurveyColumns');
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                if (!confirm('컬럼 순서와 이름을 기본값으로 초기화하시겠습니까?')) return;
+                resetSurveyColumns();
+            });
+        }
     }
 
     function renderPhotoAlbum() {
@@ -6459,15 +6701,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
                                 <thead>
                                     <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함번호</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">위치</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">조사내용</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">구조체여부</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함크기</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">진행여부</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">누수여부</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">결함원인추정</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">비고</th>
+                                        ${getActiveSurveyColumns().map(c => `<th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">${c.label}</th>`).join('')}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -6475,20 +6709,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                         const defectKey = d.id || `idx_${defects.indexOf(d)}`;
                                         const labels = defectPhotoLabels[defectKey] || [];
                                         const pRemark = labels.length > 0 ? labels.join(' ') : '-';
+                                        const cellCtx = { floorCode, photoRemark: pRemark };
                                         return `
                                             <tr>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${d.no}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${d.location || (floorCode + ' ' + d.component)}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0369a1;">${d.defectType}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.category === '구조체' ? '#ef4444' : '#94a3b8'};">${d.category === '구조체' ? '○' : '-'}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${d.size || 'W=0.2mm'}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isProgress ? '#dc2626' : '#94a3b8'};">${d.isProgress ? '진행중' : '-'}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${d.isLeak ? '#0284c7' : '#94a3b8'};">${d.isLeak ? '누수중' : '-'}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${d.cause || '건조수축'}</td>
-                                                <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:${pRemark !== '-' ? '#2563eb' : '#94a3b8'};">${pRemark}</td>
+                                                ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
                                             </tr>
                                         `;
-                                    }).join('') : `<tr><td colspan="9" style="padding:2rem; color:#94a3b8;">${floorCode}층에 등록된 결함이 없습니다.</td></tr>`}
+                                    }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#94a3b8;">${floorCode}층에 등록된 결함이 없습니다.</td></tr>`}
                                 </tbody>
                             </table>
 
@@ -7764,6 +7991,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            const floorCode = window.state.currentFloor;
+            const activeColumns = getActiveSurveyColumns();
+
+            // 화면 표와 동일한 사진 라벨(비고) 계산
+            const defectPhotoLabels = {};
+            let pCounter = 0;
+            defects.forEach((d, dIdx) => {
+                const defectKey = d.id || `idx_${dIdx}`;
+                defectPhotoLabels[defectKey] = [];
+                if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
+                    d.photos.forEach(src => {
+                        if (src) {
+                            pCounter++;
+                            const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                            defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
+                        }
+                    });
+                }
+            });
+
             let tableHtml = `
                 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
                 <head>
@@ -7782,32 +8029,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     <table>
                         <thead>
                             <tr>
-                                <th>결함번호</th>
-                                <th>부재명</th>
-                                <th>상세위치</th>
-                                <th>결함종류</th>
-                                <th>규모 및 상태</th>
-                                <th>추정원인</th>
-                                <th>진행여부</th>
-                                <th>누수여부</th>
-                                <th>중요결함</th>
+                                ${activeColumns.map(c => `<th>${c.label}</th>`).join('')}
                             </tr>
                         </thead>
                         <tbody>
             `;
 
-            defects.forEach(d => {
+            defects.forEach((d, dIdx) => {
+                const defectKey = d.id || `idx_${dIdx}`;
+                const labels = defectPhotoLabels[defectKey] || [];
+                const pRemark = labels.length > 0 ? labels.join(' ') : '-';
+                const cellCtx = { floorCode, photoRemark: pRemark };
                 tableHtml += `
                     <tr>
-                        <td>${d.no || ''}</td>
-                        <td>${d.component || d.category || ''}</td>
-                        <td>${d.location || ''}</td>
-                        <td>${d.type || d.defectType || ''}</td>
-                        <td>${d.size || ''}</td>
-                        <td>${d.cause || ''}</td>
-                        <td>${d.isProgress ? '진행중' : '정상'}</td>
-                        <td>${d.isLeak ? '누수' : '-'}</td>
-                        <td>${d.isBookmark ? '중요' : '-'}</td>
+                        ${activeColumns.map(c => `<td style="${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
                     </tr>
                 `;
             });
@@ -8659,6 +8894,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupNdtModalEvents === 'function') setupNdtModalEvents();
         if (typeof setupNdtDisplacementModalEvents === 'function') setupNdtDisplacementModalEvents();
         if (typeof setupStyleColorModalEvents === 'function') setupStyleColorModalEvents();
+        if (typeof setupSurveyColumnModalEvents === 'function') setupSurveyColumnModalEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         showLoginOverlay();
     }

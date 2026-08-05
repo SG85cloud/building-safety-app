@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260805_1010">
+    <link rel="stylesheet" href="styles.css?v=20260805_1300">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -25,26 +25,28 @@
 </head>
 <body class="theme-light">
 
-    <!-- Top Header Navigation -->
-    <header class="app-header">
-        <div class="header-brand" id="btnLogoHome" data-tab="tab-home" style="cursor: pointer;" title="🏠 클릭 시 홈(건축물 목록)으로 이동">
-            <i class="fa-solid fa-building-shield brand-icon"></i>
-            <div>
-                <h1 class="app-title">스마트 건축물 안전점검 시스템</h1>
-                <p class="app-subtitle">PC · 갤럭시 탭 · 스마트폰 실시간 연동 현장점검</p>
-            </div>
-        </div>
-
-        <button type="button" id="btnPersistentHome" data-tab="tab-home" class="btn btn-outline" style="border-color: #38bdf8; color: #38bdf8; font-weight: 700; background: rgba(56, 189, 248, 0.12); border-radius: 8px; font-size: 0.9rem; padding: 0.5rem 0.9rem; white-space: nowrap;">
-            <i class="fa-solid fa-house"></i> 🏠 홈 (건축물 목록)
+    <!-- Main Navigation Tabs (홈 탭 + 사용자프로필/로그아웃은 항상 표시, 나머지는 건물 선택 시에만 표시) -->
+    <nav class="main-tabs" id="mainNavTabs">
+        <button type="button" class="tab-btn active" data-tab="tab-home" onclick="window.switchTab('tab-home')">
+            <i class="fa-solid fa-house"></i> 홈
         </button>
 
-        <!-- Building / Floor Selector (Displayed ONLY when a building is selected) -->
+        <div class="nav-building-tabs" id="navBuildingTabs" style="display: none;">
+            <button type="button" class="tab-btn" data-tab="tab-map" onclick="window.switchTab('tab-map')">
+                <i class="fa-solid fa-map-location-dot"></i> 도면점검
+            </button>
+            <button type="button" class="tab-btn" data-tab="tab-survey" onclick="window.switchTab('tab-survey')">
+                <i class="fa-solid fa-clipboard-list"></i> 상태조사표
+            </button>
+            <button type="button" class="tab-btn" data-tab="tab-ndt" onclick="window.switchTab('tab-ndt')">
+                <i class="fa-solid fa-microscope"></i> 비파괴조사
+            </button>
+        </div>
+
+        <span id="navBuildingName" class="nav-building-name" style="display: none;"></span>
+
+        <!-- Floor Selector (Displayed ONLY when a building is selected) -->
         <div class="header-selector" id="headerSelectorGroup" style="display: none;">
-            <div class="selector-group">
-                <label><i class="fa-solid fa-city"></i> 점검 대상:</label>
-                <select id="projectSelect" class="styled-select"></select>
-            </div>
             <div class="selector-group">
                 <label><i class="fa-solid fa-layer-group"></i> 점검 층:</label>
                 <select id="floorSelect" class="styled-select"></select>
@@ -70,8 +72,8 @@
             </button>
         </div>
 
-        <!-- User Profile Badge & Logout -->
-        <div id="headerUserProfileGroup" style="display: flex; align-items: center; gap: 0.6rem; background: rgba(255,255,255,0.06); padding: 0.35rem 0.85rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); margin-left: 0.5rem;">
+        <!-- User Profile Badge & Logout (항상 표시) -->
+        <div id="headerUserProfileGroup" style="display: flex; align-items: center; gap: 0.6rem; background: rgba(255,255,255,0.06); padding: 0.35rem 0.85rem; border-radius: 20px; border: 1px solid rgba(255,255,255,0.15); margin-left: auto;">
             <span id="userProfileText" style="font-size: 0.83rem; font-weight: 700; color: #38bdf8;">
                 <i class="fa-solid fa-user-shield"></i> <span id="lblUserCompany">(주)한국안전진단기술원</span> (<span id="lblUserName">홍길동</span>)
             </span>
@@ -82,22 +84,6 @@
                 <i class="fa-solid fa-right-from-bracket"></i> 로그아웃
             </button>
         </div>
-    </header>
-
-    <!-- Main Navigation Tabs (Displayed ONLY when a building is selected) -->
-    <nav class="main-tabs" id="mainNavTabs" style="display: none;">
-        <button type="button" class="tab-btn" data-tab="tab-home" onclick="window.switchTab('tab-home')" style="background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2);">
-            <i class="fa-solid fa-house"></i> ↩️ 건물 변경 (홈)
-        </button>
-        <button type="button" class="tab-btn active" data-tab="tab-map" onclick="window.switchTab('tab-map')">
-            <i class="fa-solid fa-map-location-dot"></i> 🗺️ 층별 도면 점검
-        </button>
-        <button type="button" class="tab-btn" data-tab="tab-survey" onclick="window.switchTab('tab-survey')">
-            <i class="fa-solid fa-clipboard-list"></i> 📋 층별 상태조사표
-        </button>
-        <button type="button" class="tab-btn" data-tab="tab-ndt" onclick="window.switchTab('tab-ndt')">
-            <i class="fa-solid fa-microscope"></i> 🔬 비파괴 장비 조사
-        </button>
     </nav>
 
     <!-- App Container -->
@@ -305,6 +291,7 @@
                 <h2>📋 <span id="surveyFloorTitle">지상 1층 (1F)</span> 상태조사표</h2>
                 <div class="actions">
                     <button id="btnAddDefectDirect" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> ➕ 결함 직접 등록</button>
+                    <button id="btnOpenSurveyColumnModal" class="btn btn-outline btn-sm"><i class="fa-solid fa-table-columns"></i> ⚙️ 표 컬럼 설정</button>
                     <button id="btnOpenReportPreview" class="btn btn-primary btn-sm" onclick="window.openReportPreviewModalFunc()" style="background:#0284c7; border-color:#0284c7;"><i class="fa-solid fa-file-contract"></i> 📋 6개 사진배치 보고서 출력/미리보기</button>
                     <button id="btnExportExcel" class="btn btn-sm" style="background: #15803d; color: #ffffff; border: 1px solid #22c55e; font-weight: 700;"><i class="fa-solid fa-file-excel"></i> 🟢 엑셀 저장 (.xls)</button>
                     <button id="btnExportSurvey" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-csv"></i> CSV 내보내기</button>
@@ -326,7 +313,7 @@
 
             <div class="table-container">
                 <table class="survey-table">
-                    <thead>
+                    <thead id="surveyTableHead">
                         <tr>
                             <th>결함번호</th>
                             <th>위치</th>
@@ -525,7 +512,7 @@
                     </div>
 
                     <div class="form-row">
-                        <div class="form-group">
+                        <div class="form-group" id="defectSizeFreeGroup">
                             <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
                                 <span>규모 및 상태 (수치 입력) *</span>
                                 <button type="button" id="btnSpeechSize" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; font-size:0.78rem; padding:0.1rem 0.5rem;" title="음성으로 상태 입력">
@@ -533,6 +520,13 @@
                                 </button>
                             </label>
                             <input type="text" id="defectSize" class="form-control" placeholder="예: W=0.2mm, L=1.5m">
+                        </div>
+                        <div class="form-group" id="defectCrackSizeGroup" style="display:none;">
+                            <label class="form-label">균열폭(mm) / 균열길이(m) *</label>
+                            <div style="display:flex; gap:0.5rem;">
+                                <input type="number" step="0.01" id="defectCrackWidth" class="form-control" placeholder="균열폭 예: 0.15">
+                                <input type="number" step="0.01" id="defectCrackLength" class="form-control" placeholder="균열길이 예: 1.5">
+                            </div>
                         </div>
                         <div class="form-group">
                             <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
@@ -823,6 +817,33 @@
             <div class="modal-footer" style="justify-content: space-between;">
                 <button type="button" id="btnResetStyleColors" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
                 <button type="button" id="btnCloseStyleColorModal2" class="btn btn-primary">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 상태조사표 컬럼 순서/이름 및 결함크기 표시방식 설정 -->
+    <div class="modal-overlay" id="surveyColumnModal">
+        <div class="modal-card" style="max-width: 480px; width: 92%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-table-columns"></i> 표 컬럼 설정</h3>
+                <button type="button" class="modal-close" id="btnCloseSurveyColumnModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div class="style-color-section-title">결함크기(균열) 표시 방식</div>
+                <div class="style-cat-card" style="display:flex; gap:0.6rem;">
+                    <label class="checkbox-chip" style="flex:1; justify-content:center;">
+                        <input type="radio" name="defectSizeMode" id="defectSizeModeCombined" value="combined"> 합쳐서 "0.15/1.5"
+                    </label>
+                    <label class="checkbox-chip" style="flex:1; justify-content:center;">
+                        <input type="radio" name="defectSizeMode" id="defectSizeModeSplit" value="split"> 균열폭·균열길이 분리
+                    </label>
+                </div>
+                <div class="style-color-section-title">컬럼 순서 / 이름 (화면·PDF·엑셀 공통)</div>
+                <div id="surveyColumnListBody"></div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" id="btnResetSurveyColumns" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
+                <button type="button" id="btnCloseSurveyColumnModal2" class="btn btn-primary">닫기</button>
             </div>
         </div>
     </div>
@@ -1481,7 +1502,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260805_1010"></script>
+    <script src="app.js?v=20260805_1300"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
