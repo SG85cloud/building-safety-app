@@ -5598,8 +5598,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window._phoneRelayInbox && window._phoneRelayInbox.length) {
             window._pendingPhotos = (window._pendingPhotos || []).concat(window._phoneRelayInbox);
             window._phoneRelayInbox = [];
-            if (typeof updatePhoneRelayButtonLabel === 'function') updatePhoneRelayButtonLabel();
         }
+        if (typeof updatePhoneRelayButtonLabel === 'function') updatePhoneRelayButtonLabel();
         renderPhotoPreviewList();
 
         if (elements.defectModal) {
@@ -5715,13 +5715,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updatePhoneRelayButtonLabel() {
+        const waiting = (window._phoneRelayInbox || []).length;
         const btn = document.getElementById('btnTriggerPhoneRelay');
-        if (!btn) return;
-        if (phoneRelayUnsubscribe) {
-            const waiting = window._phoneRelayInbox.length;
-            btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰 연동됨${waiting ? ` (대기중 사진 ${waiting}장)` : ''}`;
-        } else {
-            btn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰으로 촬영해서 바로 받기';
+        if (btn) {
+            if (phoneRelayUnsubscribe) {
+                btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰 연동됨${waiting ? ` (대기중 사진 ${waiting}장)` : ''}`;
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰으로 촬영해서 바로 받기';
+            }
+        }
+
+        // 결함 등록화면 안의 상태 배지: 연동 중일 때만 표시
+        const badge = document.getElementById('phoneRelayStatusBadge');
+        const badgeText = document.getElementById('phoneRelayStatusText');
+        if (badge) {
+            badge.style.display = phoneRelayUnsubscribe ? 'flex' : 'none';
+        }
+        if (badgeText && phoneRelayUnsubscribe) {
+            badgeText.textContent = waiting
+                ? `휴대폰 연동됨 — 대기중인 사진 ${waiting}장이 자동으로 추가됩니다`
+                : '휴대폰 연동됨 — 휴대폰에서 촬영하면 자동으로 여기에 추가됩니다';
         }
     }
 
