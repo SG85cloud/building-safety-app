@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260805_2100">
+    <link rel="stylesheet" href="styles.css?v=20260805_2200">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -22,6 +22,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <!-- 휴대폰 연동 사진촬영용 QR코드 생성 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body class="theme-light">
 
@@ -576,6 +578,9 @@
                                 <i class="fa-solid fa-images"></i> 🖼️ 갤러리/앨범 선택
                             </button>
                         </div>
+                        <button type="button" id="btnTriggerPhoneRelay" class="btn" style="width: 100%; background: rgba(250,204,21,0.1); color: #facc15; border: 1px solid rgba(250,204,21,0.4); font-weight: 700; padding: 0.55rem 0.5rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 0.6rem;">
+                            <i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰으로 촬영해서 바로 받기
+                        </button>
                         <div class="photo-upload-area" id="photoUploadArea">
                             <i class="fa-solid fa-camera"></i>
                             <span>터치하여 카메라 촬영 또는 갤러리 사진 추가</span>
@@ -1273,15 +1278,12 @@
                 <button class="modal-close" id="btnCloseQrModal">&times;</button>
             </div>
             <div class="modal-body text-center">
-                <p>스마트폰 기본 카메라로 아래 QR 코드를 스캔하시면 <strong>현장 사진 전송 모드</strong>로 연결됩니다.</p>
-                <div class="qr-placeholder">
-                    <i class="fa-solid fa-qrcode qr-large-icon"></i>
-                    <div class="qr-code-text">세션 코드: <strong>BUILD-7892</strong></div>
-                </div>
-                <p class="text-muted small">스마트폰에서 셔터를 누르면 갤럭시 탭/PC 도면 핀 위치로 즉시 전송됩니다.</p>
+                <p>스마트폰 카메라로 아래 QR 코드를 스캔하면 <strong>사진 촬영 전용 페이지</strong>가 열립니다. 로그인 없이 바로 촬영·전송할 수 있고, 촬영한 사진은 실시간으로 이 결함 등록 화면에 추가됩니다.</p>
+                <div id="mobileQrCanvas" style="display:flex; justify-content:center; margin: 1rem 0; background:#ffffff; padding:12px; border-radius:10px; width:fit-content; margin-left:auto; margin-right:auto;"></div>
+                <p id="mobileQrStatus" class="text-muted small">QR 코드를 생성하고 있습니다...</p>
             </div>
             <div class="modal-footer justify-center">
-                <button class="btn btn-primary" id="btnCloseQrConfirm">연결 완료</button>
+                <button class="btn btn-primary" id="btnCloseQrConfirm">연결 종료</button>
             </div>
         </div>
     </div>
@@ -1506,7 +1508,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260805_2100"></script>
+    <script src="app.js?v=20260805_2200"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

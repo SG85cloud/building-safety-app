@@ -5500,6 +5500,7 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.defectModal.style.display = 'none';
             elements.defectModal.classList.remove('open');
         }
+        closePhoneRelayModal();
     }
 
     function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
@@ -5697,6 +5698,87 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
     }
+
+    // --- 📱 휴대폰 카메라 연동 (QR 스캔 → 로그인 없이 촬영 → 실시간으로 이 결함의 사진목록에 수신) ---
+    let phoneRelayUnsubscribe = null;
+    let phoneRelayTimeoutId = null;
+
+    function closePhoneRelayModal() {
+        if (phoneRelayUnsubscribe) { phoneRelayUnsubscribe(); phoneRelayUnsubscribe = null; }
+        if (phoneRelayTimeoutId) { clearTimeout(phoneRelayTimeoutId); phoneRelayTimeoutId = null; }
+        if (elements.mobileQrModal) {
+            elements.mobileQrModal.style.display = 'none';
+            elements.mobileQrModal.classList.remove('open');
+        }
+    }
+
+    function openPhoneRelayModal() {
+        if (!db) {
+            window.showToast('네트워크(Firebase) 연결이 필요한 기능입니다. 오프라인 상태에서는 사용할 수 없습니다.', 'warning');
+            return;
+        }
+        if (typeof QRCode === 'undefined') {
+            window.showToast('QR 코드 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.', 'error');
+            return;
+        }
+
+        const sessionId = `rel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const captureUrl = new URL('photo-capture.html', window.location.href);
+        captureUrl.searchParams.set('s', sessionId);
+
+        const qrContainer = document.getElementById('mobileQrCanvas');
+        const statusEl = document.getElementById('mobileQrStatus');
+        if (qrContainer) {
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, { text: captureUrl.href, width: 200, height: 200 });
+        }
+        if (statusEl) {
+            statusEl.textContent = '휴대폰으로 QR을 스캔해 주세요. 스캔하면 자동으로 연결됩니다.';
+            statusEl.style.color = '';
+        }
+
+        if (elements.mobileQrModal) {
+            elements.mobileQrModal.style.display = 'flex';
+            elements.mobileQrModal.classList.add('open');
+        }
+
+        phoneRelayUnsubscribe = db.collection('photoRelay').doc(sessionId).collection('photos')
+            .onSnapshot((snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        const data = change.doc.data();
+                        if (data && data.dataUrl) {
+                            if (!window._pendingPhotos) window._pendingPhotos = [];
+                            window._pendingPhotos.push(data.dataUrl);
+                            renderPhotoPreviewList();
+                            if (statusEl) {
+                                statusEl.textContent = `사진 ${window._pendingPhotos.length}장 수신됨 — 계속 촬영하거나 '연결 종료'를 눌러주세요.`;
+                                statusEl.style.color = '#4ade80';
+                            }
+                            window.showToast('휴대폰에서 사진을 받았습니다.', 'success');
+                        }
+                    }
+                });
+            }, (err) => {
+                console.error('휴대폰 연동 사진 수신 오류:', err);
+            });
+
+        // 세션 방치 시 계속 열려있지 않도록 15분 후 자동 종료
+        phoneRelayTimeoutId = setTimeout(closePhoneRelayModal, 15 * 60 * 1000);
+    }
+
+    const btnTriggerPhoneRelay = document.getElementById('btnTriggerPhoneRelay');
+    if (btnTriggerPhoneRelay) {
+        btnTriggerPhoneRelay.onclick = (e) => {
+            e.preventDefault();
+            openPhoneRelayModal();
+        };
+    }
+
+    const btnCloseQrModal = document.getElementById('btnCloseQrModal');
+    if (btnCloseQrModal) btnCloseQrModal.addEventListener('click', closePhoneRelayModal);
+    const btnCloseQrConfirm = document.getElementById('btnCloseQrConfirm');
+    if (btnCloseQrConfirm) btnCloseQrConfirm.addEventListener('click', closePhoneRelayModal);
 
     const btnCloseDefectModal = document.getElementById('btnCloseDefectModal');
     if (btnCloseDefectModal) {

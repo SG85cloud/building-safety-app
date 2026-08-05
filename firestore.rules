@@ -99,6 +99,19 @@ service cloud.firestore {
       }
     }
 
+    // --- photoRelay/{sessionId}/photos/{photoId}: 태블릿↔휴대폰 실시간 사진 촬영 연동 ---
+    // 휴대폰은 회사 계정 로그인 없이 Firebase 익명 인증(Anonymous Auth)만으로 접근.
+    // 세션ID(QR코드)를 아는 사람만 쓸 수 있고, 임시 중계용이라 정식 결함 데이터에는 접근 불가.
+    match /photoRelay/{sessionId} {
+      allow read, create: if request.auth != null;
+      allow update, delete: if false;
+
+      match /photos/{photoId} {
+        allow read, create: if request.auth != null;
+        allow update, delete: if false;
+      }
+    }
+
     // 그 외 모든 경로는 기본 차단
     match /{document=**} {
       allow read, write: if false;

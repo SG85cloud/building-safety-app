@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>결함 사진 촬영 - 스마트 안전점검</title>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        background: #0f172a;
+        color: #f8fafc;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1.5rem 1rem 2.5rem;
+    }
+    h1 { font-size: 1.15rem; margin-bottom: 0.3rem; text-align: center; }
+    #status { color: #94a3b8; font-size: 0.85rem; margin-bottom: 1.5rem; text-align: center; }
+    #status.ok { color: #4ade80; }
+    #status.err { color: #f87171; }
+    .shoot-btn {
+        width: 100%;
+        max-width: 360px;
+        padding: 1.1rem;
+        font-size: 1.05rem;
+        font-weight: 800;
+        color: #ffffff;
+        background: linear-gradient(135deg, #0284c7, #0369a1);
+        border: 1px solid #38bdf8;
+        border-radius: 14px;
+        cursor: pointer;
+    }
+    .shoot-btn:disabled { opacity: 0.5; }
+    .hint {
+        max-width: 360px;
+        text-align: center;
+        color: #64748b;
+        font-size: 0.8rem;
+        margin-top: 1.2rem;
+        line-height: 1.5;
+    }
+    #thumbs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: center;
+        max-width: 400px;
+        margin-top: 1.5rem;
+    }
+    #thumbs img {
+        width: 84px;
+        height: 84px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 1px solid #334155;
+    }
+    .thumb-wrap { position: relative; }
+    .thumb-badge {
+        position: absolute;
+        bottom: 2px;
+        right: 2px;
+        background: rgba(15,23,42,0.85);
+        color: #4ade80;
+        font-size: 0.65rem;
+        font-weight: 700;
+        padding: 0.05rem 0.3rem;
+        border-radius: 4px;
+    }
+    .spinner {
+        width: 16px; height: 16px;
+        border: 2px solid rgba(255,255,255,0.4);
+        border-top-color: #ffffff;
+        border-radius: 50%;
+        display: inline-block;
+        animation: spin 0.7s linear infinite;
+        vertical-align: -3px;
+        margin-right: 0.4rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+    <h1>📷 결함 사진 촬영</h1>
+    <p id="status">연결 중...</p>
+    <button type="button" class="shoot-btn" id="btnShoot" disabled>촬영하기</button>
+    <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
+    <div id="thumbs"></div>
+    <p class="hint">촬영한 사진은 자동으로 태블릿 화면에 전송됩니다.<br>다 찍으셨으면 이 창을 닫으시면 됩니다.</p>
+
+<script>
+(function () {
+    const firebaseConfig = {
+        apiKey: "AIzaSyACD8js2jI40ypk_2y7Ewm9G7a0KKOQ1uQ",
+        authDomain: "building-safety-app-46821.firebaseapp.com",
+        projectId: "building-safety-app-46821",
+        storageBucket: "building-safety-app-46821.firebasestorage.app",
+        messagingSenderId: "552684445343",
+        appId: "1:552684445343:web:ee6d32378296996f200caa",
+        measurementId: "G-NF80EL460D"
+    };
+
+    const statusEl = document.getElementById('status');
+    const btnShoot = document.getElementById('btnShoot');
+    const cameraInput = document.getElementById('cameraInput');
+    const thumbsEl = document.getElementById('thumbs');
+
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('s');
+
+    if (!sessionId) {
+        statusEl.textContent = '잘못된 접근입니다. 태블릿에서 QR코드를 다시 스캔해 주세요.';
+        statusEl.className = 'err';
+        return;
+    }
+
+    // 결함 사진과 동일한 4:3 크롭/압축 규격 (app.js의 compressDefectPhoto43과 동일 로직)
+    function compressPhoto43(file, targetW, quality) {
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const imgW = img.width, imgH = img.height;
+                    const targetH = Math.round((targetW * 3) / 4);
+                    let cropX = 0, cropY = 0, cropW = imgW, cropH = imgH;
+                    if (imgW / imgH > 4 / 3) {
+                        cropW = Math.round(imgH * (4 / 3));
+                        cropX = Math.round((imgW - cropW) / 2);
+                    } else {
+                        cropH = Math.round(imgW * (3 / 4));
+                        cropY = Math.round((imgH - cropH) / 2);
+                    }
+                    const canvas = document.createElement('canvas');
+                    canvas.width = targetW;
+                    canvas.height = targetH;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+                    resolve(canvas.toDataURL('image/jpeg', quality));
+                };
+                img.onerror = () => resolve(e.target.result);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        });
+    }
+
+    let db = null;
+
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+
+    firebase.auth().signInAnonymously().then(() => {
+        statusEl.textContent = '태블릿과 연결됐습니다. 아래 버튼을 눌러 촬영하세요.';
+        statusEl.className = 'ok';
+        btnShoot.disabled = false;
+    }).catch((err) => {
+        console.error(err);
+        statusEl.textContent = '연결에 실패했습니다. 인터넷 연결을 확인하고 새로고침 해주세요.';
+        statusEl.className = 'err';
+    });
+
+    btnShoot.addEventListener('click', () => {
+        cameraInput.value = '';
+        cameraInput.click();
+    });
+
+    cameraInput.addEventListener('change', async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        btnShoot.disabled = true;
+        statusEl.innerHTML = '<span class="spinner"></span>업로드 중...';
+        statusEl.className = '';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'thumb-wrap';
+        const img = document.createElement('img');
+        wrap.appendChild(img);
+        const badge = document.createElement('span');
+        badge.className = 'thumb-badge';
+        badge.textContent = '업로드중';
+        wrap.appendChild(badge);
+        thumbsEl.appendChild(wrap);
+
+        try {
+            const dataUrl = await compressPhoto43(file, 1000, 0.85);
+            img.src = dataUrl;
+            await db.collection('photoRelay').doc(sessionId).collection('photos').add({
+                dataUrl: dataUrl,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            badge.textContent = '전송완료';
+            statusEl.textContent = '전송 완료! 계속 촬영하거나 창을 닫으셔도 됩니다.';
+            statusEl.className = 'ok';
+        } catch (err) {
+            console.error(err);
+            badge.textContent = '실패';
+            badge.style.color = '#f87171';
+            statusEl.textContent = '전송에 실패했습니다. 다시 시도해 주세요.';
+            statusEl.className = 'err';
+        } finally {
+            btnShoot.disabled = false;
+        }
+    });
+})();
+</script>
+</body>
+</html>
