@@ -5500,7 +5500,6 @@ document.addEventListener('DOMContentLoaded', () => {
             elements.defectModal.style.display = 'none';
             elements.defectModal.classList.remove('open');
         }
-        closePhoneRelayModal();
     }
 
     function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
@@ -5595,6 +5594,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
+        // 결함 등록화면이 닫혀있는 동안 휴대폰에서 미리 찍어둔 사진(대기함)을 지금 여는 결함에 자동으로 붙임
+        if (window._phoneRelayInbox && window._phoneRelayInbox.length) {
+            window._pendingPhotos = (window._pendingPhotos || []).concat(window._phoneRelayInbox);
+            window._phoneRelayInbox = [];
+            if (typeof updatePhoneRelayButtonLabel === 'function') updatePhoneRelayButtonLabel();
+        }
         renderPhotoPreviewList();
 
         if (elements.defectModal) {
@@ -5699,17 +5704,89 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // --- 📱 휴대폰 카메라 연동 (QR 스캔 → 로그인 없이 촬영 → 실시간으로 이 결함의 사진목록에 수신) ---
+    // --- 📱 휴대폰 카메라 연동 (QR 한 번만 스캔 → 로그인 없이 촬영 → 작업 세션 내내 계속 연동) ---
+    // 결함 등록화면이 열려있으면 사진이 바로 그 결함에 추가되고, 닫혀있으면 대기함(_phoneRelayInbox)에
+    // 쌓였다가 다음에 여는 결함 등록화면에 자동으로 붙는다. 결함마다 QR을 다시 찍을 필요 없음.
     let phoneRelayUnsubscribe = null;
-    let phoneRelayTimeoutId = null;
+    window._phoneRelayInbox = window._phoneRelayInbox || [];
 
-    function closePhoneRelayModal() {
-        if (phoneRelayUnsubscribe) { phoneRelayUnsubscribe(); phoneRelayUnsubscribe = null; }
-        if (phoneRelayTimeoutId) { clearTimeout(phoneRelayTimeoutId); phoneRelayTimeoutId = null; }
+    function isDefectModalOpen() {
+        return !!(elements.defectModal && elements.defectModal.classList.contains('open'));
+    }
+
+    function updatePhoneRelayButtonLabel() {
+        const btn = document.getElementById('btnTriggerPhoneRelay');
+        if (!btn) return;
+        if (phoneRelayUnsubscribe) {
+            const waiting = window._phoneRelayInbox.length;
+            btn.innerHTML = `<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰 연동됨${waiting ? ` (대기중 사진 ${waiting}장)` : ''}`;
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-mobile-screen-button"></i> 📱 휴대폰으로 촬영해서 바로 받기';
+        }
+    }
+
+    function receivePhoneRelayPhoto(dataUrl) {
+        if (isDefectModalOpen()) {
+            if (!window._pendingPhotos) window._pendingPhotos = [];
+            window._pendingPhotos.push(dataUrl);
+            renderPhotoPreviewList();
+            window.showToast('휴대폰에서 사진을 받아 결함에 추가했습니다.', 'success');
+        } else {
+            window._phoneRelayInbox.push(dataUrl);
+            window.showToast(`휴대폰에서 사진을 받았습니다. 다음 결함 등록 시 자동으로 추가됩니다. (대기 ${window._phoneRelayInbox.length}장)`, 'info');
+        }
+        updatePhoneRelayButtonLabel();
+    }
+
+    function hidePhoneRelayModal() {
         if (elements.mobileQrModal) {
             elements.mobileQrModal.style.display = 'none';
             elements.mobileQrModal.classList.remove('open');
         }
+    }
+
+    function disconnectPhoneRelay() {
+        if (phoneRelayUnsubscribe) { phoneRelayUnsubscribe(); phoneRelayUnsubscribe = null; }
+        window._phoneRelayInbox = [];
+        updatePhoneRelayButtonLabel();
+        window.showToast('휴대폰 연동이 해제되었습니다.', 'info');
+    }
+
+    function startPhoneRelaySession() {
+        const sessionId = `rel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        const captureUrl = new URL('photo-capture.html', window.location.href);
+        captureUrl.searchParams.set('s', sessionId);
+
+        const qrContainer = document.getElementById('mobileQrCanvas');
+        const statusEl = document.getElementById('mobileQrStatus');
+        if (qrContainer) {
+            qrContainer.innerHTML = '';
+            new QRCode(qrContainer, { text: captureUrl.href, width: 200, height: 200 });
+        }
+        if (statusEl) {
+            statusEl.textContent = '휴대폰으로 QR을 스캔해 주세요. 한 번 연결하면 계속 유지됩니다.';
+            statusEl.style.color = '';
+        }
+
+        phoneRelayUnsubscribe = db.collection('photoRelay').doc(sessionId).collection('photos')
+            .onSnapshot((snapshot) => {
+                snapshot.docChanges().forEach((change) => {
+                    if (change.type === 'added') {
+                        const data = change.doc.data();
+                        if (data && data.dataUrl) {
+                            receivePhoneRelayPhoto(data.dataUrl);
+                            if (statusEl) {
+                                statusEl.textContent = '휴대폰과 연결되어 있습니다. 계속 촬영하셔도 됩니다.';
+                                statusEl.style.color = '#4ade80';
+                            }
+                        }
+                    }
+                });
+            }, (err) => {
+                console.error('휴대폰 연동 사진 수신 오류:', err);
+            });
+
+        updatePhoneRelayButtonLabel();
     }
 
     function openPhoneRelayModal() {
@@ -5722,49 +5799,24 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const sessionId = `rel_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const captureUrl = new URL('photo-capture.html', window.location.href);
-        captureUrl.searchParams.set('s', sessionId);
-
-        const qrContainer = document.getElementById('mobileQrCanvas');
-        const statusEl = document.getElementById('mobileQrStatus');
-        if (qrContainer) {
-            qrContainer.innerHTML = '';
-            new QRCode(qrContainer, { text: captureUrl.href, width: 200, height: 200 });
-        }
-        if (statusEl) {
-            statusEl.textContent = '휴대폰으로 QR을 스캔해 주세요. 스캔하면 자동으로 연결됩니다.';
-            statusEl.style.color = '';
-        }
-
         if (elements.mobileQrModal) {
             elements.mobileQrModal.style.display = 'flex';
             elements.mobileQrModal.classList.add('open');
         }
 
-        phoneRelayUnsubscribe = db.collection('photoRelay').doc(sessionId).collection('photos')
-            .onSnapshot((snapshot) => {
-                snapshot.docChanges().forEach((change) => {
-                    if (change.type === 'added') {
-                        const data = change.doc.data();
-                        if (data && data.dataUrl) {
-                            if (!window._pendingPhotos) window._pendingPhotos = [];
-                            window._pendingPhotos.push(data.dataUrl);
-                            renderPhotoPreviewList();
-                            if (statusEl) {
-                                statusEl.textContent = `사진 ${window._pendingPhotos.length}장 수신됨 — 계속 촬영하거나 '연결 종료'를 눌러주세요.`;
-                                statusEl.style.color = '#4ade80';
-                            }
-                            window.showToast('휴대폰에서 사진을 받았습니다.', 'success');
-                        }
-                    }
-                });
-            }, (err) => {
-                console.error('휴대폰 연동 사진 수신 오류:', err);
-            });
+        if (phoneRelayUnsubscribe) {
+            // 이미 연동되어 있으면 QR을 새로 만들지 않고 연결 상태만 보여줌
+            const qrContainer = document.getElementById('mobileQrCanvas');
+            const statusEl = document.getElementById('mobileQrStatus');
+            if (qrContainer) qrContainer.innerHTML = '<div style="padding:2.5rem 1rem; color:#4ade80; font-weight:700;"><i class="fa-solid fa-circle-check"></i><br>이미 휴대폰과 연동되어 있습니다</div>';
+            if (statusEl) {
+                statusEl.textContent = '다른 휴대폰으로 다시 연결하려면 "연동 해제" 후 다시 열어주세요.';
+                statusEl.style.color = '#4ade80';
+            }
+            return;
+        }
 
-        // 세션 방치 시 계속 열려있지 않도록 15분 후 자동 종료
-        phoneRelayTimeoutId = setTimeout(closePhoneRelayModal, 15 * 60 * 1000);
+        startPhoneRelaySession();
     }
 
     const btnTriggerPhoneRelay = document.getElementById('btnTriggerPhoneRelay');
@@ -5776,9 +5828,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const btnCloseQrModal = document.getElementById('btnCloseQrModal');
-    if (btnCloseQrModal) btnCloseQrModal.addEventListener('click', closePhoneRelayModal);
+    if (btnCloseQrModal) btnCloseQrModal.addEventListener('click', hidePhoneRelayModal);
     const btnCloseQrConfirm = document.getElementById('btnCloseQrConfirm');
-    if (btnCloseQrConfirm) btnCloseQrConfirm.addEventListener('click', closePhoneRelayModal);
+    if (btnCloseQrConfirm) btnCloseQrConfirm.addEventListener('click', hidePhoneRelayModal);
+    const btnDisconnectPhoneRelay = document.getElementById('btnDisconnectPhoneRelay');
+    if (btnDisconnectPhoneRelay) {
+        btnDisconnectPhoneRelay.addEventListener('click', () => {
+            disconnectPhoneRelay();
+            hidePhoneRelayModal();
+        });
+    }
 
     const btnCloseDefectModal = document.getElementById('btnCloseDefectModal');
     if (btnCloseDefectModal) {

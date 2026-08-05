@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260805_2200">
+    <link rel="stylesheet" href="styles.css?v=20260805_2300">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -1278,12 +1278,13 @@
                 <button class="modal-close" id="btnCloseQrModal">&times;</button>
             </div>
             <div class="modal-body text-center">
-                <p>스마트폰 카메라로 아래 QR 코드를 스캔하면 <strong>사진 촬영 전용 페이지</strong>가 열립니다. 로그인 없이 바로 촬영·전송할 수 있고, 촬영한 사진은 실시간으로 이 결함 등록 화면에 추가됩니다.</p>
+                <p>스마트폰 카메라로 아래 QR 코드를 <strong>한 번만</strong> 스캔하면 됩니다. 로그인 없이 바로 촬영·전송할 수 있고, 이후 촬영하는 결함마다 다시 스캔할 필요 없이 계속 연동됩니다.</p>
                 <div id="mobileQrCanvas" style="display:flex; justify-content:center; margin: 1rem 0; background:#ffffff; padding:12px; border-radius:10px; width:fit-content; margin-left:auto; margin-right:auto;"></div>
                 <p id="mobileQrStatus" class="text-muted small">QR 코드를 생성하고 있습니다...</p>
             </div>
-            <div class="modal-footer justify-center">
-                <button class="btn btn-primary" id="btnCloseQrConfirm">연결 종료</button>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button class="btn btn-danger-outline" id="btnDisconnectPhoneRelay"><i class="fa-solid fa-link-slash"></i> 연동 해제</button>
+                <button class="btn btn-primary" id="btnCloseQrConfirm">닫기 (연동 유지)</button>
             </div>
         </div>
     </div>
@@ -1508,7 +1509,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260805_2200"></script>
+    <script src="app.js?v=20260805_2300"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
