@@ -4431,7 +4431,7 @@ document.addEventListener('DOMContentLoaded', () => {
         customList.forEach(item => {
             if (!presetList.includes(item)) {
                 const sel = (currentVal && currentVal === item) ? 'selected' : '';
-                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
+                html += `<option value="${item}" ${sel}>${item}</option>`;
             }
         });
 
@@ -4441,7 +4441,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
             const customOpt = document.createElement('option');
             customOpt.value = currentVal;
-            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.textContent = currentVal;
             customOpt.selected = true;
             select.insertBefore(customOpt, select.lastElementChild);
         }
@@ -4501,7 +4501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         customList.forEach(item => {
             if (!presetList.includes(item)) {
                 const sel = (currentVal && currentVal === item) ? 'selected' : '';
-                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
+                html += `<option value="${item}" ${sel}>${item}</option>`;
             }
         });
 
@@ -4511,7 +4511,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
             const customOpt = document.createElement('option');
             customOpt.value = currentVal;
-            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.textContent = currentVal;
             customOpt.selected = true;
             select.insertBefore(customOpt, select.lastElementChild);
         }
@@ -4579,7 +4579,7 @@ document.addEventListener('DOMContentLoaded', () => {
         customList.forEach(item => {
             if (!presetList.includes(item)) {
                 const sel = (currentVal && currentVal === item) ? 'selected' : '';
-                html += `<option value="${item}" ${sel}>⭐ [추가됨] ${item}</option>`;
+                html += `<option value="${item}" ${sel}>${item}</option>`;
             }
         });
 
@@ -4589,7 +4589,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentVal && !presetList.includes(currentVal) && !customList.includes(currentVal)) {
             const customOpt = document.createElement('option');
             customOpt.value = currentVal;
-            customOpt.textContent = `⭐ ${currentVal}`;
+            customOpt.textContent = currentVal;
             customOpt.selected = true;
             select.insertBefore(customOpt, select.lastElementChild);
         }
