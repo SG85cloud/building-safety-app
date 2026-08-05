@@ -847,6 +847,29 @@ body {
     overflow-y: auto;
 }
 
+/* 데스크탑: 전회차/금회차 목록이 바깥 패널 스크롤에 묶이지 않고 각자 독립적으로 스크롤되도록,
+   패널 자체는 스크롤하지 않고 두 구역이 남은 세로 공간을 나눠 가지며 각자 스크롤한다 */
+@media (min-width: 769px) {
+    .defect-list-panel {
+        max-height: none;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .defect-list-section {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .defect-list-section-scroll {
+        max-height: none;
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+    }
+}
+
 .defect-list-item:hover {
     border-color: var(--accent-blue);
     background: rgba(56, 189, 248, 0.08);
