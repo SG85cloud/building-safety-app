@@ -466,8 +466,6 @@ body {
     border-radius: var(--radius-md);
     overflow: hidden;
     min-height: 400px;
-    height: 50vh;
-    max-height: 500px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -724,6 +722,13 @@ body {
     flex: 1;
     min-height: 0;
     align-items: flex-start;
+}
+
+/* 데스크탑에서는 3컬럼이 화면 높이만큼 늘어나도록(캔버스 작업공간이 아래쪽 여백 없이 꽉 차게) */
+@media (min-width: 769px) {
+    .inspect-layout {
+        align-items: stretch;
+    }
 }
 
 .inspect-canvas-col {
