@@ -216,13 +216,6 @@
                             <button type="button" id="btnOpenStyleColorModal" class="chip"><i class="fa-solid fa-palette"></i> 스타일 설정</button>
                         </div>
 
-                        <!-- Pin Marker Shape Selector -->
-                        <div class="filter-group">
-                            <span class="filter-label">박스 모양:</span>
-                            <button type="button" id="btnPinShapeSquare" class="chip active">🔲 네모</button>
-                            <button type="button" id="btnPinShapeCircle" class="chip">⚪ 동그라미</button>
-                        </div>
-
                         <!-- Target Tip Shape Selector -->
                         <div class="filter-group">
                             <span class="filter-label">지시선 끝:</span>
@@ -647,6 +640,11 @@
                         <label>핀 <input type="range" id="stylePinSizeDefectStructural" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectStructuralLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeDefectStructural" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectStructuralLabel">100%</span></label>
                     </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeDefectStructural"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillDefectStructural"> 채우기</label>
+                        <select id="styleNumFmtDefectStructural"><option value="no">NO.01</option><option value="plain">01</option></select>
+                    </div>
                 </div>
                 <div class="style-cat-card">
                     <div class="style-color-row">
@@ -657,6 +655,11 @@
                         <label>핀 <input type="range" id="stylePinSizeDefectNonStructural" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectNonStructuralLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeDefectNonStructural" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectNonStructuralLabel">100%</span></label>
                     </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeDefectNonStructural"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillDefectNonStructural"> 채우기</label>
+                        <select id="styleNumFmtDefectNonStructural"><option value="no">NO.01</option><option value="plain">01</option></select>
+                    </div>
                 </div>
                 <div class="style-cat-card">
                     <div class="style-color-row">
@@ -666,6 +669,11 @@
                     <div class="style-size-row">
                         <label>핀 <input type="range" id="stylePinSizeDefectFinish" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectFinishLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeDefectFinish" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectFinishLabel">100%</span></label>
+                    </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeDefectFinish"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillDefectFinish"> 채우기</label>
+                        <select id="styleNumFmtDefectFinish"><option value="no">NO.01</option><option value="plain">01</option></select>
                     </div>
                 </div>
 
@@ -679,6 +687,11 @@
                         <label>핀 <input type="range" id="stylePinSizeNdtMeasure" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtMeasureLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtMeasure" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtMeasureLabel">100%</span></label>
                     </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtMeasure"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtMeasure"> 채우기</label>
+                        <select id="styleNumFmtNdtMeasure"><option value="no">NO.01</option><option value="plain">01</option></select>
+                    </div>
                 </div>
                 <div class="style-cat-card">
                     <div class="style-color-row">
@@ -688,6 +701,11 @@
                     <div class="style-size-row">
                         <label>핀 <input type="range" id="stylePinSizeNdtStrength" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtStrengthLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtStrength" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtStrengthLabel">100%</span></label>
+                    </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtStrength"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtStrength"> 채우기</label>
+                        <select id="styleNumFmtNdtStrength"><option value="no">NO.01</option><option value="plain">01</option></select>
                     </div>
                 </div>
                 <div class="style-cat-card">
@@ -699,6 +717,11 @@
                         <label>핀 <input type="range" id="stylePinSizeNdtCarbonation" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtCarbonationLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtCarbonation" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtCarbonationLabel">100%</span></label>
                     </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtCarbonation"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtCarbonation"> 채우기</label>
+                        <select id="styleNumFmtNdtCarbonation"><option value="no">NO.01</option><option value="plain">01</option></select>
+                    </div>
                 </div>
                 <div class="style-cat-card">
                     <div class="style-color-row">
@@ -708,6 +731,11 @@
                     <div class="style-size-row">
                         <label>핀 <input type="range" id="stylePinSizeNdtTilt" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtTiltLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtTilt" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtTiltLabel">100%</span></label>
+                    </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtTilt"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtTilt"> 채우기</label>
+                        <select id="styleNumFmtNdtTilt"><option value="no">NO.01</option><option value="plain">01</option></select>
                     </div>
                 </div>
                 <div class="style-cat-card">
@@ -719,6 +747,11 @@
                         <label>핀 <input type="range" id="stylePinSizeNdtSettlement" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtSettlementLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtSettlement" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtSettlementLabel">100%</span></label>
                     </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtSettlement"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtSettlement"> 채우기</label>
+                        <select id="styleNumFmtNdtSettlement"><option value="no">NO.01</option><option value="plain">01</option></select>
+                    </div>
                 </div>
                 <div class="style-cat-card">
                     <div class="style-color-row">
@@ -728,6 +761,11 @@
                     <div class="style-size-row">
                         <label>핀 <input type="range" id="stylePinSizeNdtMemberDisp" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtMemberDispLabel">100%</span></label>
                         <label>화살표 <input type="range" id="styleArrowSizeNdtMemberDisp" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtMemberDispLabel">100%</span></label>
+                    </div>
+                    <div class="style-shape-row">
+                        <select id="styleShapeNdtMemberDisp"><option value="rect">직사각형</option><option value="rounded">둥근 사각형</option><option value="circle">원형</option></select>
+                        <label class="style-fill-check"><input type="checkbox" id="styleFillNdtMemberDisp"> 채우기</label>
+                        <select id="styleNumFmtNdtMemberDisp"><option value="no">NO.01</option><option value="plain">01</option></select>
                     </div>
                 </div>
             </div>

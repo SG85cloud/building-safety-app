@@ -15,10 +15,10 @@ if (!window.state) {
         view: { offsetX: 0, offsetY: 0, scale: 1.0 },
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
-        pinShape: 'square', // 'square' | 'circle'
         tipShape: 'arrow',  // 'arrow' | 'circle'
         styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
         styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
+        styleShapes: null, // 카테고리별 사용자 지정 박스 모양/채우기/번호형식 (미지정 시 DEFAULT_STYLE_SHAPES 사용)
         bgImage: null,
         canvas: null,
         ctx: null,
@@ -375,7 +375,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 hiddenDefectTypes: window.state.hiddenDefectTypes || {},
                 hiddenDefectCauses: window.state.hiddenDefectCauses || {},
                 styleColors: window.state.styleColors || null,
-                styleSizes: window.state.styleSizes || null
+                styleSizes: window.state.styleSizes || null,
+                styleShapes: window.state.styleShapes || null,
+                tipShape: window.state.tipShape || 'arrow'
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
             if (typeof syncStateToFirebase === 'function') {
@@ -453,6 +455,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.styleSizes) {
                     window.state.styleSizes = parsed.styleSizes;
+                }
+                if (parsed.styleShapes) {
+                    window.state.styleShapes = parsed.styleShapes;
+                }
+                if (parsed.tipShape) {
+                    window.state.tipShape = parsed.tipShape;
                 }
             }
 
@@ -1763,6 +1771,48 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
+    // --- 카테고리별 박스 모양(직사각형/둥근사각형/원형) · 채우기 유무 · 번호 표시형식(NO.접두어 유무) ---
+    const DEFAULT_STYLE_SHAPES = {
+        defectStructural: { shape: 'rect', fill: false, numberFormat: 'no' },
+        defectNonStructural: { shape: 'rect', fill: false, numberFormat: 'no' },
+        defectFinish: { shape: 'rect', fill: false, numberFormat: 'no' },
+        ndtMeasure: { shape: 'rounded', fill: true, numberFormat: 'no' },
+        ndtStrength: { shape: 'rounded', fill: true, numberFormat: 'no' },
+        ndtCarbonation: { shape: 'rounded', fill: true, numberFormat: 'no' },
+        ndtTilt: { shape: 'rect', fill: false, numberFormat: 'no' },
+        ndtSettlement: { shape: 'rect', fill: false, numberFormat: 'no' },
+        ndtMemberDisp: { shape: 'rect', fill: false, numberFormat: 'no' }
+    };
+
+    function getStyleShape(key) {
+        const custom = state.styleShapes && state.styleShapes[key];
+        const def = DEFAULT_STYLE_SHAPES[key] || { shape: 'rect', fill: false, numberFormat: 'no' };
+        return {
+            shape: (custom && custom.shape) || def.shape,
+            fill: (custom && custom.fill !== undefined) ? custom.fill : def.fill,
+            numberFormat: (custom && custom.numberFormat) || def.numberFormat
+        };
+    }
+
+    // 박스 테두리 경로 생성(직사각형/둥근사각형/원형 공용) — fill()/stroke() 호출 전에 사용
+    function traceStyledBoxPath(ctx, w, h, shape, cornerRadius) {
+        ctx.beginPath();
+        if (shape === 'circle') {
+            ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+        } else if (shape === 'rounded') {
+            ctx.roundRect(-w / 2, -h / 2, w, h, Math.min(cornerRadius, w / 2, h / 2));
+        } else {
+            ctx.rect(-w / 2, -h / 2, w, h);
+        }
+    }
+
+    // 카테고리 설정에 따라 "NO.01" ↔ "01" 형식으로 번호 라벨 텍스트 변환
+    function formatPinNumberLabel(rawText, styleKey) {
+        if (getStyleShape(styleKey).numberFormat !== 'plain') return rawText;
+        const m = String(rawText || '').match(/(\d+)/);
+        return m ? m[1] : (rawText || '');
+    }
+
     // NDT 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
     function getNdtStyleKey(cat) {
         if (cat === '부재변위') return 'ndtMemberDisp';
@@ -2068,7 +2118,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetY = item.targetY !== undefined ? item.targetY : (item.y || y);
         const isBeingDragged = (typeof activeDragNdtPin !== 'undefined' && activeDragNdtPin && activeDragNdtPin === item);
         const cat = item.category || '강도';
-        const ndtSize = getStyleSize(getNdtStyleKey(cat));
+        const ndtStyleKey = getNdtStyleKey(cat);
+        const ndtSize = getStyleSize(ndtStyleKey);
+        const ndtShapeCfg = getStyleShape(ndtStyleKey);
         const pinScale = ndtSize.pin;
         const arrowScale = ndtSize.arrow;
 
@@ -2077,12 +2129,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const numPart = noStr.replace(/^[^\d]+/, '');
             noStr = `NO.${numPart.length === 1 ? '0' + numPart : numPart}`;
         }
+        noStr = formatPinNumberLabel(noStr, ndtStyleKey);
 
         if (cat === '기울기' || cat === '변위' || cat === '부재변위') {
             // CAD Callout Style rendering (100% matching user reference photo & draggable!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
             const dispDir = item.dispDirection || '←';
-            const calloutColor = getStyleColor(getNdtStyleKey(cat));
+            const calloutColor = getStyleColor(ndtStyleKey);
 
             ctx.save();
 
@@ -2135,20 +2188,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const col2W = 65 * pinScale;
             const col3W = 65 * pinScale;
 
-            // Box Background (White) & Outer Border
-            ctx.fillStyle = '#ffffff';
+            // Box Background & Outer Border (채우기 유무/모양은 카테고리 설정을 따름)
+            const calloutBgColor = ndtShapeCfg.fill ? calloutColor : '#ffffff';
+            const calloutTextColor = ndtShapeCfg.fill ? '#ffffff' : (isBeingDragged ? '#d97706' : calloutColor);
+            ctx.fillStyle = calloutBgColor;
             ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
             ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
             if (isBeingDragged) {
                 ctx.shadowColor = '#facc15';
                 ctx.shadowBlur = 12 * pinScale;
             }
-            ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
-            ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+            traceStyledBoxPath(ctx, boxW, boxH, ndtShapeCfg.shape, 8 * pinScale);
+            ctx.fill();
+            ctx.stroke();
             ctx.shadowBlur = 0;
 
             // Vertical & Horizontal Grid Dividers
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
+            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutTextColor;
             ctx.lineWidth = 1.5 * pinScale;
             ctx.beginPath();
             ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
@@ -2162,7 +2218,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.stroke();
 
             // Cell Text Formatting
-            ctx.fillStyle = isBeingDragged ? '#d97706' : calloutColor;
+            ctx.fillStyle = calloutTextColor;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
@@ -2237,7 +2293,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.rotate((-270 * Math.PI) / 180);
         }
 
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        const stdBgColor = ndtShapeCfg.fill ? color : '#ffffff';
+        const stdTextColor = ndtShapeCfg.fill ? '#ffffff' : color;
+        ctx.fillStyle = stdBgColor;
         ctx.strokeStyle = color;
         ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
         ctx.shadowColor = color;
@@ -2245,13 +2303,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const w = 78 * pinScale;
         const h = 26 * pinScale;
-        ctx.beginPath();
-        ctx.roundRect(-w/2, -h/2, w, h, 6 * pinScale);
+        traceStyledBoxPath(ctx, w, h, ndtShapeCfg.shape, 6 * pinScale);
         ctx.fill();
         ctx.stroke();
 
         ctx.shadowBlur = 0;
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = stdTextColor;
         ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -2310,25 +2367,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 그룹 라벨 박스 (측정 구역 번호만 표시) — 보는 방향과 무관하게 항상 똑바로 보이도록 역회전
+        const groupShapeCfg = getStyleShape(groupStyleKey);
         ctx.save();
         ctx.translate(boxX, boxY);
         if (groupCounterRotate) ctx.rotate((groupCounterRotate * Math.PI) / 180);
-        ctx.fillStyle = '#ffffff';
+        ctx.fillStyle = groupShapeCfg.fill ? color : '#ffffff';
         ctx.strokeStyle = isGroupDragged ? '#facc15' : color;
         ctx.lineWidth = (isGroupDragged ? 3 : 2) * pinScale;
         const w = 56 * pinScale;
         const h = 22 * pinScale;
         ctx.shadowColor = 'rgba(0,0,0,0.5)';
         ctx.shadowBlur = 5 * pinScale;
-        ctx.fillRect(-w / 2, -h / 2, w, h);
-        ctx.strokeRect(-w / 2, -h / 2, w, h);
+        traceStyledBoxPath(ctx, w, h, groupShapeCfg.shape, 6 * pinScale);
+        ctx.fill();
+        ctx.stroke();
         ctx.shadowBlur = 0;
 
-        ctx.fillStyle = color;
+        ctx.fillStyle = groupShapeCfg.fill ? '#ffffff' : color;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.font = `bold ${Math.round(12 * pinScale)}px sans-serif`;
-        ctx.fillText(group.groupNo, 0, 0);
+        ctx.fillText(formatPinNumberLabel(group.groupNo, groupStyleKey), 0, 0);
         ctx.restore();
     }
 
@@ -4066,20 +4125,24 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (boxRot === 270) {
                 ctx.rotate((-270 * Math.PI) / 180);
             }
+            const areaStyleKey = getDefectStyleKey(defect.category);
+            const areaShapeCfg = getStyleShape(areaStyleKey);
             ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
             ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
-            ctx.fillStyle = '#ffffff';
-            ctx.strokeStyle = activeColor;
-            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
             const w = 38 * scale;
             const h = 26 * scale;
-            ctx.fillRect(0, -h, w, h);
-            ctx.strokeRect(0, -h, w, h);
-            ctx.fillStyle = activeColor;
+            ctx.translate(w / 2, -h / 2); // 박스 중심으로 원점 이동(모양 경로가 중심 기준이므로)
+            ctx.fillStyle = isBeingDragged ? '#facc15' : (areaShapeCfg.fill ? activeColor : '#ffffff');
+            ctx.strokeStyle = activeColor;
+            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
+            traceStyledBoxPath(ctx, w, h, areaShapeCfg.shape, 6 * scale);
+            ctx.fill();
+            ctx.stroke();
+            ctx.fillStyle = isBeingDragged ? '#7c2d12' : (areaShapeCfg.fill ? '#ffffff' : activeColor);
             ctx.font = `bold ${Math.round(13 * scale)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(defect.no || 'NO.01', w / 2, -h / 2);
+            ctx.fillText(formatPinNumberLabel(defect.no || 'NO.01', areaStyleKey), 0, 0);
             ctx.restore();
         }
     }
@@ -4120,7 +4183,9 @@ document.addEventListener('DOMContentLoaded', () => {
             (activeDragPin.id === defect.id || (defect.groupId && activeDragPin.groupId === defect.groupId)));
 
         // Category Theme Color: 사용자 지정 색상(styleColors) 우선, 없으면 기본값
+        const defectStyleKey = getDefectStyleKey(defect.category);
         const mainColor = getDefectColor(defect.category);
+        const shapeCfg = getStyleShape(defectStyleKey);
 
         const activeColor = isBeingDragged ? '#facc15' : mainColor;
 
@@ -4180,30 +4245,25 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
         ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
 
-        // Pure White Solid Background
-        ctx.fillStyle = '#ffffff';
+        // 채우기 유무에 따라 배경/글자 색이 뒤바뀜(채우기: 카테고리색 배경+흰글자, 미채우기: 흰 배경+카테고리색 글자)
+        const boxFillColor = (isBeingDragged ? '#facc15' : (shapeCfg.fill ? activeColor : '#ffffff'));
+        const boxTextColor = (isBeingDragged ? '#7c2d12' : (shapeCfg.fill ? '#ffffff' : activeColor));
+        ctx.fillStyle = boxFillColor;
         ctx.strokeStyle = activeColor;
         ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
 
         const w = 38 * scale;
         const h = 26 * scale;
 
-        if (state.pinShape === 'circle') {
-            ctx.beginPath();
-            ctx.arc(0, 0, 16 * scale, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(-w / 2, -h / 2, w, h);
-            ctx.strokeRect(-w / 2, -h / 2, w, h);
-        }
+        traceStyledBoxPath(ctx, w, h, shapeCfg.shape, 6 * scale);
+        ctx.fill();
+        ctx.stroke();
 
-        // Text matching Red / Blue / Orange
-        ctx.fillStyle = activeColor;
+        ctx.fillStyle = boxTextColor;
         ctx.font = `bold ${Math.round(13 * scale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(defect.groupNo || defect.no || 'NO.01', 0, 0);
+        ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', defectStyleKey), 0, 0);
 
         ctx.restore();
     }
@@ -4617,6 +4677,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ['NdtMemberDisp', 'ndtMemberDisp']
     ];
 
+    // [ID 접미사, styleShapes 키] — styleShape{suffix}/styleFill{suffix}/styleNumFmt{suffix} 컨트롤에 사용
+    const STYLE_SHAPE_FIELDS = STYLE_SIZE_FIELDS;
+
     function refreshAllStyleColoredCanvases() {
         if (typeof drawCanvas === 'function') drawCanvas();
         if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
@@ -4639,6 +4702,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pinLabel) pinLabel.textContent = `${Math.round(sz.pin * 100)}%`;
             if (arrowInput) arrowInput.value = sz.arrow;
             if (arrowLabel) arrowLabel.textContent = `${Math.round(sz.arrow * 100)}%`;
+        });
+        STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
+            const sh = getStyleShape(key);
+            const shapeInput = document.getElementById(`styleShape${suffix}`);
+            const fillInput = document.getElementById(`styleFill${suffix}`);
+            const numFmtInput = document.getElementById(`styleNumFmt${suffix}`);
+            if (shapeInput) shapeInput.value = sh.shape;
+            if (fillInput) fillInput.checked = sh.fill;
+            if (numFmtInput) numFmtInput.value = sh.numberFormat;
         });
         const modal = document.getElementById('styleColorModal');
         if (modal) {
@@ -4707,12 +4779,47 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
+            const shapeInput = document.getElementById(`styleShape${suffix}`);
+            const fillInput = document.getElementById(`styleFill${suffix}`);
+            const numFmtInput = document.getElementById(`styleNumFmt${suffix}`);
+
+            if (shapeInput) {
+                shapeInput.addEventListener('change', () => {
+                    if (!state.styleShapes) state.styleShapes = {};
+                    if (!state.styleShapes[key]) state.styleShapes[key] = {};
+                    state.styleShapes[key].shape = shapeInput.value;
+                    refreshAllStyleColoredCanvases();
+                    saveStateToLocalStorage();
+                });
+            }
+            if (fillInput) {
+                fillInput.addEventListener('change', () => {
+                    if (!state.styleShapes) state.styleShapes = {};
+                    if (!state.styleShapes[key]) state.styleShapes[key] = {};
+                    state.styleShapes[key].fill = fillInput.checked;
+                    refreshAllStyleColoredCanvases();
+                    saveStateToLocalStorage();
+                });
+            }
+            if (numFmtInput) {
+                numFmtInput.addEventListener('change', () => {
+                    if (!state.styleShapes) state.styleShapes = {};
+                    if (!state.styleShapes[key]) state.styleShapes[key] = {};
+                    state.styleShapes[key].numberFormat = numFmtInput.value;
+                    refreshAllStyleColoredCanvases();
+                    saveStateToLocalStorage();
+                });
+            }
+        });
+
         const btnReset = document.getElementById('btnResetStyleColors');
         if (btnReset) {
             btnReset.addEventListener('click', () => {
-                if (!confirm('모든 색상/크기 설정을 기본값으로 초기화하시겠습니까?')) return;
+                if (!confirm('모든 색상/크기/모양 설정을 기본값으로 초기화하시겠습니까?')) return;
                 state.styleColors = {};
                 state.styleSizes = {};
+                state.styleShapes = {};
                 STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
                     const input = document.getElementById(inputId);
                     if (input) input.value = DEFAULT_STYLE_COLORS[key];
@@ -4728,10 +4835,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (arrowInput) arrowInput.value = def.arrow;
                     if (arrowLabel) arrowLabel.textContent = `${Math.round(def.arrow * 100)}%`;
                 });
+                STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
+                    const def = DEFAULT_STYLE_SHAPES[key];
+                    const shapeInput = document.getElementById(`styleShape${suffix}`);
+                    const fillInput = document.getElementById(`styleFill${suffix}`);
+                    const numFmtInput = document.getElementById(`styleNumFmt${suffix}`);
+                    if (shapeInput) shapeInput.value = def.shape;
+                    if (fillInput) fillInput.checked = def.fill;
+                    if (numFmtInput) numFmtInput.value = def.numberFormat;
+                });
                 refreshAllStyleColoredCanvases();
                 saveStateToLocalStorage();
             });
         }
+    }
+
+    function setupTipShapeEvents() {
+        const btnArrow = document.getElementById('btnTipShapeArrow');
+        const btnCircle = document.getElementById('btnTipShapeCircle');
+
+        const applyTipShape = (shape) => {
+            state.tipShape = shape;
+            if (btnArrow) btnArrow.classList.toggle('active', shape === 'arrow');
+            if (btnCircle) btnCircle.classList.toggle('active', shape === 'circle');
+            refreshAllStyleColoredCanvases();
+            saveStateToLocalStorage();
+        };
+
+        if (btnArrow) btnArrow.addEventListener('click', () => applyTipShape('arrow'));
+        if (btnCircle) btnCircle.addEventListener('click', () => applyTipShape('circle'));
+
+        if (btnArrow) btnArrow.classList.toggle('active', state.tipShape !== 'circle');
+        if (btnCircle) btnCircle.classList.toggle('active', state.tipShape === 'circle');
     }
 
     const btnManageComponent = document.getElementById('btnManageComponent');
@@ -5796,7 +5931,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const boxX = defect.x || 100;
             const boxY = defect.y || 100;
 
+            const safeStyleKey = getDefectStyleKey(defect.category);
             const color = getDefectColor(defect.category);
+            const safeShapeCfg = getStyleShape(safeStyleKey);
 
             const targets = (arrows && arrows.length > 0)
                 ? arrows
@@ -5836,17 +5973,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (counterRotateDeg) {
                 ctx.rotate((counterRotateDeg * Math.PI) / 180);
             }
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = safeShapeCfg.fill ? color : '#ffffff';
             ctx.strokeStyle = color;
             ctx.lineWidth = 2.5;
-            ctx.fillRect(-22, -15, 44, 30);
-            ctx.strokeRect(-22, -15, 44, 30);
+            traceStyledBoxPath(ctx, 44, 30, safeShapeCfg.shape, 6);
+            ctx.fill();
+            ctx.stroke();
 
-            ctx.fillStyle = color;
+            ctx.fillStyle = safeShapeCfg.fill ? '#ffffff' : color;
             ctx.font = 'bold 13px sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(defect.groupNo || defect.no || 'NO.01', 0, 0);
+            ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', safeStyleKey), 0, 0);
             ctx.restore();
         } catch(e) {
             console.warn('drawPinSafe error:', e);
@@ -7796,6 +7934,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
+                styleShapes: window.state.styleShapes || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -7853,6 +7992,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.styleSizes) {
                         window.state.styleSizes = data.styleSizes;
+                        isChanged = true;
+                    }
+                    if (data.styleShapes) {
+                        window.state.styleShapes = data.styleShapes;
                         isChanged = true;
                     }
 
@@ -8429,6 +8572,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupNdtModalEvents === 'function') setupNdtModalEvents();
         if (typeof setupNdtDisplacementModalEvents === 'function') setupNdtDisplacementModalEvents();
         if (typeof setupStyleColorModalEvents === 'function') setupStyleColorModalEvents();
+        if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         showLoginOverlay();
     }
 

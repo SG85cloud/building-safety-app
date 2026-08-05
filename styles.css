@@ -626,9 +626,8 @@ body {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-top: none;
-    border-bottom-left-radius: var(--radius-sm);
-    border-bottom-right-radius: var(--radius-sm);
-    padding: 0.4rem 0.7rem 0.5rem;
+    border-bottom: none;
+    padding: 0.4rem 0.7rem 0.4rem;
 }
 
 .style-size-row label {
@@ -652,6 +651,41 @@ body {
     color: var(--text-primary);
     min-width: 34px;
     text-align: right;
+}
+
+.style-shape-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-bottom-left-radius: var(--radius-sm);
+    border-bottom-right-radius: var(--radius-sm);
+    padding: 0.4rem 0.7rem 0.5rem;
+}
+
+.style-shape-row select {
+    flex: 1;
+    min-width: 90px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.25rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.style-fill-check {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
 }
 
 /* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
