@@ -4387,19 +4387,39 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    // --- Dynamic Defect Component(부재 명칭) Presets & Custom Adding/Removing ---
-    const DEFECT_COMPONENT_PRESET = ['기둥', '큰보', '작은보', '슬래브', '벽체', '조적벽체', '계단', '기타'];
+    // --- Dynamic Defect Component(부재 명칭) Presets & Custom Adding/Removing (카테고리별로 완전히 분리) ---
+    const DEFECT_COMPONENT_PRESET = {
+        '구조체': ['기둥', '큰보', '작은보', '슬래브', '벽체', '계단', '기타'],
+        '비구조체': ['조적벽체', '기타'],
+        '마감재': ['기타']
+    };
 
-    function populateDefectComponentDropdown(currentVal = null) {
+    // 예전 버전(카테고리 구분 없는 배열)으로 저장된 부재 명칭 커스텀/숨김 목록을 카테고리별 객체로 변환
+    function migrateDefectComponentStateShape() {
+        if (Array.isArray(window.state.customDefectComponents)) {
+            const legacy = window.state.customDefectComponents;
+            window.state.customDefectComponents = { '구조체': [...legacy], '비구조체': [...legacy], '마감재': [...legacy] };
+        }
+        if (Array.isArray(window.state.hiddenDefectComponents)) {
+            const legacy = window.state.hiddenDefectComponents;
+            window.state.hiddenDefectComponents = { '구조체': [...legacy], '비구조체': [...legacy], '마감재': [...legacy] };
+        }
+    }
+
+    function populateDefectComponentDropdown(category, currentVal = null) {
         const select = document.getElementById('defectComponent');
         if (!select) return;
+        const cat = category || document.getElementById('defectCategory')?.value || '구조체';
 
-        if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
-        if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = [];
+        migrateDefectComponentStateShape();
+        if (!window.state.customDefectComponents) window.state.customDefectComponents = { '구조체': [], '비구조체': [], '마감재': [] };
+        if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = { '구조체': [], '비구조체': [], '마감재': [] };
+        if (!window.state.customDefectComponents[cat]) window.state.customDefectComponents[cat] = [];
+        if (!window.state.hiddenDefectComponents[cat]) window.state.hiddenDefectComponents[cat] = [];
 
-        const hidden = window.state.hiddenDefectComponents;
-        const presetList = DEFECT_COMPONENT_PRESET.filter(c => !hidden.includes(c));
-        const customList = window.state.customDefectComponents;
+        const hidden = window.state.hiddenDefectComponents[cat];
+        const presetList = (DEFECT_COMPONENT_PRESET[cat] || DEFECT_COMPONENT_PRESET['구조체']).filter(c => !hidden.includes(c));
+        const customList = window.state.customDefectComponents[cat];
 
         let html = '';
         presetList.forEach(item => {
@@ -4580,6 +4600,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (defectCategorySelect) {
         defectCategorySelect.addEventListener('change', (e) => {
             updateDefectTypeDropdown(e.target.value);
+            populateDefectComponentDropdown(e.target.value);
         });
     }
 
@@ -4588,16 +4609,19 @@ document.addEventListener('DOMContentLoaded', () => {
         defectComponentSelect.addEventListener('change', (e) => {
             if (e.target.value === '__ADD_CUSTOM_COMPONENT__') {
                 const newComp = prompt('추가하실 부재 명칭을 입력하세요 (예: 옹벽):');
+                const cat = document.getElementById('defectCategory')?.value || '구조체';
                 if (newComp && newComp.trim()) {
                     const trimmed = newComp.trim();
-                    if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
-                    if (!window.state.customDefectComponents.includes(trimmed)) {
-                        window.state.customDefectComponents.push(trimmed);
+                    migrateDefectComponentStateShape();
+                    if (!window.state.customDefectComponents) window.state.customDefectComponents = { '구조체': [], '비구조체': [], '마감재': [] };
+                    if (!window.state.customDefectComponents[cat]) window.state.customDefectComponents[cat] = [];
+                    if (!window.state.customDefectComponents[cat].includes(trimmed)) {
+                        window.state.customDefectComponents[cat].push(trimmed);
                         saveStateToLocalStorage();
                     }
-                    populateDefectComponentDropdown(trimmed);
+                    populateDefectComponentDropdown(cat, trimmed);
                 } else {
-                    populateDefectComponentDropdown();
+                    populateDefectComponentDropdown(cat);
                 }
             }
         });
@@ -4656,15 +4680,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const field = window._optionManagerField;
 
         if (field === 'component') {
-            if (!window.state.customDefectComponents) window.state.customDefectComponents = [];
-            if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = [];
+            const compCat = document.getElementById('defectCategory')?.value || '구조체';
+            migrateDefectComponentStateShape();
+            if (!window.state.customDefectComponents) window.state.customDefectComponents = { '구조체': [], '비구조체': [], '마감재': [] };
+            if (!window.state.hiddenDefectComponents) window.state.hiddenDefectComponents = { '구조체': [], '비구조체': [], '마감재': [] };
+            if (!window.state.customDefectComponents[compCat]) window.state.customDefectComponents[compCat] = [];
+            if (!window.state.hiddenDefectComponents[compCat]) window.state.hiddenDefectComponents[compCat] = [];
             return {
-                title: '부재 명칭 관리',
-                presetList: DEFECT_COMPONENT_PRESET,
-                hiddenList: window.state.hiddenDefectComponents,
-                customList: window.state.customDefectComponents,
+                title: `부재 명칭 관리 (${compCat})`,
+                presetList: DEFECT_COMPONENT_PRESET[compCat] || DEFECT_COMPONENT_PRESET['구조체'],
+                hiddenList: window.state.hiddenDefectComponents[compCat],
+                customList: window.state.customDefectComponents[compCat],
                 labelFor: (item) => (item === '기타' ? '기타 부재' : item),
-                refresh: () => populateDefectComponentDropdown(document.getElementById('defectComponent')?.value)
+                refresh: () => populateDefectComponentDropdown(compCat, document.getElementById('defectComponent')?.value)
             };
         }
 
@@ -5494,7 +5522,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (catEl) catEl.value = existingPin.category || '구조체';
             updateDefectTypeDropdown(existingPin.category || '구조체', existingPin.defectType);
             updateDefectCauseDropdown(existingPin.defectType || '균열', existingPin.cause);
-            populateDefectComponentDropdown(existingPin.component || '기둥');
+            const compCatExisting = existingPin.category || '구조체';
+            const compDefaultExisting = (DEFECT_COMPONENT_PRESET[compCatExisting] || DEFECT_COMPONENT_PRESET['구조체'])[0];
+            populateDefectComponentDropdown(compCatExisting, existingPin.component || compDefaultExisting);
             if (carriedOverEl) carriedOverEl.checked = !!existingPin.isCarriedOver;
             if (locEl) locEl.value = existingPin.location || `${state.currentFloor} ${existingPin.component || '기둥'}`;
             if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
@@ -5527,8 +5557,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (catEl) catEl.value = defaultCat;
             updateDefectTypeDropdown(defaultCat, (tmpl && tmpl.defectType) || null);
             updateDefectCauseDropdown((tmpl && tmpl.defectType) || '균열', (tmpl && tmpl.cause) || null);
-            const defaultComp = (tmpl && tmpl.component) || '기둥';
-            populateDefectComponentDropdown(defaultComp);
+            const defaultComp = (tmpl && tmpl.component) || (DEFECT_COMPONENT_PRESET[defaultCat] || DEFECT_COMPONENT_PRESET['구조체'])[0];
+            populateDefectComponentDropdown(defaultCat, defaultComp);
             if (carriedOverEl) carriedOverEl.checked = false;
             if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
             const crackWidthElNew = document.getElementById('defectCrackWidth');
