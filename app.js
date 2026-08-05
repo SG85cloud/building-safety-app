@@ -3963,6 +3963,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 result.push(d);
             }
         });
+        // 결함번호(no) 기준 오름차순 정렬 — 좌측 결함목록/상태조사표/PDF/보고서 미리보기가 모두 이 함수를 거치므로 한 번에 정렬됨
+        result.sort((a, b) => {
+            const na = getDefectSortNo(a);
+            const nb = getDefectSortNo(b);
+            if (na !== nb) return na - nb;
+            return (a.no || '').localeCompare(b.no || '');
+        });
         return result;
     }
 
@@ -4058,12 +4065,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const defects = consolidateDefectGroups(getCurrentFloorFilteredDefects());
-        defects.sort((a, b) => {
-            const na = getDefectSortNo(a);
-            const nb = getDefectSortNo(b);
-            if (na !== nb) return na - nb;
-            return (a.no || '').localeCompare(b.no || '');
-        });
 
         if (summaryEl) {
             if (defects.length === 0) {
