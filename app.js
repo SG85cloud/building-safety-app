@@ -17,11 +17,8 @@ if (!window.state) {
         rotationAngle: 0,
         pinShape: 'square', // 'square' | 'circle'
         tipShape: 'arrow',  // 'arrow' | 'circle'
-        pinSizeScale: 1.0,
-        arrowSizeScale: 1.0,
-        ndtPinSizeScale: 1.0,
-        ndtArrowSizeScale: 1.0,
         styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
+        styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
         bgImage: null,
         canvas: null,
         ctx: null,
@@ -295,14 +292,6 @@ document.addEventListener('DOMContentLoaded', () => {
         canvasContainer: document.getElementById('canvasContainer'),
         planCanvas: document.getElementById('planCanvas'),
         zoomScaleText: document.getElementById('zoomScaleText'),
-        pinSizeRange: document.getElementById('pinSizeRange'),
-        pinSizeLabel: document.getElementById('pinSizeLabel'),
-        arrowSizeRange: document.getElementById('arrowSizeRange'),
-        arrowSizeLabel: document.getElementById('arrowSizeLabel'),
-        ndtPinSizeRange: document.getElementById('ndtPinSizeRange'),
-        ndtPinSizeLabel: document.getElementById('ndtPinSizeLabel'),
-        ndtArrowSizeRange: document.getElementById('ndtArrowSizeRange'),
-        ndtArrowSizeLabel: document.getElementById('ndtArrowSizeLabel'),
 
         // Tables & Albums
         surveyTableBody: document.getElementById('surveyTableBody'),
@@ -385,7 +374,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 hiddenDefectComponents: window.state.hiddenDefectComponents || [],
                 hiddenDefectTypes: window.state.hiddenDefectTypes || {},
                 hiddenDefectCauses: window.state.hiddenDefectCauses || {},
-                styleColors: window.state.styleColors || null
+                styleColors: window.state.styleColors || null,
+                styleSizes: window.state.styleSizes || null
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
             if (typeof syncStateToFirebase === 'function') {
@@ -460,6 +450,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.styleColors) {
                     window.state.styleColors = parsed.styleColors;
+                }
+                if (parsed.styleSizes) {
+                    window.state.styleSizes = parsed.styleSizes;
                 }
             }
 
@@ -1689,11 +1682,11 @@ document.addEventListener('DOMContentLoaded', () => {
             filtered = items.filter(item => ['실측', '강도', '탄산화'].includes(item.category));
         }
 
-        const pinScale = state.ndtPinSizeScale || 1.0;
-        const arrowScale = state.ndtArrowSizeScale || 1.0;
-
         for (let i = filtered.length - 1; i >= 0; i--) {
             const item = filtered[i];
+            const itemSize = getStyleSize(getNdtStyleKey(item.category || '강도'));
+            const pinScale = itemSize.pin;
+            const arrowScale = itemSize.arrow;
             const boxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
             const boxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
             const targetX = item.targetX !== undefined ? item.targetX : (item.x || boxX);
@@ -1737,11 +1730,47 @@ document.addEventListener('DOMContentLoaded', () => {
         return (state.styleColors && state.styleColors[key]) || DEFAULT_STYLE_COLORS[key];
     }
 
-    // 결함(구조체/비구조체/마감재) 카테고리에 해당하는 사용자 지정 색상 조회
+    // 결함(구조체/비구조체/마감재) 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
+    function getDefectStyleKey(category) {
+        if (category === '비구조체') return 'defectNonStructural';
+        if (category === '마감재') return 'defectFinish';
+        return 'defectStructural';
+    }
+
     function getDefectColor(category) {
-        if (category === '비구조체') return getStyleColor('defectNonStructural');
-        if (category === '마감재') return getStyleColor('defectFinish');
-        return getStyleColor('defectStructural');
+        return getStyleColor(getDefectStyleKey(category));
+    }
+
+    // --- 카테고리별 핀/화살표 크기 커스터마이징 ---
+    const DEFAULT_STYLE_SIZES = {
+        defectStructural: { pin: 1.0, arrow: 1.0 },
+        defectNonStructural: { pin: 1.0, arrow: 1.0 },
+        defectFinish: { pin: 1.0, arrow: 1.0 },
+        ndtMeasure: { pin: 1.0, arrow: 1.0 },
+        ndtStrength: { pin: 1.0, arrow: 1.0 },
+        ndtCarbonation: { pin: 1.0, arrow: 1.0 },
+        ndtTilt: { pin: 1.0, arrow: 1.0 },
+        ndtSettlement: { pin: 1.0, arrow: 1.0 },
+        ndtMemberDisp: { pin: 1.0, arrow: 1.0 }
+    };
+
+    function getStyleSize(key) {
+        const custom = state.styleSizes && state.styleSizes[key];
+        const def = DEFAULT_STYLE_SIZES[key] || { pin: 1.0, arrow: 1.0 };
+        return {
+            pin: (custom && custom.pin) || def.pin,
+            arrow: (custom && custom.arrow) || def.arrow
+        };
+    }
+
+    // NDT 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
+    function getNdtStyleKey(cat) {
+        if (cat === '부재변위') return 'ndtMemberDisp';
+        if (cat === '변위') return 'ndtSettlement';
+        if (cat === '기울기') return 'ndtTilt';
+        if (cat === '실측') return 'ndtMeasure';
+        if (cat === '탄산화') return 'ndtCarbonation';
+        return 'ndtStrength';
     }
 
     // --- 바닥 수직변위: 그룹(NO.박스) + 다중 레벨 포인트 데이터 ---
@@ -1845,15 +1874,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const groups = getCurrentFloorDisplacementGroups(currentNdtCategory);
         for (let i = groups.length - 1; i >= 0; i--) {
             const group = groups[i];
+            const groupSize = getStyleSize(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
             for (let j = group.points.length - 1; j >= 0; j--) {
                 const p = group.points[j];
-                if (Math.hypot(vx - p.x, vy - p.y) < 22) {
+                if (Math.hypot(vx - p.x, vy - p.y) < 22 * groupSize.pin) {
                     return { type: 'point', group, point: p };
                 }
             }
             const bx = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
             const by = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
-            if (Math.hypot(vx - bx, vy - by) < 34) {
+            if (Math.hypot(vx - bx, vy - by) < 34 * groupSize.pin) {
                 return { type: 'box', group };
             }
         }
@@ -2037,10 +2067,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const targetX = item.targetX !== undefined ? item.targetX : (item.x || x);
         const targetY = item.targetY !== undefined ? item.targetY : (item.y || y);
         const isBeingDragged = (typeof activeDragNdtPin !== 'undefined' && activeDragNdtPin && activeDragNdtPin === item);
-        const pinScale = state.ndtPinSizeScale || 1.0;
-        const arrowScale = state.ndtArrowSizeScale || 1.0;
-
         const cat = item.category || '강도';
+        const ndtSize = getStyleSize(getNdtStyleKey(cat));
+        const pinScale = ndtSize.pin;
+        const arrowScale = ndtSize.arrow;
+
         let noStr = item.no || 'NO.01';
         if (noStr.startsWith('기울기-') || noStr.startsWith('NDT-') || noStr.startsWith('변위-')) {
             const numPart = noStr.replace(/^[^\d]+/, '');
@@ -2051,7 +2082,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // CAD Callout Style rendering (100% matching user reference photo & draggable!)
             const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
             const dispDir = item.dispDirection || '←';
-            const calloutColor = getStyleColor(cat === '부재변위' ? 'ndtMemberDisp' : (cat === '변위' ? 'ndtSettlement' : 'ndtTilt'));
+            const calloutColor = getStyleColor(getNdtStyleKey(cat));
 
             ctx.save();
 
@@ -2231,9 +2262,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 바닥 수직변위: 그룹 라벨 박스(측정위치) 1개 + 각 레벨 포인트로 뻗는 리더라인 + 포인트 원(순번/레벨값)
     function drawNdtDisplacementGroup(ctx, group) {
-        const pinScale = state.ndtPinSizeScale || 1.0;
-        const arrowScale = state.ndtArrowSizeScale || 1.0;
-        const color = getStyleColor(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
+        const groupStyleKey = group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement';
+        const groupSize = getStyleSize(groupStyleKey);
+        const pinScale = groupSize.pin;
+        const arrowScale = groupSize.arrow;
+        const color = getStyleColor(groupStyleKey);
         const boxX = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
         const boxY = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
         const isGroupDragged = activeDragNdtDisplacementGroup === group && !activeDragNdtDisplacementPoint;
@@ -4003,7 +4036,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const y1 = Math.min(defect.areaY1, defect.areaY2);
         const x2 = Math.max(defect.areaX1, defect.areaX2);
         const y2 = Math.max(defect.areaY1, defect.areaY2);
-        const scale = state.pinSizeScale || 1.0;
+        const scale = getStyleSize(getDefectStyleKey(defect.category)).pin;
         const isBeingDragged = (!isPreview && typeof activeDragPin !== 'undefined' && activeDragPin && activeDragPin.id === defect.id);
 
         const mainColor = getDefectColor(defect.category);
@@ -4080,8 +4113,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const boxX = defect.x || 100;
         const boxY = defect.y || 100;
-        const scale = state.pinSizeScale || 1.0;
-        const arrowScale = state.arrowSizeScale || 1.0;
+        const defectSize = getStyleSize(getDefectStyleKey(defect.category));
+        const scale = defectSize.pin;
+        const arrowScale = defectSize.arrow;
         const isBeingDragged = (typeof activeDragPin !== 'undefined' && activeDragPin &&
             (activeDragPin.id === defect.id || (defect.groupId && activeDragPin.groupId === defect.groupId)));
 
@@ -4570,6 +4604,19 @@ document.addEventListener('DOMContentLoaded', () => {
         ['styleColorNdtMemberDisp', 'ndtMemberDisp']
     ];
 
+    // [ID 접미사, styleSizes 키] — stylePinSize{suffix}/styleArrowSize{suffix} 슬라이더에 사용
+    const STYLE_SIZE_FIELDS = [
+        ['DefectStructural', 'defectStructural'],
+        ['DefectNonStructural', 'defectNonStructural'],
+        ['DefectFinish', 'defectFinish'],
+        ['NdtMeasure', 'ndtMeasure'],
+        ['NdtStrength', 'ndtStrength'],
+        ['NdtCarbonation', 'ndtCarbonation'],
+        ['NdtTilt', 'ndtTilt'],
+        ['NdtSettlement', 'ndtSettlement'],
+        ['NdtMemberDisp', 'ndtMemberDisp']
+    ];
+
     function refreshAllStyleColoredCanvases() {
         if (typeof drawCanvas === 'function') drawCanvas();
         if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
@@ -4581,6 +4628,17 @@ document.addEventListener('DOMContentLoaded', () => {
         STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
             const input = document.getElementById(inputId);
             if (input) input.value = getStyleColor(key);
+        });
+        STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+            const sz = getStyleSize(key);
+            const pinInput = document.getElementById(`stylePinSize${suffix}`);
+            const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+            const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+            const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+            if (pinInput) pinInput.value = sz.pin;
+            if (pinLabel) pinLabel.textContent = `${Math.round(sz.pin * 100)}%`;
+            if (arrowInput) arrowInput.value = sz.arrow;
+            if (arrowLabel) arrowLabel.textContent = `${Math.round(sz.arrow * 100)}%`;
         });
         const modal = document.getElementById('styleColorModal');
         if (modal) {
@@ -4621,14 +4679,54 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
+        STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+            const pinInput = document.getElementById(`stylePinSize${suffix}`);
+            const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+            const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+            const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+
+            if (pinInput) {
+                pinInput.addEventListener('input', () => {
+                    if (!state.styleSizes) state.styleSizes = {};
+                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
+                    state.styleSizes[key].pin = parseFloat(pinInput.value);
+                    if (pinLabel) pinLabel.textContent = `${Math.round(state.styleSizes[key].pin * 100)}%`;
+                    refreshAllStyleColoredCanvases();
+                });
+                pinInput.addEventListener('change', () => saveStateToLocalStorage());
+            }
+            if (arrowInput) {
+                arrowInput.addEventListener('input', () => {
+                    if (!state.styleSizes) state.styleSizes = {};
+                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
+                    state.styleSizes[key].arrow = parseFloat(arrowInput.value);
+                    if (arrowLabel) arrowLabel.textContent = `${Math.round(state.styleSizes[key].arrow * 100)}%`;
+                    refreshAllStyleColoredCanvases();
+                });
+                arrowInput.addEventListener('change', () => saveStateToLocalStorage());
+            }
+        });
+
         const btnReset = document.getElementById('btnResetStyleColors');
         if (btnReset) {
             btnReset.addEventListener('click', () => {
-                if (!confirm('모든 색상 설정을 기본값으로 초기화하시겠습니까?')) return;
+                if (!confirm('모든 색상/크기 설정을 기본값으로 초기화하시겠습니까?')) return;
                 state.styleColors = {};
+                state.styleSizes = {};
                 STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
                     const input = document.getElementById(inputId);
                     if (input) input.value = DEFAULT_STYLE_COLORS[key];
+                });
+                STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+                    const def = DEFAULT_STYLE_SIZES[key];
+                    const pinInput = document.getElementById(`stylePinSize${suffix}`);
+                    const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+                    const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+                    const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+                    if (pinInput) pinInput.value = def.pin;
+                    if (pinLabel) pinLabel.textContent = `${Math.round(def.pin * 100)}%`;
+                    if (arrowInput) arrowInput.value = def.arrow;
+                    if (arrowLabel) arrowLabel.textContent = `${Math.round(def.arrow * 100)}%`;
                 });
                 refreshAllStyleColoredCanvases();
                 saveStateToLocalStorage();
@@ -4733,11 +4831,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function findHitPinPart(imgX, imgY) {
         const defects = getCurrentFloorDefects();
-        const scale = state.pinSizeScale || 1.0;
-        const arrowScale = state.arrowSizeScale || 1.0;
 
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
+            const dSize = getStyleSize(getDefectStyleKey(d.category));
+            const scale = dSize.pin;
+            const arrowScale = dSize.arrow;
 
             // 0. Area(면적) 결함: 모서리/변(리사이즈) → 사각형 내부·번호 라벨(이동) 순으로 판정
             if (d.shapeType === 'area' && d.areaX1 !== undefined) {
@@ -5577,42 +5676,6 @@ document.addEventListener('DOMContentLoaded', () => {
             state.rotationAngle = ((state.rotationAngle || 0) + 90) % 360;
             fitToScreen();
             drawCanvas();
-        });
-    }
-
-    // Pin Size Adjuster Slider
-    if (elements.pinSizeRange) {
-        elements.pinSizeRange.addEventListener('input', (e) => {
-            state.pinSizeScale = parseFloat(e.target.value);
-            if (elements.pinSizeLabel) elements.pinSizeLabel.textContent = `${Math.round(state.pinSizeScale * 100)}%`;
-            drawCanvas();
-        });
-    }
-
-    // Arrow Size Adjuster Slider
-    if (elements.arrowSizeRange) {
-        elements.arrowSizeRange.addEventListener('input', (e) => {
-            state.arrowSizeScale = parseFloat(e.target.value);
-            if (elements.arrowSizeLabel) elements.arrowSizeLabel.textContent = `${Math.round(state.arrowSizeScale * 100)}%`;
-            drawCanvas();
-        });
-    }
-
-    // NDT Pin Size Adjuster Slider
-    if (elements.ndtPinSizeRange) {
-        elements.ndtPinSizeRange.addEventListener('input', (e) => {
-            state.ndtPinSizeScale = parseFloat(e.target.value);
-            if (elements.ndtPinSizeLabel) elements.ndtPinSizeLabel.textContent = `${Math.round(state.ndtPinSizeScale * 100)}%`;
-            drawNdtCanvas();
-        });
-    }
-
-    // NDT Arrow Size Adjuster Slider
-    if (elements.ndtArrowSizeRange) {
-        elements.ndtArrowSizeRange.addEventListener('input', (e) => {
-            state.ndtArrowSizeScale = parseFloat(e.target.value);
-            if (elements.ndtArrowSizeLabel) elements.ndtArrowSizeLabel.textContent = `${Math.round(state.ndtArrowSizeScale * 100)}%`;
-            drawNdtCanvas();
         });
     }
 
@@ -7732,6 +7795,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 buildings: sanitizedBuildings,
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 styleColors: window.state.styleColors || null,
+                styleSizes: window.state.styleSizes || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -7785,6 +7849,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.styleColors) {
                         window.state.styleColors = data.styleColors;
+                        isChanged = true;
+                    }
+                    if (data.styleSizes) {
+                        window.state.styleSizes = data.styleSizes;
                         isChanged = true;
                     }
 

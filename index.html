@@ -211,9 +211,9 @@
                 <!-- RIGHT: 도구 패널 -->
                 <aside class="inspect-sidebar-right">
                     <div class="inspect-tool-panel">
-                        <!-- Category Color Settings -->
+                        <!-- Category Style Settings (색상 + 크기) -->
                         <div class="filter-group">
-                            <button type="button" id="btnOpenStyleColorModal" class="chip"><i class="fa-solid fa-palette"></i> 색상 설정</button>
+                            <button type="button" id="btnOpenStyleColorModal" class="chip"><i class="fa-solid fa-palette"></i> 스타일 설정</button>
                         </div>
 
                         <!-- Pin Marker Shape Selector -->
@@ -228,20 +228,6 @@
                             <span class="filter-label">지시선 끝:</span>
                             <button type="button" id="btnTipShapeArrow" class="chip active">➔ 화살표</button>
                             <button type="button" id="btnTipShapeCircle" class="chip">● 동그라미</button>
-                        </div>
-
-                        <!-- Pin Size Adjuster Slider -->
-                        <div class="filter-group">
-                            <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
-                            <input type="range" id="pinSizeRange" min="0.6" max="4.4" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
-                            <span id="pinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
-                        </div>
-
-                        <!-- Arrow Size Adjuster Slider -->
-                        <div class="filter-group">
-                            <span class="filter-label"><i class="fa-solid fa-location-arrow"></i> 화살표 크기:</span>
-                            <input type="range" id="arrowSizeRange" min="0.6" max="5.0" step="0.1" value="1.0" style="width: 100px; vertical-align: middle;">
-                            <span id="arrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
                         </div>
 
                     </div>
@@ -416,17 +402,7 @@
 
                 <div class="toolbar-action-group">
                     <div class="filter-group">
-                        <button type="button" id="btnOpenStyleColorModalNdt" class="chip"><i class="fa-solid fa-palette"></i> 색상 설정</button>
-                    </div>
-                    <div class="filter-group">
-                        <span class="filter-label"><i class="fa-solid fa-text-height"></i> 핀 크기:</span>
-                        <input type="range" id="ndtPinSizeRange" min="0.6" max="4.4" step="0.1" value="1.0" style="width: 90px; vertical-align: middle;">
-                        <span id="ndtPinSizeLabel" style="font-size:0.8rem; font-weight:700; color:var(--accent-blue);">100%</span>
-                    </div>
-                    <div class="filter-group">
-                        <span class="filter-label"><i class="fa-solid fa-location-arrow"></i> 화살표 크기:</span>
-                        <input type="range" id="ndtArrowSizeRange" min="0.6" max="5.0" step="0.1" value="1.0" style="width: 90px; vertical-align: middle;">
-                        <span id="ndtArrowSizeLabel" style="font-size:0.8rem; font-weight:700; color:#38bdf8;">100%</span>
+                        <button type="button" id="btnOpenStyleColorModalNdt" class="chip"><i class="fa-solid fa-palette"></i> 스타일 설정</button>
                     </div>
                     <button type="button" id="btnRotateNdtDrawing" class="btn-rotate-hero" onclick="window.rotateNdtDrawing()">
                         <i class="fa-solid fa-rotate-right"></i> 🔄 도면 90° 회전
@@ -655,50 +631,104 @@
 
     <!-- MODAL: 카테고리별 핀/박스 색상 설정 -->
     <div class="modal-overlay" id="styleColorModal">
-        <div class="modal-card" style="max-width: 420px; width: 92%;">
+        <div class="modal-card" style="max-width: 460px; width: 92%;">
             <div class="modal-header">
-                <h3><i class="fa-solid fa-palette"></i> 색상 설정</h3>
+                <h3><i class="fa-solid fa-palette"></i> 스타일 설정</h3>
                 <button type="button" class="modal-close" id="btnCloseStyleColorModal">&times;</button>
             </div>
-            <div class="modal-body">
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                 <div class="style-color-section-title">결함 위치도</div>
-                <div class="style-color-row">
-                    <span>🔴 구조체</span>
-                    <input type="color" id="styleColorDefectStructural">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>🔴 구조체</span>
+                        <input type="color" id="styleColorDefectStructural">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeDefectStructural" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectStructuralLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeDefectStructural" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectStructuralLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>🔵 비구조체</span>
-                    <input type="color" id="styleColorDefectNonStructural">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>🔵 비구조체</span>
+                        <input type="color" id="styleColorDefectNonStructural">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeDefectNonStructural" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectNonStructuralLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeDefectNonStructural" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectNonStructuralLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>🟠 마감재</span>
-                    <input type="color" id="styleColorDefectFinish">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>🟠 마감재</span>
+                        <input type="color" id="styleColorDefectFinish">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeDefectFinish" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeDefectFinishLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeDefectFinish" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeDefectFinishLabel">100%</span></label>
+                    </div>
                 </div>
 
                 <div class="style-color-section-title">비파괴 장비 조사</div>
-                <div class="style-color-row">
-                    <span>부재 실측</span>
-                    <input type="color" id="styleColorNdtMeasure">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>부재 실측</span>
+                        <input type="color" id="styleColorNdtMeasure">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtMeasure" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtMeasureLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtMeasure" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtMeasureLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>강도</span>
-                    <input type="color" id="styleColorNdtStrength">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>강도</span>
+                        <input type="color" id="styleColorNdtStrength">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtStrength" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtStrengthLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtStrength" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtStrengthLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>탄산화</span>
-                    <input type="color" id="styleColorNdtCarbonation">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>탄산화</span>
+                        <input type="color" id="styleColorNdtCarbonation">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtCarbonation" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtCarbonationLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtCarbonation" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtCarbonationLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>기울기</span>
-                    <input type="color" id="styleColorNdtTilt">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>기울기</span>
+                        <input type="color" id="styleColorNdtTilt">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtTilt" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtTiltLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtTilt" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtTiltLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>부동침하 기울기</span>
-                    <input type="color" id="styleColorNdtSettlement">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>부동침하 기울기</span>
+                        <input type="color" id="styleColorNdtSettlement">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtSettlement" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtSettlementLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtSettlement" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtSettlementLabel">100%</span></label>
+                    </div>
                 </div>
-                <div class="style-color-row">
-                    <span>부재변위</span>
-                    <input type="color" id="styleColorNdtMemberDisp">
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>부재변위</span>
+                        <input type="color" id="styleColorNdtMemberDisp">
+                    </div>
+                    <div class="style-size-row">
+                        <label>핀 <input type="range" id="stylePinSizeNdtMemberDisp" min="0.5" max="4.4" step="0.1" value="1.0"> <span id="stylePinSizeNdtMemberDispLabel">100%</span></label>
+                        <label>화살표 <input type="range" id="styleArrowSizeNdtMemberDisp" min="0.5" max="5.0" step="0.1" value="1.0"> <span id="styleArrowSizeNdtMemberDispLabel">100%</span></label>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer" style="justify-content: space-between;">

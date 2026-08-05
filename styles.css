@@ -608,6 +608,52 @@ body {
     flex-shrink: 0;
 }
 
+.style-cat-card {
+    margin-bottom: 0.6rem;
+}
+
+.style-cat-card .style-color-row {
+    margin-bottom: 0;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-bottom: none;
+}
+
+.style-size-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-top: none;
+    border-bottom-left-radius: var(--radius-sm);
+    border-bottom-right-radius: var(--radius-sm);
+    padding: 0.4rem 0.7rem 0.5rem;
+}
+
+.style-size-row label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    flex: 1;
+    min-width: 140px;
+}
+
+.style-size-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+}
+
+.style-size-row label span:last-child {
+    font-weight: 700;
+    color: var(--text-primary);
+    min-width: 34px;
+    text-align: right;
+}
+
 /* Inspection Screen 3-Column Layout (Left Defect List / Center Canvas / Right Tools) */
 .inspect-layout {
     display: flex;
