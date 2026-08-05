@@ -1726,6 +1726,9 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructural: '#ef4444',    // 결함위치도 - 구조체
         defectNonStructural: '#3b82f6', // 결함위치도 - 비구조체
         defectFinish: '#f97316',        // 결함위치도 - 마감재
+        defectStructuralGood: '#22c55e',    // 결함위치도 - 구조체 상태양호
+        defectNonStructuralGood: '#22c55e', // 결함위치도 - 비구조체 상태양호
+        defectFinishGood: '#22c55e',        // 결함위치도 - 마감재 상태양호
         ndtMeasure: '#0284c7',          // 부재 실측
         ndtStrength: '#ef4444',         // 강도
         ndtCarbonation: '#eab308',      // 탄산화
@@ -1739,14 +1742,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 결함(구조체/비구조체/마감재) 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
-    function getDefectStyleKey(category) {
-        if (category === '비구조체') return 'defectNonStructural';
-        if (category === '마감재') return 'defectFinish';
-        return 'defectStructural';
+    function getDefectStyleKey(category, defectType) {
+        const isGood = defectType === '상태양호';
+        if (category === '비구조체') return isGood ? 'defectNonStructuralGood' : 'defectNonStructural';
+        if (category === '마감재') return isGood ? 'defectFinishGood' : 'defectFinish';
+        return isGood ? 'defectStructuralGood' : 'defectStructural';
     }
 
-    function getDefectColor(category) {
-        return getStyleColor(getDefectStyleKey(category));
+    function getDefectColor(category, defectType) {
+        return getStyleColor(getDefectStyleKey(category, defectType));
     }
 
     // --- 카테고리별 핀/화살표 크기 커스터마이징 ---
@@ -1754,6 +1758,9 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructural: { pin: 1.0, arrow: 1.0 },
         defectNonStructural: { pin: 1.0, arrow: 1.0 },
         defectFinish: { pin: 1.0, arrow: 1.0 },
+        defectStructuralGood: { pin: 1.0, arrow: 1.0 },
+        defectNonStructuralGood: { pin: 1.0, arrow: 1.0 },
+        defectFinishGood: { pin: 1.0, arrow: 1.0 },
         ndtMeasure: { pin: 1.0, arrow: 1.0 },
         ndtStrength: { pin: 1.0, arrow: 1.0 },
         ndtCarbonation: { pin: 1.0, arrow: 1.0 },
@@ -1776,6 +1783,9 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructural: { shape: 'rect', fill: false, numberFormat: 'no' },
         defectNonStructural: { shape: 'rect', fill: false, numberFormat: 'no' },
         defectFinish: { shape: 'rect', fill: false, numberFormat: 'no' },
+        defectStructuralGood: { shape: 'rect', fill: false, numberFormat: 'no' },
+        defectNonStructuralGood: { shape: 'rect', fill: false, numberFormat: 'no' },
+        defectFinishGood: { shape: 'rect', fill: false, numberFormat: 'no' },
         ndtMeasure: { shape: 'rounded', fill: true, numberFormat: 'no' },
         ndtStrength: { shape: 'rounded', fill: true, numberFormat: 'no' },
         ndtCarbonation: { shape: 'rounded', fill: true, numberFormat: 'no' },
@@ -3910,6 +3920,33 @@ document.addEventListener('DOMContentLoaded', () => {
         return state.defects[key] || [];
     }
 
+    // 현재 선택된 조사 회차(연도_기간) 키 — 결함 등록 시점의 회차를 기록하는 데 사용
+    function getCurrentSurveyRoundKey() {
+        const year = document.getElementById('selectInspectionYear')?.value
+            || (state.currentBuilding && state.currentBuilding.inspectionYear) || '2026년';
+        const period = document.getElementById('selectInspectionPeriod')?.value
+            || (state.currentBuilding && state.currentBuilding.inspectionPeriod) || '하반기';
+        return `${year}_${period}`;
+    }
+
+    // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면 등록 당시 회차와 현재 회차 비교
+    function isPreviousRoundDefect(defect) {
+        if (defect.isCarriedOver) return true;
+        if (!defect.surveyRound) return false; // 회차 정보 없는 과거 데이터는 금회차로 취급
+        return defect.surveyRound !== getCurrentSurveyRoundKey();
+    }
+
+    // #rrggbb 색상을 amount(0~1)만큼 어둡게 만들어 전회차 결함 강조에 사용
+    function darkenHexColor(hex, amount) {
+        const clean = (hex || '#ef4444').replace('#', '');
+        const num = parseInt(clean, 16);
+        const dec = Math.round(255 * amount);
+        const r = Math.max(0, (num >> 16) - dec);
+        const g = Math.max(0, ((num >> 8) & 0xff) - dec);
+        const b = Math.max(0, (num & 0xff) - dec);
+        return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+    }
+
     // 손상 유형 필터링이 적용된 현재 층 결함 목록 반환
     function getCurrentFloorFilteredDefects() {
         const list = getCurrentFloorDefects();
@@ -4018,88 +4055,119 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         panel.innerHTML = '';
-        defects.forEach(d => {
-            const catClass = d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : '');
-            const numMatch = (d.no || '').match(/\d+/);
-            const badgeNo = numMatch ? numMatch[0] : '?';
-            const shapeIcon = d.shapeType === 'area' ? '🟧 ' : '';
+        const previousItems = defects.filter(d => isPreviousRoundDefect(d));
+        const currentItems = defects.filter(d => !isPreviousRoundDefect(d));
 
-            const row = document.createElement('div');
-            row.className = `defect-list-item ${catClass}`.trim();
-            row.title = d.location || '';
-
-            const badge = document.createElement('span');
-            badge.className = 'defect-badge-no';
-            badge.textContent = badgeNo;
-            row.appendChild(badge);
-
-            const lines = document.createElement('div');
-            lines.className = 'defect-list-item-lines';
-
-            const compLine = document.createElement('span');
-            compLine.className = 'defect-list-item-component';
-            compLine.textContent = `${shapeIcon}${d.component || ''}`.trim();
-            lines.appendChild(compLine);
-
-            const typeLine = document.createElement('span');
-            typeLine.className = 'defect-list-item-type';
-            typeLine.textContent = d.defectType || '';
-            lines.appendChild(typeLine);
-
-            row.appendChild(lines);
-
-            const actions = document.createElement('div');
-            actions.className = 'defect-list-item-actions';
-
-            const editBtn = document.createElement('button');
-            editBtn.type = 'button';
-            editBtn.className = 'defect-list-item-edit';
-            editBtn.title = '수정';
-            editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
-            actions.appendChild(editBtn);
-
-            const deleteBtn = document.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'defect-list-item-delete';
-            deleteBtn.title = '삭제';
-            deleteBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
-            actions.appendChild(deleteBtn);
-
-            row.appendChild(actions);
-
-            row.addEventListener('click', (e) => {
-                if (actions.contains(e.target)) return;
-                window.focusDefectOnCanvas(d.id);
-            });
-            editBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
-            });
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (confirm(`'${d.component || ''} ${d.defectType || ''}' 결함을 삭제할까요?`)) {
-                    window.deleteDefectById(d.id);
-                }
-            });
-
-            panel.appendChild(row);
-        });
+        const prevSection = renderDefectListSection('🕐 전회차 조사항목', previousItems);
+        if (prevSection) panel.appendChild(prevSection);
+        const curSection = renderDefectListSection('🆕 금회차 조사항목', currentItems);
+        if (curSection) panel.appendChild(curSection);
 
         updateUndoRedoButtons();
     }
     window.renderDefectListPanel = renderDefectListPanel;
 
+    // 결함 1건의 목록 카드(DOM row) 생성 — renderDefectListSection에서 재사용
+    function buildDefectRow(d) {
+        const catClass = d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : '');
+        const numMatch = (d.no || '').match(/\d+/);
+        const badgeNo = numMatch ? numMatch[0] : '?';
+        const shapeIcon = d.shapeType === 'area' ? '🟧 ' : '';
+
+        const row = document.createElement('div');
+        row.className = `defect-list-item ${catClass}`.trim();
+        row.title = d.location || '';
+
+        const badge = document.createElement('span');
+        badge.className = 'defect-badge-no';
+        badge.textContent = badgeNo;
+        row.appendChild(badge);
+
+        const lines = document.createElement('div');
+        lines.className = 'defect-list-item-lines';
+
+        const compLine = document.createElement('span');
+        compLine.className = 'defect-list-item-component';
+        compLine.textContent = `${shapeIcon}${d.component || ''}`.trim();
+        lines.appendChild(compLine);
+
+        const typeLine = document.createElement('span');
+        typeLine.className = 'defect-list-item-type';
+        typeLine.textContent = d.defectType || '';
+        lines.appendChild(typeLine);
+
+        row.appendChild(lines);
+
+        const actions = document.createElement('div');
+        actions.className = 'defect-list-item-actions';
+
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'defect-list-item-edit';
+        editBtn.title = '수정';
+        editBtn.innerHTML = '<i class="fa-solid fa-pen"></i>';
+        actions.appendChild(editBtn);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.className = 'defect-list-item-delete';
+        deleteBtn.title = '삭제';
+        deleteBtn.innerHTML = '<i class="fa-solid fa-trash"></i>';
+        actions.appendChild(deleteBtn);
+
+        row.appendChild(actions);
+
+        row.addEventListener('click', (e) => {
+            if (actions.contains(e.target)) return;
+            window.focusDefectOnCanvas(d.id);
+        });
+        editBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
+        });
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (confirm(`'${d.component || ''} ${d.defectType || ''}' 결함을 삭제할까요?`)) {
+                window.deleteDefectById(d.id);
+            }
+        });
+
+        return row;
+    }
+
+    // 전회차/금회차 구역 하나(제목 + 스크롤 가능한 카드 목록)를 만들어 반환 — 항목이 없으면 null
+    function renderDefectListSection(title, items) {
+        if (items.length === 0) return null;
+        const section = document.createElement('div');
+        section.className = 'defect-list-section';
+
+        const header = document.createElement('div');
+        header.className = 'defect-list-section-title';
+        header.textContent = `${title} (${items.length})`;
+        section.appendChild(header);
+
+        const scrollBox = document.createElement('div');
+        scrollBox.className = 'defect-list-section-scroll';
+        items.forEach(d => scrollBox.appendChild(buildDefectRow(d)));
+        section.appendChild(scrollBox);
+
+        return section;
+    }
+
     // 영역(면적) 형태 결함 렌더링 — 화면 캔버스와 보고서 캔버스(drawPinSafe) 양쪽에서 공용으로 사용
-    function drawAreaRect(ctx, defect, isPreview) {
+    function drawAreaRect(ctx, defect, isPreview, forReport) {
         const x1 = Math.min(defect.areaX1, defect.areaX2);
         const y1 = Math.min(defect.areaY1, defect.areaY2);
         const x2 = Math.max(defect.areaX1, defect.areaX2);
         const y2 = Math.max(defect.areaY1, defect.areaY2);
-        const scale = getStyleSize(getDefectStyleKey(defect.category)).pin;
+        const scale = getStyleSize(getDefectStyleKey(defect.category, defect.defectType)).pin;
         const isBeingDragged = (!isPreview && typeof activeDragPin !== 'undefined' && activeDragPin && activeDragPin.id === defect.id);
 
-        const mainColor = getDefectColor(defect.category);
-        const activeColor = isBeingDragged ? '#facc15' : mainColor;
+        // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(forReport)는 구분 없이 그대로 둠
+        const isPrevRoundDefect = !forReport && isPreviousRoundDefect(defect);
+        const roundLineMul = isPrevRoundDefect ? 1.6 : 1.0;
+        const mainColor = getDefectColor(defect.category, defect.defectType);
+        const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
 
         ctx.save();
         ctx.globalAlpha = 0.15;
@@ -4107,7 +4175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.globalAlpha = 1;
         ctx.strokeStyle = activeColor;
-        ctx.lineWidth = isBeingDragged ? 3 : 2.5;
+        ctx.lineWidth = (isBeingDragged ? 3 : 2.5) * roundLineMul;
         if (isPreview) ctx.setLineDash([6, 4]);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.restore();
@@ -4125,7 +4193,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (boxRot === 270) {
                 ctx.rotate((-270 * Math.PI) / 180);
             }
-            const areaStyleKey = getDefectStyleKey(defect.category);
+            const areaStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const areaShapeCfg = getStyleShape(areaStyleKey);
             ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
             ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
@@ -4134,7 +4202,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.translate(w / 2, -h / 2); // 박스 중심으로 원점 이동(모양 경로가 중심 기준이므로)
             ctx.fillStyle = isBeingDragged ? '#facc15' : (areaShapeCfg.fill ? activeColor : '#ffffff');
             ctx.strokeStyle = activeColor;
-            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
+            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale * roundLineMul;
             traceStyledBoxPath(ctx, w, h, areaShapeCfg.shape, 6 * scale);
             ctx.fill();
             ctx.stroke();
@@ -4176,18 +4244,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const boxX = defect.x || 100;
         const boxY = defect.y || 100;
-        const defectSize = getStyleSize(getDefectStyleKey(defect.category));
+        const defectSize = getStyleSize(getDefectStyleKey(defect.category, defect.defectType));
         const scale = defectSize.pin;
         const arrowScale = defectSize.arrow;
         const isBeingDragged = (typeof activeDragPin !== 'undefined' && activeDragPin &&
             (activeDragPin.id === defect.id || (defect.groupId && activeDragPin.groupId === defect.groupId)));
 
         // Category Theme Color: 사용자 지정 색상(styleColors) 우선, 없으면 기본값
-        const defectStyleKey = getDefectStyleKey(defect.category);
-        const mainColor = getDefectColor(defect.category);
+        const defectStyleKey = getDefectStyleKey(defect.category, defect.defectType);
+        const mainColor = getDefectColor(defect.category, defect.defectType);
         const shapeCfg = getStyleShape(defectStyleKey);
 
-        const activeColor = isBeingDragged ? '#facc15' : mainColor;
+        // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(drawPinSafe)는 구분 없이 그대로 둠
+        const isPrevRoundDefect = isPreviousRoundDefect(defect);
+        const roundLineMul = isPrevRoundDefect ? 1.6 : 1.0;
+        const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
 
         const targets = (arrows && arrows.length > 0)
             ? arrows
@@ -4204,7 +4275,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.moveTo(boxX, boxY);
             ctx.lineTo(targetX, targetY);
             ctx.strokeStyle = activeColor;
-            ctx.lineWidth = (isBeingDragged ? 3 : 2) * arrowScale;
+            ctx.lineWidth = (isBeingDragged ? 3 : 2) * arrowScale * roundLineMul;
             ctx.setLineDash([4, 3]);
             ctx.stroke();
 
@@ -4250,7 +4321,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const boxTextColor = (isBeingDragged ? '#7c2d12' : (shapeCfg.fill ? '#ffffff' : activeColor));
         ctx.fillStyle = boxFillColor;
         ctx.strokeStyle = activeColor;
-        ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale;
+        ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale * roundLineMul;
 
         const w = 38 * scale;
         const h = 26 * scale;
@@ -4311,6 +4382,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Dynamic Defect Type Presets & Custom Adding ---
     const categoryDefectPreset = {
         '구조체': [
+            '상태양호',
             '균열',
             '누수',
             '철근노출',
@@ -4320,18 +4392,20 @@ document.addEventListener('DOMContentLoaded', () => {
             '기타'
         ],
         '비구조체': [
-            '조적벽체 균열', 
-            '조인트 이격/파손', 
-            '천장재 들뜸/탈락', 
-            '설비 배관 누수/손상', 
-            '창호/유리 이격', 
+            '상태양호',
+            '조적벽체 균열',
+            '조인트 이격/파손',
+            '천장재 들뜸/탈락',
+            '설비 배관 누수/손상',
+            '창호/유리 이격',
             '기타'
         ],
         '마감재': [
-            '타일 들뜸/탈락', 
-            '몰탈 균열', 
-            '도장 페인트 변색/탈락', 
-            '방수층 손상/들뜸', 
+            '상태양호',
+            '타일 들뜸/탈락',
+            '몰탈 균열',
+            '도장 페인트 변색/탈락',
+            '방수층 손상/들뜸',
             '석재 팟칭',
             '기타'
         ]
@@ -4656,6 +4730,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ['styleColorDefectStructural', 'defectStructural'],
         ['styleColorDefectNonStructural', 'defectNonStructural'],
         ['styleColorDefectFinish', 'defectFinish'],
+        ['styleColorDefectStructuralGood', 'defectStructuralGood'],
+        ['styleColorDefectNonStructuralGood', 'defectNonStructuralGood'],
+        ['styleColorDefectFinishGood', 'defectFinishGood'],
         ['styleColorNdtMeasure', 'ndtMeasure'],
         ['styleColorNdtStrength', 'ndtStrength'],
         ['styleColorNdtCarbonation', 'ndtCarbonation'],
@@ -4669,6 +4746,9 @@ document.addEventListener('DOMContentLoaded', () => {
         ['DefectStructural', 'defectStructural'],
         ['DefectNonStructural', 'defectNonStructural'],
         ['DefectFinish', 'defectFinish'],
+        ['DefectStructuralGood', 'defectStructuralGood'],
+        ['DefectNonStructuralGood', 'defectNonStructuralGood'],
+        ['DefectFinishGood', 'defectFinishGood'],
         ['NdtMeasure', 'ndtMeasure'],
         ['NdtStrength', 'ndtStrength'],
         ['NdtCarbonation', 'ndtCarbonation'],
@@ -4969,7 +5049,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
-            const dSize = getStyleSize(getDefectStyleKey(d.category));
+            const dSize = getStyleSize(getDefectStyleKey(d.category, d.defectType));
             const scale = dSize.pin;
             const arrowScale = dSize.arrow;
 
@@ -5346,6 +5426,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const sizeEl = document.getElementById('defectSize');
         const progCheckEl = document.getElementById('defectProgressCheck');
         const leakCheckEl = document.getElementById('defectLeakCheck');
+        const carriedOverEl = document.getElementById('defectCarriedOver');
 
         if (existingPin) {
             if (pinIdEl) pinIdEl.value = existingPin.id;
@@ -5354,6 +5435,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDefectTypeDropdown(existingPin.category || '구조체', existingPin.defectType);
             updateDefectCauseDropdown(existingPin.defectType || '균열', existingPin.cause);
             populateDefectComponentDropdown(existingPin.component || '기둥');
+            if (carriedOverEl) carriedOverEl.checked = !!existingPin.isCarriedOver;
             if (locEl) locEl.value = existingPin.location || `${state.currentFloor} ${existingPin.component || '기둥'}`;
             if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
             if (progCheckEl) progCheckEl.checked = !!existingPin.isProgress;
@@ -5383,6 +5465,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDefectCauseDropdown((tmpl && tmpl.defectType) || '균열', (tmpl && tmpl.cause) || null);
             const defaultComp = (tmpl && tmpl.component) || '기둥';
             populateDefectComponentDropdown(defaultComp);
+            if (carriedOverEl) carriedOverEl.checked = false;
             if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
@@ -5551,6 +5634,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const locVal = document.getElementById('defectLocation')?.value || `${state.currentFloor} ${document.getElementById('defectComponent')?.value || '기둥'}`;
         const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
+        const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
         const photosVal = window._pendingPhotos || [];
 
         let savedDefect = null;
@@ -5568,6 +5652,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
                 state.defects[key][idx].isProgress = isProgress;
                 state.defects[key][idx].isLeak = isLeak;
+                state.defects[key][idx].isCarriedOver = isCarriedOver;
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
                     state.defects[key][idx].inspectorName = window.state.userName || '';
@@ -5587,6 +5672,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 size: document.getElementById('defectSize')?.value || 'W=0.2mm',
                 isProgress: isProgress,
                 isLeak: isLeak,
+                isCarriedOver: isCarriedOver,
+                surveyRound: getCurrentSurveyRoundKey(),
                 photos: photosVal,
                 inspectorName: window.state.userName || '',
                 x: coords.x,
@@ -5925,14 +6012,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawPinSafe(ctx, defect, arrows, counterRotateDeg) {
         try {
             if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
-                drawAreaRect(ctx, defect, false);
+                drawAreaRect(ctx, defect, false, true);
                 return;
             }
             const boxX = defect.x || 100;
             const boxY = defect.y || 100;
 
-            const safeStyleKey = getDefectStyleKey(defect.category);
-            const color = getDefectColor(defect.category);
+            const safeStyleKey = getDefectStyleKey(defect.category, defect.defectType);
+            const color = getDefectColor(defect.category, defect.defectType);
             const safeShapeCfg = getStyleShape(safeStyleKey);
 
             const targets = (arrows && arrows.length > 0)
