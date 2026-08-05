@@ -3945,6 +3945,34 @@ document.addEventListener('DOMContentLoaded', () => {
         return defect.surveyRound !== getCurrentSurveyRoundKey();
     }
 
+    // "마킹 추가"로 같은 결함을 여러 위치에 표시한 그룹(groupId 공유)을 목록/보고서용으로 한 행으로 합친다.
+    // 위치는 지점별 위치를 ' / '로 이어붙이고, 진행/누수/전회차 여부는 멤버 중 하나라도 해당되면 true로 간주.
+    function consolidateDefectGroups(defects) {
+        const seen = new Set();
+        const result = [];
+        defects.forEach(d => {
+            if (d.groupId) {
+                if (seen.has(d.groupId)) return;
+                seen.add(d.groupId);
+                const members = defects.filter(m => m.groupId === d.groupId);
+                const locations = members.map(m => m.location).filter(Boolean);
+                result.push({
+                    ...d,
+                    no: d.groupNo || d.no,
+                    location: locations.length > 0 ? locations.join(' / ') : d.location,
+                    isProgress: members.some(m => m.isProgress),
+                    isLeak: members.some(m => m.isLeak),
+                    isCarriedOver: members.some(m => m.isCarriedOver),
+                    _groupMemberIds: members.map(m => m.id),
+                    _representative: d
+                });
+            } else {
+                result.push(d);
+            }
+        });
+        return result;
+    }
+
     // #rrggbb 색상을 amount(0~1)만큼 어둡게 만들어 전회차 결함 강조에 사용
     function darkenHexColor(hex, amount) {
         const clean = (hex || '#ef4444').replace('#', '');
@@ -4036,7 +4064,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const defects = getCurrentFloorFilteredDefects();
+        const defects = consolidateDefectGroups(getCurrentFloorFilteredDefects());
 
         if (summaryEl) {
             if (defects.length === 0) {
@@ -4132,12 +4160,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
+            openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d._representative || d);
         });
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            if (confirm(`'${d.component || ''} ${d.defectType || ''}' 결함을 삭제할까요?`)) {
-                window.deleteDefectById(d.id);
+            const isGroup = d._groupMemberIds && d._groupMemberIds.length > 1;
+            const label = `'${d.component || ''} ${d.defectType || ''}'`;
+            const confirmMsg = isGroup ? `${label} 결함(${d._groupMemberIds.length}개 위치)을 모두 삭제할까요?` : `${label} 결함을 삭제할까요?`;
+            if (confirm(confirmMsg)) {
+                if (isGroup) window.deleteDefectGroup(d.groupId);
+                else window.deleteDefectById(d.id);
             }
         });
 
@@ -6036,13 +6068,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSurveyTable() {
         if (!elements.surveyTableBody) return;
-        const defects = getCurrentFloorDefects();
+        const rawDefects = getCurrentFloorDefects();
+        const defects = consolidateDefectGroups(rawDefects);
         if (elements.surveyFloorTitle) elements.surveyFloorTitle.textContent = state.currentFloor;
 
         renderSurveyTableHeader();
         const columns = getActiveSurveyColumns();
 
-        // 📊 현재 층 결함 통계 차트 자동 업데이트
+        // 📊 현재 층 결함 통계 차트 자동 업데이트 (그룹은 하나로 합쳐서 집계)
         if (typeof window.renderDefectStatisticsChart === 'function') {
             window.renderDefectStatisticsChart('surveyChartCanvas', defects);
         }
@@ -6052,10 +6085,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // Build sequential photo labels for current floor (사진01, 사진02, 사진03...)
+        // Build sequential photo labels for current floor (사진01, 사진02, 사진03...) — raw(합치기 전) 결함 기준으로
+        // 매겨서 사진첩(renderPhotoAlbum)의 번호와 어긋나지 않게 함
         const defectPhotoLabels = {};
         let pCounter = 0;
-        defects.forEach((d, dIdx) => {
+        rawDefects.forEach((d, dIdx) => {
             const defectKey = d.id || `idx_${dIdx}`;
             defectPhotoLabels[defectKey] = [];
             if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
@@ -6070,16 +6104,18 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         elements.surveyTableBody.innerHTML = defects.map((d, dIdx) => {
-            const defectKey = d.id || `idx_${dIdx}`;
-            const labels = defectPhotoLabels[defectKey] || [];
+            const memberIds = d._groupMemberIds || [d.id || `idx_${dIdx}`];
+            const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
             const photoRemark = labels.length > 0 ? labels.join(' ') : '-';
             const ctx = { floorCode: state.currentFloor, photoRemark };
+            const isGroup = d._groupMemberIds && d._groupMemberIds.length > 1;
+            const deleteAction = isGroup ? `window.deleteDefectGroup('${d.groupId}')` : `deleteDefectById('${d.id}')`;
 
             return `
                 <tr>
                     ${columns.map(c => `<td>${renderScreenSurveyCellHtml(c.key, d, ctx)}</td>`).join('')}
                     <td><span class="badge badge-info">${d.inspectorName || '-'}</span></td>
-                    <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="deleteDefectById('${d.id}')">삭제</button></td>
+                    <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="${deleteAction}">삭제</button></td>
                 </tr>
             `;
         }).join('');
@@ -6676,9 +6712,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 // --- 1. 상태조사표 (한 페이지당 최대 12개로 배치하여 A4 세로 규격 내 완벽 수용 및 표 잘림 원천 차단) ---
+                // "마킹 추가" 그룹은 한 행으로 합쳐서 표시 (위치도는 이미 groupId 기준 하나로 그려짐)
+                const surveyDefects = consolidateDefectGroups(defects);
                 const surveyPages = [];
-                for (let i = 0; i < defects.length; i += 12) {
-                    surveyPages.push(defects.slice(i, i + 12));
+                for (let i = 0; i < surveyDefects.length; i += 12) {
+                    surveyPages.push(surveyDefects.slice(i, i + 12));
                 }
                 if (surveyPages.length === 0) surveyPages.push([]);
 
@@ -6691,7 +6729,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
-                                    1. ${floorCode} 상태조사표 (총 ${defects.length}개 중 ${sDefects.length}개 표시)
+                                    1. ${floorCode} 상태조사표 (총 ${surveyDefects.length}개 중 ${sDefects.length}개 표시)
                                 </h2>
                                 <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
                                     페이지 ${sPageIdx + 1} / ${surveyPages.length} (페이지당 최대 12개)
@@ -6706,8 +6744,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </thead>
                                 <tbody>
                                     ${sDefects.length > 0 ? sDefects.map((d, dSubIdx) => {
-                                        const defectKey = d.id || `idx_${defects.indexOf(d)}`;
-                                        const labels = defectPhotoLabels[defectKey] || [];
+                                        const memberIds = d._groupMemberIds || [d.id || `idx_${dSubIdx}`];
+                                        const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
                                         const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                                         const cellCtx = { floorCode, photoRemark: pRemark };
                                         return `
@@ -7411,19 +7449,37 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // 결함 레코드 1건을 사진 삭제 포함해서 제거 (저장/재렌더링은 호출부 책임 — 그룹 일괄삭제 시 중복 저장 방지)
+    function removeSingleDefectRecord(key, id) {
+        const target = state.defects[key].find(d => d.id === id);
+        if (target && target.photos && target.photos.length > 0) {
+            deletePhotosForDefect(id, target.photos.length).then(failCount => {
+                if (failCount > 0) {
+                    window.showToast(`사진 ${failCount}건 삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.`, 'warning', 5000);
+                }
+            });
+        }
+        state.defects[key] = state.defects[key].filter(d => d.id !== id);
+    }
+
     window.deleteDefectById = function(id) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         if (state.defects[key]) {
             pushDefectHistory();
-            const target = state.defects[key].find(d => d.id === id);
-            if (target && target.photos && target.photos.length > 0) {
-                deletePhotosForDefect(id, target.photos.length).then(failCount => {
-                    if (failCount > 0) {
-                        window.showToast(`사진 ${failCount}건 삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.`, 'warning', 5000);
-                    }
-                });
-            }
-            state.defects[key] = state.defects[key].filter(d => d.id !== id);
+            removeSingleDefectRecord(key, id);
+            saveStateToLocalStorage();
+            renderSurveyTable();
+            drawCanvas();
+        }
+    };
+
+    // "마킹 추가"로 여러 위치에 묶인 결함 그룹 전체를 삭제
+    window.deleteDefectGroup = function(groupId) {
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        if (state.defects[key]) {
+            pushDefectHistory();
+            const memberIds = state.defects[key].filter(d => d.groupId === groupId).map(d => d.id);
+            memberIds.forEach(id => removeSingleDefectRecord(key, id));
             saveStateToLocalStorage();
             renderSurveyTable();
             drawCanvas();
@@ -7985,19 +8041,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            const defects = getCurrentFloorDefects();
-            if (!defects || defects.length === 0) {
+            const rawDefects = getCurrentFloorDefects();
+            if (!rawDefects || rawDefects.length === 0) {
                 window.showToast('현재 층에 등록된 결함 데이터가 없습니다.', 'warning');
                 return;
             }
+            // "마킹 추가" 그룹은 한 행으로 합쳐서 표시 (화면 표/PDF와 동일)
+            const defects = consolidateDefectGroups(rawDefects);
 
             const floorCode = window.state.currentFloor;
             const activeColumns = getActiveSurveyColumns();
 
-            // 화면 표와 동일한 사진 라벨(비고) 계산
+            // 화면 표와 동일한 사진 라벨(비고) 계산 — raw(합치기 전) 결함 기준
             const defectPhotoLabels = {};
             let pCounter = 0;
-            defects.forEach((d, dIdx) => {
+            rawDefects.forEach((d, dIdx) => {
                 const defectKey = d.id || `idx_${dIdx}`;
                 defectPhotoLabels[defectKey] = [];
                 if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
@@ -8036,8 +8094,8 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
 
             defects.forEach((d, dIdx) => {
-                const defectKey = d.id || `idx_${dIdx}`;
-                const labels = defectPhotoLabels[defectKey] || [];
+                const memberIds = d._groupMemberIds || [d.id || `idx_${dIdx}`];
+                const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
                 const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                 const cellCtx = { floorCode, photoRemark: pRemark };
                 tableHtml += `

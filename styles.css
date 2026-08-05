@@ -177,6 +177,8 @@ body {
     cursor: pointer;
     border: 1px solid transparent;
     transition: all 0.2s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .btn-primary {
@@ -238,6 +240,12 @@ body {
     overflow-x: auto;
 }
 
+/* 좁은 화면에서 gap이 부족해 내부 요소가 찌그러지며 글자가 세로로 쪼개지는 것을 방지 —
+   대신 main-tabs의 overflow-x:auto로 가로 스크롤 처리 */
+.main-tabs > * {
+    flex-shrink: 0;
+}
+
 .nav-building-tabs {
     display: flex;
     align-items: center;
@@ -250,6 +258,12 @@ body {
     color: var(--text-secondary);
     white-space: nowrap;
     padding: 0 0.3rem;
+    flex-shrink: 0;
+}
+
+.header-selector, .header-actions, .selector-group, .status-badge {
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .tab-btn {
