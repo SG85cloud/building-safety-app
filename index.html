@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260805_2400">
+    <link rel="stylesheet" href="styles.css?v=20260805_2500">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -581,6 +581,9 @@
                                 <i class="fa-solid fa-images"></i> 🖼️ 갤러리/앨범 선택
                             </button>
                         </div>
+                        <p style="font-size: 0.76rem; color: #94a3b8; margin: -0.2rem 0 0.6rem;">
+                            💡 태블릿에서 카메라가 바로 안 열리면, 기기 카메라 앱으로 먼저 촬영해두고 "갤러리/앨범 선택"으로 불러오시거나, 홈 화면의 <b>휴대폰 연동</b> 기능을 이용해주세요.
+                        </p>
                         <div id="phoneRelayStatusBadge" style="display:none; align-items:center; gap: 0.4rem; width: 100%; background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.35); font-weight: 700; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; margin-bottom: 0.6rem;">
                             <i class="fa-solid fa-mobile-screen-button"></i> <span id="phoneRelayStatusText">휴대폰 연동됨 — 휴대폰에서 촬영하면 자동으로 여기에 추가됩니다</span>
                         </div>
@@ -1512,7 +1515,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260805_2400"></script>
+    <script src="app.js?v=20260805_2500"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
