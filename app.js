@@ -4058,6 +4058,12 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const defects = consolidateDefectGroups(getCurrentFloorFilteredDefects());
+        defects.sort((a, b) => {
+            const na = getDefectSortNo(a);
+            const nb = getDefectSortNo(b);
+            if (na !== nb) return na - nb;
+            return (a.no || '').localeCompare(b.no || '');
+        });
 
         if (summaryEl) {
             if (defects.length === 0) {
@@ -4096,6 +4102,12 @@ document.addEventListener('DOMContentLoaded', () => {
         updateUndoRedoButtons();
     }
     window.renderDefectListPanel = renderDefectListPanel;
+
+    // 결함번호(d.no, 예: "NO.01", "NO.01-1")에서 정렬용 숫자를 추출. 번호가 없으면 맨 뒤로 보낸다
+    function getDefectSortNo(d) {
+        const m = (d.no || '').match(/\d+/);
+        return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
+    }
 
     // 결함 1건의 목록 카드(DOM row) 생성 — renderDefectListSection에서 재사용
     function buildDefectRow(d) {
@@ -5984,6 +5996,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function getSurveyCellText(colKey, d, ctx) {
         ctx = ctx || {};
         const isCrack = d.defectType === '균열';
+        const isGood = d.defectType === '상태양호';
         switch (colKey) {
             case 'no': return d.no || '';
             case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
@@ -6009,7 +6022,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             case 'progress': return d.isProgress ? '진행중' : '-';
             case 'leak': return d.isLeak ? '누수중' : '-';
-            case 'cause': return d.cause || '건조수축';
+            case 'cause': return isGood ? '-' : (d.cause || '건조수축');
             case 'remark': return ctx.photoRemark || '-';
             default: return '';
         }
@@ -6691,7 +6704,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     title: componentDefectTitle,
                                     defectNo: d.no,
                                     location: d.location || `${floorCode} ${d.component || ''}`,
-                                    cause: d.cause || '건조수축',
+                                    cause: d.defectType === '상태양호' ? '-' : (d.cause || '건조수축'),
                                     size: d.size || 'W=0.2mm',
                                     src: src
                                 });
