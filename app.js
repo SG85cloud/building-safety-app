@@ -2163,8 +2163,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Arrow Head at targetX, targetY (pointing to the wall)
-            if (dist > 5) {
+            // 지시선 끝 모양(state.tipShape) 설정에 따라 화살표머리 또는 원 중 하나만 표시 (동시에 둘 다 그리지 않음)
+            if (state.tipShape === 'circle') {
+                ctx.beginPath();
+                ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4) * arrowScale, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (dist > 5) {
                 const angle = Math.atan2(dy, dx);
                 const headLen = (isBeingDragged ? 16 : 14) * arrowScale;
                 ctx.beginPath();
@@ -2174,11 +2178,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.closePath();
                 ctx.fill();
             }
-
-            // Target Point Handle Circle
-            ctx.beginPath();
-            ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4) * arrowScale, 0, Math.PI * 2);
-            ctx.fill();
 
             // 2. Draw 3-Column CAD Table Box at (x, y) - Un-rotated to stay 100% horizontal on user screen!
             ctx.translate(x, y);
@@ -2336,13 +2335,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const boxY = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
         const isGroupDragged = activeDragNdtDisplacementGroup === group && !activeDragNdtDisplacementPoint;
 
-        // 리더라인: 박스 -> 각 포인트
+        // 리더라인: 박스 -> 각 포인트 (선은 그대로 그리되 투명 처리하여 화면에는 보이지 않음)
         group.points.forEach(p => {
             ctx.save();
             ctx.beginPath();
             ctx.moveTo(boxX, boxY);
             ctx.lineTo(p.x, p.y);
-            ctx.strokeStyle = color;
+            ctx.strokeStyle = 'transparent';
             ctx.lineWidth = 1.5 * arrowScale;
             ctx.setLineDash([3, 3]);
             ctx.stroke();
