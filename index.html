@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260806_1300">
+    <link rel="stylesheet" href="styles.css?v=20260806_1400">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -24,6 +24,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <!-- 휴대폰 연동 사진촬영용 QR코드 생성 라이브러리 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <!-- 외부(엑셀) 결함표 가져오기 파싱용 SheetJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body class="theme-light">
 
@@ -299,9 +301,8 @@
                     <button id="btnOpenSurveyColumnModal" class="btn btn-outline btn-sm"><i class="fa-solid fa-table-columns"></i> ⚙️ 표 컬럼 설정</button>
                     <button id="btnOpenReportPreview" class="btn btn-primary btn-sm" onclick="window.openReportPreviewModalFunc()" style="background:#0284c7; border-color:#0284c7;"><i class="fa-solid fa-file-contract"></i> 📋 6개 사진배치 보고서 출력/미리보기</button>
                     <button id="btnExportExcel" class="btn btn-sm" style="background: #15803d; color: #ffffff; border: 1px solid #22c55e; font-weight: 700;"><i class="fa-solid fa-file-excel"></i> 🟢 엑셀 저장 (.xls)</button>
-                    <button id="btnExportSurvey" class="btn btn-secondary btn-sm"><i class="fa-solid fa-file-csv"></i> CSV 내보내기</button>
-                    <button id="btnImportSurvey" class="btn btn-outline btn-sm"><i class="fa-solid fa-file-import"></i> CSV 불러오기</button>
-                    <input type="file" id="inputImportCSV" accept=".csv" style="display:none;">
+                    <button id="btnImportDefectExcel" class="btn btn-outline btn-sm" style="border-color:#0284c7; color:#0284c7;"><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</button>
+                    <input type="file" id="inputImportDefectExcel" accept=".xlsx,.xls,.csv" style="display:none;">
                 </div>
             </div>
 
@@ -856,6 +857,33 @@
             <div class="modal-footer" style="justify-content: space-between;">
                 <button type="button" id="btnResetSurveyColumns" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
                 <button type="button" id="btnCloseSurveyColumnModal2" class="btn btn-primary">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 외부(엑셀) 결함표 가져오기 — 컬럼 매칭 & 미리보기 -->
+    <div class="modal-overlay" id="importDefectExcelModal">
+        <div class="modal-card" style="max-width: 720px; width: 94%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</h3>
+                <button type="button" class="modal-close" id="btnCloseImportDefectExcelModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div style="background: rgba(2,132,199,0.08); border: 1px solid rgba(2,132,199,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.9rem;">
+                    <span id="importDefectExcelSummary">파일을 분석했습니다.</span><br>
+                    가져온 결함은 <b id="importDefectExcelFloorName">현재 층</b> 도면 좌측 상단에 순서대로 임시 배치됩니다.
+                    엑셀에는 도면 위치 정보가 없으므로, 가져온 뒤 좌측 목록에서 각 결함을 클릭해 도면 위 정확한 위치로 <b>직접 드래그</b>해주세요.
+                </div>
+                <div class="style-color-section-title">엑셀 컬럼 ↔ 결함 항목 매칭</div>
+                <div id="importDefectExcelMappingBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem;"></div>
+                <div class="style-color-section-title">미리보기 (처음 5행)</div>
+                <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px;">
+                    <table id="importDefectExcelPreviewTable" style="width:100%; border-collapse:collapse; font-size:0.78rem; white-space:nowrap;"></table>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" id="btnCancelImportDefectExcel" class="btn btn-outline">취소</button>
+                <button type="button" id="btnConfirmImportDefectExcel" class="btn btn-primary"><i class="fa-solid fa-check"></i> 가져오기 실행</button>
             </div>
         </div>
     </div>
@@ -1516,7 +1544,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260806_1300"></script>
+    <script src="app.js?v=20260806_1400"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
