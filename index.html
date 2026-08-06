@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260806_1500">
+    <link rel="stylesheet" href="styles.css?v=20260806_1600">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -872,12 +872,14 @@
             <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
                 <div style="background: rgba(2,132,199,0.08); border: 1px solid rgba(2,132,199,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.9rem;">
                     <span id="importDefectExcelSummary">파일을 분석했습니다.</span><br>
-                    가져온 결함은 <b id="importDefectExcelFloorName">현재 층</b> 도면 좌측 상단에 순서대로 임시 배치됩니다.
+                    가져온 결함은 각 층 도면 좌측 상단에 순서대로 임시 배치됩니다.
                     엑셀에는 도면 위치 정보가 없으므로, 가져온 뒤 좌측 목록에서 각 결함을 클릭해 도면 위 정확한 위치로 <b>직접 드래그</b>해주세요.
                 </div>
-                <div class="style-color-section-title">엑셀 컬럼 ↔ 결함 항목 매칭</div>
+                <div class="style-color-section-title">시트 ↔ 층 배정 (시트 이름으로 자동 추정, 다르면 직접 선택하세요)</div>
+                <div id="importDefectExcelSheetMapBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem;"></div>
+                <div class="style-color-section-title">엑셀 컬럼 ↔ 결함 항목 매칭 (모든 시트에 공통 적용)</div>
                 <div id="importDefectExcelMappingBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem;"></div>
-                <div class="style-color-section-title">미리보기 (처음 5행)</div>
+                <div class="style-color-section-title">미리보기 (첫 번째 시트, 처음 5행)</div>
                 <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px;">
                     <table id="importDefectExcelPreviewTable" style="width:100%; border-collapse:collapse; font-size:0.78rem; white-space:nowrap;"></table>
                 </div>
@@ -1545,7 +1547,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260806_1500"></script>
+    <script src="app.js?v=20260806_1600"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

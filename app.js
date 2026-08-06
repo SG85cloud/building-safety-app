@@ -8364,6 +8364,19 @@ document.addEventListener('DOMContentLoaded', () => {
         return -1;
     }
 
+    // 엑셀 시트 이름 ↔ 건축물의 실제 층(floorCode/floorLabel) 자동 매칭
+    function guessFloorForSheetName(sheetName, floors) {
+        const norm = (s) => (s || '').toString().trim().toLowerCase().replace(/[\s()]/g, '');
+        const n = norm(sheetName);
+        if (!n) return null;
+        let match = floors.find(f => norm(f.floorLabel) === n || norm(f.floorCode) === n);
+        if (match) return match.floorCode;
+        match = floors.find(f => n.includes(norm(f.floorCode)) && norm(f.floorCode).length > 0);
+        if (match) return match.floorCode;
+        match = floors.find(f => n.includes(norm(f.floorLabel)) || norm(f.floorLabel).includes(n));
+        return match ? match.floorCode : null;
+    }
+
     window.handleImportDefectExcelFile = function(event) {
         const file = event.target.files && event.target.files[0];
         if (!file) return;
@@ -8373,33 +8386,42 @@ document.addEventListener('DOMContentLoaded', () => {
             event.target.value = '';
             return;
         }
+        if (!state.currentBuildingId) {
+            window.showToast('가져올 건축물이 선택되지 않았습니다.', 'warning');
+            event.target.value = '';
+            return;
+        }
 
         const reader = new FileReader();
         reader.onload = function(e) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
-                const firstSheetName = workbook.SheetNames[0];
-                const sheet = workbook.Sheets[firstSheetName];
-                const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+                const floors = state.currentBuilding ? window.getBuildingAvailableFloors(state.currentBuilding) : [];
 
-                if (!rows || rows.length < 2) {
-                    window.showToast('엑셀 파일에서 데이터를 찾지 못했습니다. 첫 행은 헤더, 둘째 행부터 데이터여야 합니다.', 'warning', 5000);
+                const sheetInfos = workbook.SheetNames.map(sheetName => {
+                    const sheet = workbook.Sheets[sheetName];
+                    const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+                    if (!rows || rows.length < 1) return null;
+                    const headers = (rows[0] || []).map(h => (h || '').toString().trim());
+                    const dataRows = rows.slice(1).filter(r => r.some(cell => cell !== '' && cell !== null && cell !== undefined));
+                    if (dataRows.length === 0) return null;
+                    return {
+                        sheetName,
+                        headers,
+                        rows: dataRows,
+                        guessedFloorCode: guessFloorForSheetName(sheetName, floors)
+                    };
+                }).filter(Boolean);
+
+                if (sheetInfos.length === 0) {
+                    window.showToast('엑셀 파일에서 가져올 데이터를 찾지 못했습니다. 각 시트의 첫 행은 헤더, 둘째 행부터 데이터여야 합니다.', 'warning', 5000);
                     event.target.value = '';
                     return;
                 }
 
-                const headers = rows[0].map(h => (h || '').toString().trim());
-                const dataRows = rows.slice(1).filter(r => r.some(cell => cell !== '' && cell !== null && cell !== undefined));
-
-                if (dataRows.length === 0) {
-                    window.showToast('헤더 아래에 가져올 데이터 행이 없습니다.', 'warning', 5000);
-                    event.target.value = '';
-                    return;
-                }
-
-                window._importExcelHeaders = headers;
-                window._importExcelRows = dataRows;
+                window._importExcelSheets = sheetInfos;
+                window._importExcelFloors = floors;
                 openImportDefectExcelModal();
             } catch (err) {
                 window.showToast('엑셀 파일을 읽는 중 오류가 발생했습니다: ' + err.message, 'error', 5000);
@@ -8411,20 +8433,40 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     function openImportDefectExcelModal() {
-        const headers = window._importExcelHeaders || [];
-        const rows = window._importExcelRows || [];
+        const sheets = window._importExcelSheets || [];
+        const floors = window._importExcelFloors || [];
+        const refHeaders = (sheets[0] && sheets[0].headers) || [];
+        const totalRows = sheets.reduce((sum, s) => sum + s.rows.length, 0);
 
         const summaryEl = document.getElementById('importDefectExcelSummary');
-        if (summaryEl) summaryEl.textContent = `감지된 컬럼 ${headers.length}개, 데이터 ${rows.length}행.`;
-        const floorNameEl = document.getElementById('importDefectExcelFloorName');
-        if (floorNameEl) floorNameEl.textContent = state.currentFloor || '현재 층';
+        if (summaryEl) summaryEl.textContent = `시트 ${sheets.length}개, 데이터 ${totalRows}행 감지됨.`;
+
+        const sheetMapBody = document.getElementById('importDefectExcelSheetMapBody');
+        if (sheetMapBody) {
+            if (floors.length === 0) {
+                sheetMapBody.innerHTML = `<div style="font-size:0.82rem; color:var(--text-muted);">선택된 건축물의 층 정보를 찾지 못해 모든 시트를 현재 층(${state.currentFloor || ''})으로 가져옵니다.</div>`;
+            } else {
+                sheetMapBody.innerHTML = sheets.map(s => {
+                    const options = ['<option value="">(가져오지 않음)</option>']
+                        .concat(floors.map(f => `<option value="${f.floorCode}" ${f.floorCode === s.guessedFloorCode ? 'selected' : ''}>${f.floorLabel}</option>`));
+                    return `
+                        <div style="display:flex; align-items:center; gap:0.6rem;">
+                            <span style="flex:1; min-width:0; font-size:0.82rem; font-weight:700; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.sheetName}">
+                                ${s.sheetName} <span style="color:var(--text-muted); font-weight:400;">(${s.rows.length}행)</span>
+                            </span>
+                            <select class="form-select import-defect-sheet-floor-map" data-sheet="${s.sheetName}" style="width:200px; flex-shrink:0;">${options.join('')}</select>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
 
         const mappingBody = document.getElementById('importDefectExcelMappingBody');
         if (mappingBody) {
             mappingBody.innerHTML = IMPORT_DEFECT_FIELD_DEFS.map(field => {
-                const guessIdx = guessImportColumnForField(headers, field.aliases);
+                const guessIdx = guessImportColumnForField(refHeaders, field.aliases);
                 const options = ['<option value="-1">(사용 안 함)</option>']
-                    .concat(headers.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${h || `(이름없음 컬럼 ${i + 1})`}</option>`));
+                    .concat(refHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${h || `(이름없음 컬럼 ${i + 1})`}</option>`));
                 return `
                     <div style="display:flex; align-items:center; gap:0.6rem;">
                         <span style="width:190px; flex-shrink:0; font-size:0.82rem; font-weight:700; color:var(--text-secondary);">${field.label}</span>
@@ -8436,10 +8478,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const previewTable = document.getElementById('importDefectExcelPreviewTable');
         if (previewTable) {
-            const previewRows = rows.slice(0, 5);
+            const previewRows = ((sheets[0] && sheets[0].rows) || []).slice(0, 5);
             previewTable.innerHTML = `
-                <thead><tr>${headers.map(h => `<th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">${h || '-'}</th>`).join('')}</tr></thead>
-                <tbody>${previewRows.map(r => `<tr>${headers.map((h, i) => `<td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${(r[i] !== undefined ? r[i] : '')}</td>`).join('')}</tr>`).join('')}</tbody>
+                <thead><tr>${refHeaders.map(h => `<th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">${h || '-'}</th>`).join('')}</tr></thead>
+                <tbody>${previewRows.map(r => `<tr>${refHeaders.map((h, i) => `<td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${(r[i] !== undefined ? r[i] : '')}</td>`).join('')}</tr>`).join('')}</tbody>
             `;
         }
 
@@ -8456,8 +8498,8 @@ document.addEventListener('DOMContentLoaded', () => {
             modal.style.display = 'none';
             modal.classList.remove('open');
         }
-        window._importExcelHeaders = null;
-        window._importExcelRows = null;
+        window._importExcelSheets = null;
+        window._importExcelFloors = null;
     }
 
     // 구조체여부만 ○/-로 표기된 표는 비구조체/마감재 세부구분이 불가능해 '-'는 비구조체로 간주
@@ -8477,13 +8519,29 @@ document.addEventListener('DOMContentLoaded', () => {
         return v !== '' && !IMPORT_NEGATIVE_FLAG_VALUES.includes(v);
     }
 
+    // 결함 변경 직전 특정 층 키의 되돌리기 스냅샷을 저장 (pushDefectHistory는 항상 현재 층 기준이라
+    // 현재 화면에 없는 다른 층으로 가져올 때를 위해 층을 직접 지정해서 저장)
+    function pushDefectHistoryForKey(key) {
+        if (!defectHistory[key]) defectHistory[key] = { undo: [], redo: [] };
+        const h = defectHistory[key];
+        h.undo.push(JSON.stringify(state.defects[key] || []));
+        if (h.undo.length > 30) h.undo.shift();
+        h.redo = [];
+    }
+
     window.confirmImportDefectExcel = function() {
         if (!state.currentBuildingId) {
-            window.showToast('가져올 건축물/층이 선택되지 않았습니다.', 'warning');
+            window.showToast('가져올 건축물이 선택되지 않았습니다.', 'warning');
             return;
         }
-        const rows = window._importExcelRows || [];
-        if (rows.length === 0) return;
+        const sheets = window._importExcelSheets || [];
+        if (sheets.length === 0) return;
+
+        const sheetSelects = document.querySelectorAll('.import-defect-sheet-floor-map');
+        const floorBySheetName = {};
+        sheetSelects.forEach(sel => { floorBySheetName[sel.dataset.sheet] = sel.value; });
+        // 층 정보가 아예 없는 건축물은 매칭 UI 자체가 없으므로 모든 시트를 현재 층으로 간주
+        const noFloorInfo = (window._importExcelFloors || []).length === 0;
 
         const mapSelects = document.querySelectorAll('.import-defect-field-map');
         const colIdxByField = {};
@@ -8496,94 +8554,114 @@ document.addEventListener('DOMContentLoaded', () => {
             return (row[idx] !== undefined && row[idx] !== null) ? row[idx].toString().trim() : '';
         };
 
-        const key = `${state.currentBuildingId}_${state.currentFloor}`;
-        if (!state.defects[key]) state.defects[key] = [];
+        let totalImported = 0;
+        let floorsTouched = 0;
 
-        pushDefectHistory();
+        sheets.forEach(sheetInfo => {
+            const floorCode = noFloorInfo ? state.currentFloor : floorBySheetName[sheetInfo.sheetName];
+            if (!floorCode) return; // "(가져오지 않음)"으로 지정된 시트는 건너뜀
 
-        // 기존 결함번호 중 가장 큰 숫자를 이어서 번호 매기기 (엑셀 결함번호 칸이 비어있는 행용)
-        let seq = state.defects[key].reduce((max, d) => {
-            const n = getDefectSortNo(d);
-            return n === Number.MAX_SAFE_INTEGER ? max : Math.max(max, n);
-        }, 0);
+            const key = `${state.currentBuildingId}_${floorCode}`;
+            if (!state.defects[key]) state.defects[key] = [];
+            pushDefectHistoryForKey(key);
 
-        const img = state.bgImage;
-        const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
-        const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
-        const marginX = Math.max(80, imgW * 0.06);
-        const marginY = Math.max(80, imgH * 0.06);
-        const gridCols = 8;
-        const stepX = Math.max(60, (imgW - marginX * 2) / gridCols);
-        const stepY = Math.max(60, stepX * 0.7);
+            // 기존 결함번호 중 가장 큰 숫자를 이어서 번호 매기기 (엑셀 결함번호 칸이 비어있는 행용)
+            let seq = state.defects[key].reduce((max, d) => {
+                const n = getDefectSortNo(d);
+                return n === Number.MAX_SAFE_INTEGER ? max : Math.max(max, n);
+            }, 0);
 
-        let imported = 0;
-        rows.forEach((row, i) => {
-            const noRaw = getCell(row, 'no');
-            const defectTypeRaw = getCell(row, 'defectType');
-            const componentRaw = getCell(row, 'component') || '기타';
-            const categoryRaw = getCell(row, 'category');
-            const locationRaw = getCell(row, 'location');
-            const sizeRaw = getCell(row, 'size');
-            const causeRaw = getCell(row, 'cause');
-            let crackWidthRaw = getCell(row, 'crackWidth');
-            let crackLengthRaw = getCell(row, 'crackLength');
-            const progressRaw = getCell(row, 'progress');
-            const leakRaw = getCell(row, 'leak');
+            // 도면 크기는 현재 화면에 열려있는 층일 때만 실제 이미지 크기를 알 수 있고,
+            // 그 외 층은 도면이 로드되어 있지 않으므로 기본 캔버스 크기로 배치한다
+            const img = (floorCode === state.currentFloor) ? state.bgImage : null;
+            const imgW = img ? (img.naturalWidth || img.width || 1200) : 1200;
+            const imgH = img ? (img.naturalHeight || img.height || 700) : 700;
+            const marginX = Math.max(80, imgW * 0.06);
+            const marginY = Math.max(80, imgH * 0.06);
+            const gridCols = 8;
+            const stepX = Math.max(60, (imgW - marginX * 2) / gridCols);
+            const stepY = Math.max(60, stepX * 0.7);
 
-            const category = resolveImportCategory(categoryRaw);
-            const defectType = defectTypeRaw || '기타';
-            const isGood = defectType === '상태양호';
+            let importedThisFloor = 0;
+            sheetInfo.rows.forEach((row, i) => {
+                const noRaw = getCell(row, 'no');
+                const defectTypeRaw = getCell(row, 'defectType');
+                const componentRaw = getCell(row, 'component') || '기타';
+                const categoryRaw = getCell(row, 'category');
+                const locationRaw = getCell(row, 'location');
+                const sizeRaw = getCell(row, 'size');
+                const causeRaw = getCell(row, 'cause');
+                let crackWidthRaw = getCell(row, 'crackWidth');
+                let crackLengthRaw = getCell(row, 'crackLength');
+                const progressRaw = getCell(row, 'progress');
+                const leakRaw = getCell(row, 'leak');
 
-            // 균열폭/균열길이가 별도 매핑 안 됐고 결함크기 칸이 "0.15/1.5" 형태면 자동 분리
-            // (이 앱에서 내보낸 파일을 그대로 다시 가져올 때 호환되도록)
-            if (!crackWidthRaw && !crackLengthRaw && defectType === '균열' && sizeRaw) {
-                const m = sizeRaw.match(/^\s*([\d.]+|-)\s*\/\s*([\d.]+|-)\s*$/);
-                if (m) {
-                    crackWidthRaw = m[1] === '-' ? '' : m[1];
-                    crackLengthRaw = m[2] === '-' ? '' : m[2];
+                const category = resolveImportCategory(categoryRaw);
+                const defectType = defectTypeRaw || '기타';
+                const isGood = defectType === '상태양호';
+
+                // 균열폭/균열길이가 별도 매핑 안 됐고 결함크기 칸이 "0.15/1.5" 형태면 자동 분리
+                // (이 앱에서 내보낸 파일을 그대로 다시 가져올 때 호환되도록)
+                if (!crackWidthRaw && !crackLengthRaw && defectType === '균열' && sizeRaw) {
+                    const m = sizeRaw.match(/^\s*([\d.]+|-)\s*\/\s*([\d.]+|-)\s*$/);
+                    if (m) {
+                        crackWidthRaw = m[1] === '-' ? '' : m[1];
+                        crackLengthRaw = m[2] === '-' ? '' : m[2];
+                    }
                 }
+
+                seq += 1;
+                const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
+                const no = noRaw || `NO.${seqStr}`;
+
+                const col = i % gridCols;
+                const rowIdx = Math.floor(i / gridCols);
+                const boxX = marginX + col * stepX;
+                const boxY = marginY + rowIdx * stepY;
+
+                const newDefect = {
+                    id: 'pin-' + Date.now() + '-' + floorCode + '-' + i,
+                    no,
+                    category,
+                    component: componentRaw,
+                    location: locationRaw || `${floorCode} ${componentRaw}`,
+                    defectType,
+                    cause: isGood ? '-' : (causeRaw || '건조수축'),
+                    size: isGood ? '' : sizeRaw,
+                    crackWidth: isGood ? '' : crackWidthRaw,
+                    crackLength: isGood ? '' : crackLengthRaw,
+                    isProgress: isGood ? false : resolveImportFlag(progressRaw),
+                    isLeak: isGood ? false : resolveImportFlag(leakRaw),
+                    isCarriedOver: false,
+                    surveyRound: getCurrentSurveyRoundKey(),
+                    photos: [],
+                    inspectorName: window.state.userName || '',
+                    x: boxX,
+                    y: boxY,
+                    targetX: boxX - 35,
+                    targetY: boxY + 35
+                };
+                state.defects[key].push(newDefect);
+                importedThisFloor++;
+            });
+
+            if (importedThisFloor > 0) {
+                totalImported += importedThisFloor;
+                floorsTouched++;
             }
-
-            seq += 1;
-            const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
-            const no = noRaw || `NO.${seqStr}`;
-
-            const col = i % gridCols;
-            const rowIdx = Math.floor(i / gridCols);
-            const boxX = marginX + col * stepX;
-            const boxY = marginY + rowIdx * stepY;
-
-            const newDefect = {
-                id: 'pin-' + Date.now() + '-' + i,
-                no,
-                category,
-                component: componentRaw,
-                location: locationRaw || `${state.currentFloor} ${componentRaw}`,
-                defectType,
-                cause: isGood ? '-' : (causeRaw || '건조수축'),
-                size: isGood ? '' : sizeRaw,
-                crackWidth: isGood ? '' : crackWidthRaw,
-                crackLength: isGood ? '' : crackLengthRaw,
-                isProgress: isGood ? false : resolveImportFlag(progressRaw),
-                isLeak: isGood ? false : resolveImportFlag(leakRaw),
-                isCarriedOver: false,
-                surveyRound: getCurrentSurveyRoundKey(),
-                photos: [],
-                inspectorName: window.state.userName || '',
-                x: boxX,
-                y: boxY,
-                targetX: boxX - 35,
-                targetY: boxY + 35
-            };
-            state.defects[key].push(newDefect);
-            imported++;
         });
 
+        if (totalImported === 0) {
+            window.showToast('가져올 시트가 선택되지 않았습니다. 시트별 층 배정을 확인해주세요.', 'warning', 5000);
+            return;
+        }
+
+        updateUndoRedoButtons();
         saveStateToLocalStorage();
         renderSurveyTable();
         drawCanvas();
         closeImportDefectExcelModal();
-        window.showToast(`엑셀에서 결함 ${imported}건을 가져왔습니다. 좌측 목록에서 각 항목을 도면 위 정확한 위치로 드래그해주세요.`, 'success', 6000);
+        window.showToast(`${floorsTouched}개 층에서 결함 ${totalImported}건을 가져왔습니다. 좌측 목록에서 각 항목을 도면 위 정확한 위치로 드래그해주세요.`, 'success', 6000);
     };
 
     const btnImportDefectExcel = document.getElementById('btnImportDefectExcel');
@@ -8599,43 +8677,75 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnConfirmImportDefectExcel = document.getElementById('btnConfirmImportDefectExcel');
     if (btnConfirmImportDefectExcel) btnConfirmImportDefectExcel.addEventListener('click', window.confirmImportDefectExcel);
 
-    // 결함표 가져오기 양식(빈 엑셀 템플릿) 다운로드 — 헤더는 IMPORT_DEFECT_FIELD_DEFS와 항상 일치하도록 그대로 재사용
+    // 엑셀 시트 이름으로 쓸 수 없는 문자를 제거하고 31자로 자르며, 중복되면 뒤에 번호를 붙인다
+    function sanitizeSheetName(name, usedNames) {
+        let clean = (name || '시트').replace(/[:\\/?*\[\]]/g, '').trim().slice(0, 31) || '시트';
+        let finalName = clean;
+        let suffix = 2;
+        while (usedNames.has(finalName)) {
+            finalName = `${clean.slice(0, 28)}(${suffix})`;
+            suffix++;
+        }
+        usedNames.add(finalName);
+        return finalName;
+    }
+
+    // 결함표 가져오기 양식(빈 엑셀 템플릿) 다운로드 — 건축물의 실제 층마다 시트를 하나씩 만들어서
+    // 각 층 결함을 해당 시트에 나눠 적으면 가져오기 때 시트 이름으로 층이 자동 배정되도록 함.
+    // 헤더는 IMPORT_DEFECT_FIELD_DEFS와 항상 일치하도록 그대로 재사용.
     window.downloadImportDefectExcelTemplate = function() {
         if (typeof XLSX === 'undefined') {
             window.showToast('엑셀 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인 후 다시 시도해주세요.', 'error', 5000);
             return;
         }
-        // 헤더는 가져오기 시 자동 매칭이 정확히 되도록 별칭(aliases)의 첫 번째 값을 그대로 사용
         const headerRow = IMPORT_DEFECT_FIELD_DEFS.map(f => f.aliases[0]);
         const exampleRows = [
             ['NO.01', '기둥', '구조체', '균열', '(예시) 101동 1F 기둥 C1 하부', '0.15/1.2', '0.15', '1.2', '진행중', '-', '건조수축'],
             ['NO.02', '슬래브', '구조체', '상태양호', '(예시) 101동 1F 슬래브 중앙', '', '', '', '', '', ''],
             ['NO.03', '조적벽', '비구조체', '조적벽체 균열', '(예시) 2F 조적벽', 'W=0.3mm', '', '', '-', '누수중', '부등침하']
         ];
-        const ws1 = XLSX.utils.aoa_to_sheet([headerRow, ...exampleRows]);
-        ws1['!cols'] = [10, 14, 14, 18, 30, 14, 10, 10, 10, 10, 18].map(w => ({ wch: w }));
+        const colWidths = [10, 14, 14, 18, 30, 14, 10, 10, 10, 10, 18].map(w => ({ wch: w }));
+
+        const bldg = state.currentBuilding;
+        const floors = bldg ? window.getBuildingAvailableFloors(bldg) : [];
+        const wb = XLSX.utils.book_new();
+        const usedNames = new Set();
+
+        if (floors.length > 0) {
+            floors.forEach((f, idx) => {
+                const aoa = idx === 0 ? [headerRow, ...exampleRows] : [headerRow];
+                const ws = XLSX.utils.aoa_to_sheet(aoa);
+                ws['!cols'] = colWidths;
+                XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName(f.floorLabel, usedNames));
+            });
+        } else {
+            const ws = XLSX.utils.aoa_to_sheet([headerRow, ...exampleRows]);
+            ws['!cols'] = colWidths;
+            XLSX.utils.book_append_sheet(wb, ws, sanitizeSheetName('결함목록', usedNames));
+        }
 
         const notes = [
             ['[스마트 건축물 안전점검] 결함표 가져오기 양식 작성 안내'],
             [''],
-            ["1. '결함목록' 시트의 2~4행(예시 행, 위치 칸에 '(예시)' 표시)은 형식을 보여주기 위한 것입니다. 실제 데이터 입력 전 삭제하세요."],
-            ["2. 첫 행(헤더)의 열 이름은 그대로 두는 것을 권장합니다. 이름을 바꿔도 앱에서 가져올 때 직접 매칭할 수 있지만, 그대로 두면 자동으로 인식됩니다."],
-            ["3. '결함번호' 칸을 비워두면 앱에서 가져올 때 자동으로 순번(NO.01, NO.02…)을 매깁니다. 기존 번호 체계를 유지하려면 직접 입력하세요."],
-            ["4. '구분' 칸은 반드시 '구조체' / '비구조체' / '마감재' 중 하나로 입력하세요. 비워두면 '구조체'로 처리됩니다."],
-            ["5. '조사내용'은 결함 종류입니다 (예: 균열, 누수, 백태/유출, 철근노출, 조적벽체 균열 등). 상태가 양호한 항목은 '상태양호'라고 입력하면 결함크기·균열폭·균열길이·결함원인추정 칸은 비워도 자동으로 무시됩니다."],
-            ["6. '결함크기'는 자유 텍스트입니다. 균열의 경우 균열폭/균열길이를 별도 칸에 나눠 적거나, 결함크기 칸에 '0.15/1.2'처럼 슬래시로 합쳐 적어도 자동으로 나뉘어 인식됩니다."],
-            ["7. '진행여부' / '누수여부'는 해당되면 '진행중' / '누수중'처럼 아무 문자나 입력하고, 해당 없으면 '-' 또는 빈 칸으로 두세요."],
-            ["8. 작성이 끝나면 이 파일을 저장한 뒤, 이 화면의 '📥 외부 엑셀 결함표 가져오기' 버튼으로 업로드하세요."],
-            ["9. 엑셀에는 도면 위 위치(좌표) 정보가 없어, 가져온 결함은 도면 좌측 상단에 임시로 배치됩니다. 가져오기 후 좌측 결함 목록에서 각 항목을 도면 위 정확한 위치로 직접 드래그해주세요."]
+            [floors.length > 0
+                ? "1. 시트가 층별로 나뉘어 있습니다. 각 시트 이름이 곧 층 이름이니, 해당 층의 결함만 그 시트에 적으세요. 쓰지 않는 층 시트는 그냥 비워두거나 삭제해도 됩니다."
+                : "1. 건축물의 층 정보가 없어 시트가 하나로 되어 있습니다. '결함목록' 시트 하나에 모두 적으세요."],
+            ["2. 각 시트 2~4행(예시 행, 위치 칸에 '(예시)' 표시)은 형식을 보여주기 위한 것입니다. 실제 데이터 입력 전 삭제하세요."],
+            ["3. 첫 행(헤더)의 열 이름은 그대로 두는 것을 권장합니다. 이름을 바꿔도 앱에서 가져올 때 직접 매칭할 수 있지만, 그대로 두면 자동으로 인식됩니다."],
+            ["4. '결함번호' 칸을 비워두면 앱에서 가져올 때 자동으로 순번(NO.01, NO.02…)을 매깁니다. 기존 번호 체계를 유지하려면 직접 입력하세요."],
+            ["5. '구분' 칸은 반드시 '구조체' / '비구조체' / '마감재' 중 하나로 입력하세요. 비워두면 '구조체'로 처리됩니다."],
+            ["6. '조사내용'은 결함 종류입니다 (예: 균열, 누수, 백태/유출, 철근노출, 조적벽체 균열 등). 상태가 양호한 항목은 '상태양호'라고 입력하면 결함크기·균열폭·균열길이·결함원인추정 칸은 비워도 자동으로 무시됩니다."],
+            ["7. '결함크기'는 자유 텍스트입니다. 균열의 경우 균열폭/균열길이를 별도 칸에 나눠 적거나, 결함크기 칸에 '0.15/1.2'처럼 슬래시로 합쳐 적어도 자동으로 나뉘어 인식됩니다."],
+            ["8. '진행여부' / '누수여부'는 해당되면 '진행중' / '누수중'처럼 아무 문자나 입력하고, 해당 없으면 '-' 또는 빈 칸으로 두세요."],
+            ["9. 작성이 끝나면 이 파일을 저장한 뒤, 이 화면의 '📥 외부 엑셀 결함표 가져오기' 버튼으로 업로드하세요. 가져오기 화면에서 시트 ↔ 층 배정이 시트 이름으로 자동 추정되며, 다르면 직접 바꿀 수 있습니다."],
+            ["10. 엑셀에는 도면 위 위치(좌표) 정보가 없어, 가져온 결함은 각 층 도면 좌측 상단에 임시로 배치됩니다. 가져오기 후 좌측 결함 목록에서 각 항목을 도면 위 정확한 위치로 직접 드래그해주세요."]
         ];
         const ws2 = XLSX.utils.aoa_to_sheet(notes);
         ws2['!cols'] = [{ wch: 100 }];
+        XLSX.utils.book_append_sheet(wb, ws2, sanitizeSheetName('작성안내', usedNames));
 
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws1, '결함목록');
-        XLSX.utils.book_append_sheet(wb, ws2, '작성안내');
-
-        XLSX.writeFile(wb, '결함표_가져오기_양식.xlsx');
+        const fileLabel = bldg && bldg.name ? bldg.name.replace(/[:\\/?*\[\]]/g, '') : '결함표';
+        XLSX.writeFile(wb, `${fileLabel}_가져오기_양식.xlsx`);
     };
 
     const btnDownloadImportTemplate = document.getElementById('btnDownloadImportTemplate');
