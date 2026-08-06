@@ -38,6 +38,17 @@ window.appState = window.state;
 
 // --- 2. IMAGE COMPRESSION & FLOOR PARSER HELPERS ---
 
+// 사용자/외부 파일에서 온 문자열을 innerHTML에 넣기 전에 이스케이프 (HTML 인젝션 방지)
+function escapeHtml(str) {
+    if (str === undefined || str === null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // pdf.js 워커 경로 설정 (CDN 스크립트가 로드된 경우에만)
 if (typeof pdfjsLib !== 'undefined') {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
@@ -845,7 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const singleRowHtml = (item, idx) => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${item.matched === false ? 'rgba(217,119,6,0.1)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${item.matched === false ? '#d97706' : 'transparent'}; padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
-                <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.fileName}">${item.fileName}</span>
+                <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(item.fileName)}">${escapeHtml(item.fileName)}</span>
                 <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem;">
                     ${window.buildFloorCodeOptionsHtml(item.floorCode)}
                 </select>
@@ -864,8 +875,8 @@ document.addEventListener('DOMContentLoaded', () => {
                             const isFinal = i === g.entries.length - 1;
                             return `
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
-                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${item.fileName}">
-                                    ${isFinal ? '✅' : '⬜'} ${item.fileName}${isFinal ? ' <b>(저장됨)</b>' : ''}
+                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${escapeHtml(item.fileName)}">
+                                    ${isFinal ? '✅' : '⬜'} ${escapeHtml(item.fileName)}${isFinal ? ' <b>(저장됨)</b>' : ''}
                                 </span>
                                 ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
                                 <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.72rem; padding:0.15rem 0.3rem; flex-shrink:0;">
@@ -1185,7 +1196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#0284c7'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
                             <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
                                 <strong style="color:#0369a1;">[신규추가]</strong>
-                                <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${item.fileName}</span>
+                                <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${escapeHtml(item.fileName)}</span>
                             </span>
                             <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem; flex-shrink:0;">
                                 ${window.buildFloorCodeOptionsHtml(item.floorCode)}
@@ -1204,8 +1215,8 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const isFinal = i === g.entries.length - 1;
                                     return `
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
-                                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${item.fileName}">
-                                            ${isFinal ? '✅' : '⬜'} ${item.fileName}${isFinal ? ' <b>(저장됨)</b>' : ''}
+                                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${escapeHtml(item.fileName)}">
+                                            ${isFinal ? '✅' : '⬜'} ${escapeHtml(item.fileName)}${isFinal ? ' <b>(저장됨)</b>' : ''}
                                         </span>
                                         ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-edit-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
                                         <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.72rem; padding:0.15rem 0.3rem; flex-shrink:0;">
@@ -8624,13 +8635,13 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 sheetMapBody.innerHTML = sheets.map(s => {
                     const options = ['<option value="">(가져오지 않음)</option>']
-                        .concat(floors.map(f => `<option value="${f.floorCode}" ${f.floorCode === s.guessedFloorCode ? 'selected' : ''}>${f.floorLabel}</option>`));
+                        .concat(floors.map(f => `<option value="${escapeHtml(f.floorCode)}" ${f.floorCode === s.guessedFloorCode ? 'selected' : ''}>${escapeHtml(f.floorLabel)}</option>`));
                     return `
                         <div style="display:flex; align-items:center; gap:0.6rem;">
-                            <span style="flex:1; min-width:0; font-size:0.82rem; font-weight:700; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${s.sheetName}">
-                                ${s.sheetName} <span style="color:var(--text-muted); font-weight:400;">(${s.rows.length}행)</span>
+                            <span style="flex:1; min-width:0; font-size:0.82rem; font-weight:700; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(s.sheetName)}">
+                                ${escapeHtml(s.sheetName)} <span style="color:var(--text-muted); font-weight:400;">(${s.rows.length}행)</span>
                             </span>
-                            <select class="form-select import-defect-sheet-floor-map" data-sheet="${s.sheetName}" style="width:200px; flex-shrink:0;">${options.join('')}</select>
+                            <select class="form-select import-defect-sheet-floor-map" data-sheet="${escapeHtml(s.sheetName)}" style="width:200px; flex-shrink:0;">${options.join('')}</select>
                         </div>
                     `;
                 }).join('');
@@ -8642,7 +8653,7 @@ document.addEventListener('DOMContentLoaded', () => {
             mappingBody.innerHTML = IMPORT_DEFECT_FIELD_DEFS.map(field => {
                 const guessIdx = guessImportColumnForField(refHeaders, field.aliases);
                 const options = ['<option value="-1">(사용 안 함)</option>']
-                    .concat(refHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${h || `(이름없음 컬럼 ${i + 1})`}</option>`));
+                    .concat(refHeaders.map((h, i) => `<option value="${i}" ${i === guessIdx ? 'selected' : ''}>${h ? escapeHtml(h) : `(이름없음 컬럼 ${i + 1})`}</option>`));
                 return `
                     <div style="display:flex; align-items:center; gap:0.6rem;">
                         <span style="width:190px; flex-shrink:0; font-size:0.82rem; font-weight:700; color:var(--text-secondary);">${field.label}</span>
@@ -8656,8 +8667,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (previewTable) {
             const previewRows = ((sheets[0] && sheets[0].rows) || []).slice(0, 5);
             previewTable.innerHTML = `
-                <thead><tr>${refHeaders.map(h => `<th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">${h || '-'}</th>`).join('')}</tr></thead>
-                <tbody>${previewRows.map(r => `<tr>${refHeaders.map((h, i) => `<td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${(r[i] !== undefined ? r[i] : '')}</td>`).join('')}</tr>`).join('')}</tbody>
+                <thead><tr>${refHeaders.map(h => `<th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">${h ? escapeHtml(h) : '-'}</th>`).join('')}</tr></thead>
+                <tbody>${previewRows.map(r => `<tr>${refHeaders.map((h, i) => `<td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${escapeHtml(r[i] !== undefined ? r[i] : '')}</td>`).join('')}</tr>`).join('')}</tbody>
             `;
         }
 
