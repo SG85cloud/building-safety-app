@@ -928,10 +928,18 @@
                     "도면에서 클릭 지정"을 누른 뒤 실제 도면 사진에서 같은 지점을 클릭해주세요.
                 </div>
                 <div id="dxfCalibRows" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:0.7rem;"></div>
-                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.9rem;">
                     <button type="button" id="btnDxfCalibPreview" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-crosshairs"></i> 🎯 변환 미리보기 (도면 위에 점 찍어보기)</button>
                     <button type="button" id="btnDxfCalibClear" class="btn btn-sm btn-outline" style="border-color:#64748b; color:#64748b;">초기화</button>
                 </div>
+
+                <div class="style-color-section-title">결함 핀 생성</div>
+                <div style="background: rgba(22,163,74,0.08); border: 1px solid rgba(22,163,74,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.8rem; line-height: 1.5; margin-bottom: 0.7rem;">
+                    위 미리보기 점이 실제 결함 위치와 맞는 것을 확인하셨으면 아래 버튼으로 <b>진짜 결함 핀</b>을 만듭니다.
+                    결함번호는 CAD의 번호 텍스트를 그대로 쓰고, 부재명칭·결함종류·원인 등 세부 내용은 자동으로 채워지지 않으므로
+                    생성 후 각 핀을 클릭해 직접 입력해주세요. (되돌리기 버튼으로 취소 가능합니다)
+                </div>
+                <button type="button" id="btnCreateDxfDefectPins" class="btn btn-sm" style="background:#16a34a; color:#fff; border:none;"><i class="fa-solid fa-map-pin"></i> ✅ 이 위치에 결함 핀 생성</button>
             </div>
             <div class="modal-footer" style="justify-content: flex-end;">
                 <button type="button" id="btnCloseDxfImportModal2" class="btn btn-outline">닫기</button>

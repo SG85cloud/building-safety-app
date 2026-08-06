@@ -9210,26 +9210,34 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    window.previewDxfCalibration = function() {
+    // 캘리브레이션(기준점 2개)과 추출된 좌표(rows)가 모두 준비됐는지 확인하고,
+    // 준비됐으면 변환함수와 rows를 반환한다. 안 됐으면 이유를 토스트로 알리고 null 반환.
+    function getReadyDxfTransformOrWarn() {
         const pts = window._dxfCalibPoints || [];
         const p1 = pts[0], p2 = pts[1];
         const complete = p1 && p2 &&
             [p1.dxX, p1.dxY, p1.imgX, p1.imgY, p2.dxX, p2.dxY, p2.imgX, p2.imgY].every(v => v !== undefined && !Number.isNaN(v));
         if (!complete) {
             window.showToast('기준점 2개(CAD 좌표 입력 + 도면 클릭 지정)를 모두 완료해주세요.', 'warning');
-            return;
+            return null;
         }
         const xf = computeDxfSimilarityTransform(p1, p2);
         if (!xf) {
             window.showToast('기준점 2개의 CAD 좌표가 동일합니다. 서로 다른 위치를 골라주세요.', 'error');
-            return;
+            return null;
         }
-
         const rows = window._dxfLastExtractedRows || [];
         if (rows.length === 0) {
             window.showToast('먼저 "선택한 레이어에서 좌표 추출"을 눌러 결함 위치 후보를 뽑아주세요.', 'warning');
-            return;
+            return null;
         }
+        return { xf, rows };
+    }
+
+    window.previewDxfCalibration = function() {
+        const ready = getReadyDxfTransformOrWarn();
+        if (!ready) return;
+        const { xf, rows } = ready;
 
         window._dxfCalibrationPreviewPoints = rows.map(r => {
             const t = xf.transform(r.x, r.y);
@@ -9242,6 +9250,73 @@ document.addEventListener('DOMContentLoaded', () => {
             `🎯 도면 위에 ${rows.length}개 지점을 임시로 표시했습니다 (아직 결함으로 저장되지 않았습니다). 실제 결함 위치와 맞는지 눈으로 확인해주세요.`,
             'success',
             8000
+        );
+    };
+
+    // 캘리브레이션으로 변환한 좌표에 실제 결함 핀을 생성한다.
+    // 부재명칭/결함종류/원인 등은 CAD 정보만으로는 알 수 없으므로 기본값으로 채우고,
+    // 결함번호는 CAD 텍스트(nearest label)를 그대로 사용해 나중에 엑셀표와 번호로 매칭할 수 있게 한다.
+    window.createDxfDefectPins = function() {
+        if (!state.currentBuildingId) {
+            window.showToast('건축물이 선택되지 않았습니다.', 'warning');
+            return;
+        }
+        const ready = getReadyDxfTransformOrWarn();
+        if (!ready) return;
+        const { xf, rows } = ready;
+
+        const floorCode = state.currentFloor;
+        const key = `${state.currentBuildingId}_${floorCode}`;
+        if (!state.defects[key]) state.defects[key] = [];
+        pushDefectHistoryForKey(key);
+
+        let seq = state.defects[key].reduce((max, d) => {
+            const n = getDefectSortNo(d);
+            return n === Number.MAX_SAFE_INTEGER ? max : Math.max(max, n);
+        }, 0);
+
+        let created = 0;
+        rows.forEach((r, i) => {
+            const t = xf.transform(r.x, r.y);
+            seq += 1;
+            const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
+            const no = (r.label && r.label.trim()) ? r.label.trim() : `NO.${seqStr}`;
+
+            state.defects[key].push({
+                id: 'pin-dxf-' + Date.now() + '-' + floorCode + '-' + i,
+                no,
+                category: '구조체',
+                component: '기타',
+                location: `CAD(${r.layer}) 레이어에서 자동 생성 — 부재명칭/결함종류/원인 등 직접 입력 필요`,
+                defectType: '기타',
+                cause: '건조수축',
+                size: '',
+                crackWidth: '',
+                crackLength: '',
+                isProgress: false,
+                isLeak: false,
+                isCarriedOver: false,
+                surveyRound: getCurrentSurveyRoundKey(),
+                photos: [],
+                inspectorName: window.state.userName || '',
+                x: t.x + 35,
+                y: t.y - 35,
+                targetX: t.x,
+                targetY: t.y
+            });
+            created++;
+        });
+
+        window._dxfCalibrationPreviewPoints = null;
+        updateUndoRedoButtons();
+        saveStateToLocalStorage();
+        renderSurveyTable();
+        drawCanvas();
+        closeDxfImportModal();
+        window.showToast(
+            `✅ 결함 핀 ${created}개를 정확한 위치에 생성했습니다. 도면에서 각 핀을 클릭해 부재명칭·결함종류·원인 등 세부 정보를 입력해주세요. (실수하셨다면 되돌리기 버튼으로 취소할 수 있습니다)`,
+            'success',
+            9000
         );
     };
 
@@ -9278,6 +9353,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnDxfCalibPreview) btnDxfCalibPreview.addEventListener('click', window.previewDxfCalibration);
     const btnDxfCalibClear = document.getElementById('btnDxfCalibClear');
     if (btnDxfCalibClear) btnDxfCalibClear.addEventListener('click', window.clearDxfCalibration);
+    const btnCreateDxfDefectPins = document.getElementById('btnCreateDxfDefectPins');
+    if (btnCreateDxfDefectPins) btnCreateDxfDefectPins.addEventListener('click', window.createDxfDefectPins);
 
     // 엑셀 시트 이름으로 쓸 수 없는 문자를 제거하고 31자로 자르며, 중복되면 뒤에 번호를 붙인다
     function sanitizeSheetName(name, usedNames) {
