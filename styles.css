@@ -2424,7 +2424,7 @@ body {
 }
 
 .toast i { font-size: 1.05rem; flex-shrink: 0; }
-.toast span { word-break: break-word; white-space: pre-line; }
+.toast span { word-break: break-word; }
 
 .toast-success { border-left: 4px solid #16a34a; }
 .toast-success i { color: #16a34a; }
