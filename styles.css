@@ -2479,4 +2479,27 @@ body {
     .toast-container { top: 0.6rem; width: 94vw; }
 }
 
+.offline-badge {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    position: fixed;
+    top: 0.9rem;
+    right: 1rem;
+    z-index: 99999;
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+    background: #d97706;
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    box-shadow: var(--shadow-lg, 0 6px 18px rgba(15, 23, 42, 0.2));
+}
+
+.offline-badge i { font-size: 0.85rem; }
+
+@media (max-width: 480px) {
+    .offline-badge { top: auto; bottom: 0.8rem; right: 0.7rem; left: 0.7rem; justify-content: center; }
+}
+
 

@@ -412,7 +412,37 @@ document.addEventListener('DOMContentLoaded', () => {
         if (overlay) overlay.style.display = 'none';
     };
 
+    // --- 3.6 오프라인 상태 배지 ---
+    function ensureOfflineBadge() {
+        let badge = document.getElementById('offlineBadge');
+        if (!badge) {
+            badge = document.createElement('div');
+            badge.id = 'offlineBadge';
+            badge.className = 'offline-badge';
+            badge.innerHTML = '<i class="fa-solid fa-wifi-slash"></i> <span>오프라인 상태 · 기기에 저장 중</span>';
+            document.body.appendChild(badge);
+        }
+        return badge;
+    }
+
+    function updateOfflineBadge() {
+        const badge = ensureOfflineBadge();
+        badge.style.display = navigator.onLine ? 'none' : 'flex';
+    }
+
+    updateOfflineBadge();
+    window.addEventListener('online', () => {
+        updateOfflineBadge();
+        window.showToast('온라인 상태로 전환되었습니다. 동기화를 진행합니다.', 'success');
+        if (typeof syncStateToFirebase === 'function') syncStateToFirebase();
+    });
+    window.addEventListener('offline', () => {
+        updateOfflineBadge();
+        window.showToast('오프라인 상태입니다. 변경사항은 이 기기에 저장되며, 인터넷 연결 시 자동 동기화됩니다.', 'warning', 5000);
+    });
+
     // --- 4. PERSISTENCE ENGINE (LOCAL STORAGE) ---
+    let _localStorageSaveFailedNotified = false;
     function saveStateToLocalStorage() {
         try {
             const dataToSave = {
@@ -435,11 +465,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 tipShape: window.state.tipShape || 'arrow'
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
+            _localStorageSaveFailedNotified = false;
             if (typeof syncStateToFirebase === 'function') {
                 syncStateToFirebase();
             }
         } catch (e) {
             console.warn('LocalStorage save warning:', e);
+            if (!_localStorageSaveFailedNotified) {
+                _localStorageSaveFailedNotified = true;
+                const isQuotaError = e && (e.name === 'QuotaExceededError' || e.code === 22);
+                window.showToast(
+                    isQuotaError
+                        ? '저장 공간이 가득 차서 최근 변경사항이 저장되지 못했습니다. 오래된 도면/사진을 정리해 주세요.'
+                        : '변경사항을 기기에 저장하지 못했습니다. 앱을 다시 시작하거나 관리자에게 문의해 주세요.',
+                    'error',
+                    6000
+                );
+            }
         }
     }
 
