@@ -28,6 +28,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <!-- 외부(엑셀) 결함표 가져오기 파싱용 SheetJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- CAD(DXF) 결함 위치 좌표 추출용 -->
+    <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
 </head>
 <body class="theme-light">
 
@@ -306,6 +308,8 @@
                     <button id="btnImportDefectExcel" class="btn btn-outline btn-sm" style="border-color:#0284c7; color:#0284c7;"><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</button>
                     <button id="btnDownloadImportTemplate" class="btn btn-outline btn-sm" style="border-color:#64748b; color:#64748b;"><i class="fa-solid fa-file-arrow-down"></i> 📄 가져오기 양식 다운로드</button>
                     <input type="file" id="inputImportDefectExcel" accept=".xlsx,.xls,.csv" style="display:none;">
+                    <button id="btnOpenDxfImport" class="btn btn-outline btn-sm" style="border-color:#a855f7; color:#a855f7;"><i class="fa-solid fa-drafting-compass"></i> 🧭 CAD(DXF) 결함 위치 좌표 추출 (테스트)</button>
+                    <input type="file" id="inputDxfImport" accept=".dxf" style="display:none;">
                 </div>
             </div>
 
@@ -889,6 +893,37 @@
             <div class="modal-footer" style="justify-content: space-between;">
                 <button type="button" id="btnCancelImportDefectExcel" class="btn btn-outline">취소</button>
                 <button type="button" id="btnConfirmImportDefectExcel" class="btn btn-primary"><i class="fa-solid fa-check"></i> 가져오기 실행</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: CAD(DXF) 결함 위치 좌표 추출 미리보기 (1단계 테스트 - 아직 도면에 자동 배치는 안 함) -->
+    <div class="modal-overlay" id="dxfImportModal">
+        <div class="modal-card" style="max-width: 760px; width: 94%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-drafting-compass"></i> 🧭 CAD(DXF) 결함 위치 좌표 추출 (테스트)</h3>
+                <button type="button" class="modal-close" id="btnCloseDxfImportModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+                <div style="background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.9rem;">
+                    <span id="dxfImportSummary">DXF 파일을 아직 불러오지 않았습니다.</span><br>
+                    이 화면은 <b>좌표가 잘 뽑히는지 확인하는 테스트 단계</b>입니다. 아직 도면에 핀을 자동으로 찍지는 않아요.
+                    결함 원이 그려진 레이어를 골라서 좌표가 정확히 나오는지 먼저 확인해주세요.
+                </div>
+                <div class="style-color-section-title">레이어 선택 (결함 원이 그려진 레이어를 체크하세요)</div>
+                <div id="dxfLayerListBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem; max-height:180px; overflow-y:auto; border:1px solid var(--border-color); border-radius:8px; padding:0.5rem;">
+                    <div style="font-size:0.8rem; color:var(--text-muted);">DXF 파일을 먼저 불러와주세요.</div>
+                </div>
+                <div style="display:flex; justify-content:flex-end; margin-bottom:0.9rem;">
+                    <button type="button" id="btnExtractDxfCircles" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-magnifying-glass"></i> 선택한 레이어에서 좌표 추출</button>
+                </div>
+                <div class="style-color-section-title">추출 결과 미리보기</div>
+                <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px;">
+                    <table id="dxfExtractPreviewTable" style="width:100%; border-collapse:collapse; font-size:0.78rem; white-space:nowrap;"></table>
+                </div>
+            </div>
+            <div class="modal-footer" style="justify-content: flex-end;">
+                <button type="button" id="btnCloseDxfImportModal2" class="btn btn-outline">닫기</button>
             </div>
         </div>
     </div>

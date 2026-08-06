@@ -8906,6 +8906,189 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnConfirmImportDefectExcel = document.getElementById('btnConfirmImportDefectExcel');
     if (btnConfirmImportDefectExcel) btnConfirmImportDefectExcel.addEventListener('click', window.confirmImportDefectExcel);
 
+    // --- CAD(DXF) 결함 위치 좌표 추출 (1단계: 좌표 추출 미리보기까지만. 도면 자동배치는 다음 단계) ---
+    function openDxfImportModal() {
+        const modal = document.getElementById('dxfImportModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    }
+
+    function closeDxfImportModal() {
+        const modal = document.getElementById('dxfImportModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    // DXF의 layer table에 없어도 실제 도형에 쓰인 레이어는 전부 목록에 올리고,
+    // 그 레이어에 원(CIRCLE)이 있으면 기본으로 체크해준다 (결함 표시일 가능성이 높으므로)
+    function renderDxfLayerList(dxf) {
+        const body = document.getElementById('dxfLayerListBody');
+        if (!body) return;
+
+        const layersObj = (dxf.tables && dxf.tables.layer && dxf.tables.layer.layers) || {};
+        const layerNames = Object.keys(layersObj);
+        const circleCountByLayer = {};
+        (dxf.entities || []).forEach(en => {
+            if (en.type === 'CIRCLE') {
+                circleCountByLayer[en.layer] = (circleCountByLayer[en.layer] || 0) + 1;
+            }
+        });
+        Object.keys(circleCountByLayer).forEach(name => {
+            if (!layerNames.includes(name)) layerNames.push(name);
+        });
+
+        if (layerNames.length === 0) {
+            body.innerHTML = '<div style="font-size:0.8rem; color:var(--text-muted);">레이어 정보를 찾을 수 없습니다.</div>';
+            return;
+        }
+
+        body.innerHTML = layerNames.map(name => {
+            const count = circleCountByLayer[name] || 0;
+            const checkedAttr = count > 0 ? 'checked' : '';
+            return `
+                <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.82rem; cursor:pointer;">
+                    <input type="checkbox" class="dxf-layer-check" value="${escapeHtml(name)}" ${checkedAttr}>
+                    <span>${escapeHtml(name)}</span>
+                    <span style="color:var(--text-muted); font-size:0.75rem;">(원 ${count}개)</span>
+                </label>
+            `;
+        }).join('');
+    }
+
+    window.handleDxfImportFile = async function(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        if (typeof DxfParser === 'undefined') {
+            window.showToast('DXF 해석 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인하고 다시 시도해주세요.', 'error');
+            e.target.value = '';
+            return;
+        }
+
+        window.showLoading('DXF 파일을 분석하는 중입니다...');
+        try {
+            const text = await file.text();
+            const parser = new DxfParser();
+            const dxf = parser.parse(text);
+            if (!dxf) throw new Error('DXF 내용을 해석하지 못했습니다.');
+
+            window._dxfParsedDoc = dxf;
+            const entityCount = (dxf.entities || []).length;
+            const circleCount = (dxf.entities || []).filter(en => en.type === 'CIRCLE').length;
+
+            const summaryEl = document.getElementById('dxfImportSummary');
+            if (summaryEl) {
+                summaryEl.textContent = `"${file.name}" 분석 완료 — 전체 도형 ${entityCount}개 중 원(CIRCLE) ${circleCount}개 발견. 아래에서 결함 레이어를 확인해주세요.`;
+            }
+            renderDxfLayerList(dxf);
+            const previewTable = document.getElementById('dxfExtractPreviewTable');
+            if (previewTable) previewTable.innerHTML = '';
+            openDxfImportModal();
+        } catch (err) {
+            console.error('[DXF 가져오기] 파싱 실패:', err);
+            window.showToast('DXF 파일을 해석하지 못했습니다: ' + err.message, 'error', 6000);
+        } finally {
+            window.hideLoading();
+            e.target.value = '';
+        }
+    };
+
+    function nearestDxfTextForPoint(cx, cy, texts) {
+        let best = null, bestDist = Infinity;
+        texts.forEach(t => {
+            const d = Math.hypot(t.x - cx, t.y - cy);
+            if (d < bestDist) { bestDist = d; best = t; }
+        });
+        return best ? { text: best.text, dist: bestDist } : null;
+    }
+
+    function renderDxfExtractPreview(rows) {
+        const table = document.getElementById('dxfExtractPreviewTable');
+        if (!table) return;
+        if (rows.length === 0) {
+            table.innerHTML = '<tbody><tr><td style="padding:0.8rem; color:var(--text-muted);">추출된 원이 없습니다. 다른 레이어를 선택해보세요.</td></tr></tbody>';
+            return;
+        }
+        table.innerHTML = `
+            <thead><tr>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">레이어</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">X</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">Y</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">반지름</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">가까운 텍스트(결함번호 후보)</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">텍스트까지 거리</th>
+            </tr></thead>
+            <tbody>${rows.map(r => `
+                <tr>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${escapeHtml(r.layer)}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.x.toFixed(2)}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.y.toFixed(2)}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.radius !== undefined && r.radius !== null ? r.radius.toFixed(2) : '-'}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.label ? escapeHtml(r.label) : '<span style="color:var(--text-muted);">(없음)</span>'}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.labelDist !== null ? r.labelDist.toFixed(2) : '-'}</td>
+                </tr>
+            `).join('')}</tbody>
+        `;
+    }
+
+    window.extractDxfCircles = function() {
+        const dxf = window._dxfParsedDoc;
+        if (!dxf) {
+            window.showToast('먼저 DXF 파일을 불러와주세요.', 'warning');
+            return;
+        }
+        const checked = Array.from(document.querySelectorAll('.dxf-layer-check:checked')).map(el => el.value);
+        if (checked.length === 0) {
+            window.showToast('레이어를 1개 이상 선택해주세요.', 'warning');
+            return;
+        }
+
+        const circles = (dxf.entities || []).filter(en => en.type === 'CIRCLE' && checked.includes(en.layer));
+        const texts = (dxf.entities || [])
+            .filter(en => (en.type === 'TEXT' || en.type === 'MTEXT') && en.text)
+            .map(en => {
+                const p = en.startPoint || en.position || en.insertionPoint || {};
+                return { x: p.x || 0, y: p.y || 0, text: (en.text || '').toString() };
+            });
+
+        const rows = circles.map(c => {
+            const cx = c.center ? c.center.x : 0;
+            const cy = c.center ? c.center.y : 0;
+            const nearest = nearestDxfTextForPoint(cx, cy, texts);
+            return {
+                layer: c.layer,
+                x: cx,
+                y: cy,
+                radius: c.radius,
+                label: nearest ? nearest.text : '',
+                labelDist: nearest ? nearest.dist : null
+            };
+        });
+
+        renderDxfExtractPreview(rows);
+        window.showToast(
+            `🧭 선택한 레이어 ${checked.length}개에서 원(결함 위치 후보) ${rows.length}개를 찾았습니다.`,
+            rows.length ? 'success' : 'warning',
+            5000
+        );
+    };
+
+    const btnOpenDxfImport = document.getElementById('btnOpenDxfImport');
+    const inputDxfImport = document.getElementById('inputDxfImport');
+    if (btnOpenDxfImport && inputDxfImport) {
+        btnOpenDxfImport.addEventListener('click', () => inputDxfImport.click());
+        inputDxfImport.addEventListener('change', window.handleDxfImportFile);
+    }
+    const btnCloseDxfImportModal = document.getElementById('btnCloseDxfImportModal');
+    if (btnCloseDxfImportModal) btnCloseDxfImportModal.addEventListener('click', closeDxfImportModal);
+    const btnCloseDxfImportModal2 = document.getElementById('btnCloseDxfImportModal2');
+    if (btnCloseDxfImportModal2) btnCloseDxfImportModal2.addEventListener('click', closeDxfImportModal);
+    const btnExtractDxfCircles = document.getElementById('btnExtractDxfCircles');
+    if (btnExtractDxfCircles) btnExtractDxfCircles.addEventListener('click', window.extractDxfCircles);
+
     // 엑셀 시트 이름으로 쓸 수 없는 문자를 제거하고 31자로 자르며, 중복되면 뒤에 번호를 붙인다
     function sanitizeSheetName(name, usedNames) {
         let clean = (name || '시트').replace(/[:\\/?*\[\]]/g, '').trim().slice(0, 31) || '시트';
