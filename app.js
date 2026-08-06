@@ -7029,6 +7029,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let reportPagesHtml = '';
 
             availableFloors.forEach((floorCode, floorIdx) => {
+                // 보고서에는 "B1F" 같은 코드 대신 "지하 1층"처럼 사람이 읽는 층 이름을 표시
+                const floorDisplayLabel = stripFloorCodeSuffix(window.getFloorLabelFromCode(floorCode));
                 const key = `${currentBldgId}_${floorCode}`;
                 const defects = state.defects[key] || (state.currentFloor === floorCode ? getCurrentFloorDefects() : []);
 
@@ -7054,7 +7056,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     label: label,
                                     title: componentDefectTitle,
                                     defectNo: d.no,
-                                    location: d.location || `${floorCode} ${d.component || ''}`,
+                                    location: d.location || `${floorDisplayLabel} ${d.component || ''}`,
                                     cause: d.defectType === '상태양호' ? '-' : (d.cause || '건조수축'),
                                     size: d.size || 'W=0.2mm',
                                     src: src
@@ -7064,12 +7066,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
 
-                // --- 1. 상태조사표 (한 페이지당 최대 12개로 배치하여 A4 세로 규격 내 완벽 수용 및 표 잘림 원천 차단) ---
+                // --- 1. 상태조사표 (한 페이지당 20개씩 배치 — A4 세로 한 장을 거의 꽉 채우면서도
+                //     표 잘림 없이 들어가는 실측값. 모든 페이지에 동일한 개수를 적용해 페이지마다
+                //     밀도가 들쭉날쭉하지 않도록 한다) ---
                 // "마킹 추가" 그룹은 한 행으로 합쳐서 표시 (위치도는 이미 groupId 기준 하나로 그려짐)
+                const SURVEY_ROWS_PER_PAGE = 20;
                 const surveyDefects = consolidateDefectGroups(defects);
                 const surveyPages = [];
-                for (let i = 0; i < surveyDefects.length; i += 12) {
-                    surveyPages.push(surveyDefects.slice(i, i + 12));
+                for (let i = 0; i < surveyDefects.length; i += SURVEY_ROWS_PER_PAGE) {
+                    surveyPages.push(surveyDefects.slice(i, i + SURVEY_ROWS_PER_PAGE));
                 }
                 if (surveyPages.length === 0) surveyPages.push([]);
 
@@ -7082,11 +7087,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
-                                    1. ${floorCode} 상태조사표 (총 ${surveyDefects.length}개 중 ${sDefects.length}개 표시)
+                                    1. ${floorDisplayLabel} 상태조사표
                                 </h2>
-                                <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
-                                    페이지 ${sPageIdx + 1} / ${surveyPages.length} (페이지당 최대 12개)
-                                </span>
                             </div>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7106,7 +7108,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
                                             </tr>
                                         `;
-                                    }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#94a3b8;">${floorCode}층에 등록된 결함이 없습니다.</td></tr>`}
+                                    }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#94a3b8;">${floorDisplayLabel}에 등록된 결함이 없습니다.</td></tr>`}
                                 </tbody>
                             </table>
 
@@ -7137,7 +7139,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
-                                    2. ${floorCode} 현장 결함 사진첩 (총 ${photoItems.length}개 사진)
+                                    2. ${floorDisplayLabel} 현장 결함 사진첩 (총 ${photoItems.length}개 사진)
                                 </h2>
                                 <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
                                     사진첩 페이지 ${pPageIdx + 1} / ${photoPages.length} (규격 6개 배치)
@@ -7162,7 +7164,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             ` : `
                                 <div style="width: 100%; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; margin-top: 2rem;">
                                     <i class="fa-solid fa-camera" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
-                                    📷 ${floorCode}층에 첨부된 현장 결함 사진이 없습니다.
+                                    📷 ${floorDisplayLabel}에 첨부된 현장 결함 사진이 없습니다.
                                 </div>
                             `}
 
@@ -7184,7 +7186,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
 
                         <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                            3. ${floorCode} 결함 위치도 (도면 마킹 평면도)
+                            3. ${floorDisplayLabel} 결함 위치도 (도면 마킹 평면도)
                         </h2>
 
                         ${drawingDataUrl ? `
@@ -7194,7 +7196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ` : `
                             <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                                 <i class="fa-solid fa-map-location-dot" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
-                                📍 ${floorCode} 등록된 평면도 도면이 없습니다.<br>
+                                📍 ${floorDisplayLabel} 등록된 평면도 도면이 없습니다.<br>
                                 <span style="font-size: 0.88rem; color: #94a3b8; font-weight: 500; margin-top: 0.4rem; display: inline-block;">
                                     (층별 도면 점검 탭에서 평면도 이미지를 등록하시면 결함 위치도가 자동으로 완성됩니다)
                                 </span>
@@ -7232,7 +7234,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo1}. ${floorCode} 비파괴 장비 조사 (부재 실측) 결과표
+                                ${curSecNo1}. ${floorDisplayLabel} 비파괴 장비 조사 (부재 실측) 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7279,7 +7281,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo2}. ${floorCode} 비파괴 장비 조사 (부재 실측) 위치도
+                                ${curSecNo2}. ${floorDisplayLabel} 비파괴 장비 조사 (부재 실측) 위치도
                             </h2>
 
                             ${measureDrawingUrl ? `
@@ -7312,7 +7314,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo1}. ${floorCode} 비파괴 장비 조사 (강도·탄산화) 결과표
+                                ${curSecNo1}. ${floorDisplayLabel} 비파괴 장비 조사 (강도·탄산화) 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7359,7 +7361,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo2}. ${floorCode} 비파괴 장비 조사 (강도·탄산화) 위치도
+                                ${curSecNo2}. ${floorDisplayLabel} 비파괴 장비 조사 (강도·탄산화) 위치도
                             </h2>
 
                             ${stdDrawingUrl ? `
@@ -7392,7 +7394,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo1}. ${floorCode} 외벽 기울기 측정 결과표
+                                ${curSecNo1}. ${floorDisplayLabel} 외벽 기울기 측정 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7443,7 +7445,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo2}. ${floorCode} 외벽 기울기 측정 위치도
+                                ${curSecNo2}. ${floorDisplayLabel} 외벽 기울기 측정 위치도
                             </h2>
 
                             ${tiltDrawingUrl ? `
@@ -7476,7 +7478,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo1}. ${floorCode} 부동침하 기울기 측정 결과표
+                                ${curSecNo1}. ${floorDisplayLabel} 부동침하 기울기 측정 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7522,7 +7524,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo2}. ${floorCode} 부동침하 기울기 측정 위치도
+                                ${curSecNo2}. ${floorDisplayLabel} 부동침하 기울기 측정 위치도
                             </h2>
 
                             ${settlementDrawingUrl ? `
@@ -7548,7 +7550,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
 
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                    ${curGraphNo}. ${floorCode} 부동침하 기울기 그래프 (${group.groupNo})
+                                    ${curGraphNo}. ${floorDisplayLabel} 부동침하 기울기 그래프 (${group.groupNo})
                                 </h2>
 
                                 ${chartDataUrl ? `
@@ -7577,7 +7579,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo1}. ${floorCode} 부재처짐 (부재변위) 측정 결과표
+                                ${curSecNo1}. ${floorDisplayLabel} 부재처짐 (부재변위) 측정 결과표
                             </h2>
 
                             <table style="width: 100%; border-collapse: collapse; font-size: 0.81rem; text-align: center; margin-bottom: 0.4rem;">
@@ -7623,7 +7625,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                ${curSecNo2}. ${floorCode} 부재처짐 (부재변위) 측정 위치도
+                                ${curSecNo2}. ${floorDisplayLabel} 부재처짐 (부재변위) 측정 위치도
                             </h2>
 
                             ${memberDispDrawingUrl ? `
@@ -7649,7 +7651,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
 
                                 <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
-                                    ${curGraphNo}. ${floorCode} 부재처짐 그래프 (${group.groupNo})
+                                    ${curGraphNo}. ${floorDisplayLabel} 부재처짐 그래프 (${group.groupNo})
                                 </h2>
 
                                 ${chartDataUrl ? `
