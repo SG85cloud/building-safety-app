@@ -8812,7 +8812,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return (row[idx] !== undefined && row[idx] !== null) ? row[idx].toString().trim() : '';
         };
 
+        const mergeByNo = document.getElementById('importDefectExcelMergeByNo')?.checked !== false;
+
         let totalImported = 0;
+        let totalMatched = 0;
         let floorsTouched = 0;
 
         sheets.forEach(sheetInfo => {
@@ -8841,6 +8844,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const stepY = Math.max(60, stepX * 0.7);
 
             let importedThisFloor = 0;
+            let matchedThisFloor = 0;
             sheetInfo.rows.forEach((row, i) => {
                 const noRaw = getCell(row, 'no');
                 const defectTypeRaw = getCell(row, 'defectType');
@@ -8868,9 +8872,31 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
+                const noRawTrimmed = (noRaw || '').trim();
+                // 번호가 같은 기존 핀(예: CAD 자동배치로 만든 위치 있는 핀)이 있으면
+                // 위치는 그대로 두고 내용만 채워넣는다 (병합 옵션이 켜져 있을 때만)
+                const existing = (mergeByNo && noRawTrimmed)
+                    ? state.defects[key].find(d => (d.no || '').trim() === noRawTrimmed)
+                    : null;
+
+                if (existing) {
+                    existing.category = category;
+                    existing.component = componentRaw;
+                    if (locationRaw) existing.location = locationRaw;
+                    existing.defectType = defectType;
+                    existing.cause = isGood ? '-' : (causeRaw || '건조수축');
+                    existing.size = isGood ? '' : sizeRaw;
+                    existing.crackWidth = isGood ? '' : crackWidthRaw;
+                    existing.crackLength = isGood ? '' : crackLengthRaw;
+                    existing.isProgress = isGood ? false : resolveImportFlag(progressRaw);
+                    existing.isLeak = isGood ? false : resolveImportFlag(leakRaw);
+                    matchedThisFloor++;
+                    return;
+                }
+
                 seq += 1;
                 const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
-                const no = noRaw || `NO.${seqStr}`;
+                const no = noRawTrimmed || `NO.${seqStr}`;
 
                 const col = i % gridCols;
                 const rowIdx = Math.floor(i / gridCols);
@@ -8903,13 +8929,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 importedThisFloor++;
             });
 
-            if (importedThisFloor > 0) {
+            if (importedThisFloor > 0 || matchedThisFloor > 0) {
                 totalImported += importedThisFloor;
+                totalMatched += matchedThisFloor;
                 floorsTouched++;
             }
         });
 
-        if (totalImported === 0) {
+        if (totalImported === 0 && totalMatched === 0) {
             window.showToast('가져올 시트가 선택되지 않았습니다. 시트별 층 배정을 확인해주세요.', 'warning', 5000);
             return;
         }
@@ -8919,7 +8946,11 @@ document.addEventListener('DOMContentLoaded', () => {
         renderSurveyTable();
         drawCanvas();
         closeImportDefectExcelModal();
-        window.showToast(`${floorsTouched}개 층에서 결함 ${totalImported}건을 가져왔습니다. 좌측 목록에서 각 항목을 도면 위 정확한 위치로 드래그해주세요.`, 'success', 6000);
+
+        const parts = [];
+        if (totalMatched > 0) parts.push(`같은 번호 핀 ${totalMatched}건은 위치 유지하고 내용만 업데이트`);
+        if (totalImported > 0) parts.push(`신규 ${totalImported}건은 새로 생성(도면 좌측 상단에 임시 배치, 직접 드래그 필요)`);
+        window.showToast(`${floorsTouched}개 층 반영 완료 — ${parts.join(' / ')}`, 'success', 8000);
     };
 
     const btnImportDefectExcel = document.getElementById('btnImportDefectExcel');

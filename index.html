@@ -881,6 +881,13 @@
                     가져온 결함은 각 층 도면 좌측 상단에 순서대로 임시 배치됩니다.
                     엑셀에는 도면 위치 정보가 없으므로, 가져온 뒤 좌측 목록에서 각 결함을 클릭해 도면 위 정확한 위치로 <b>직접 드래그</b>해주세요.
                 </div>
+                <label style="display:flex; align-items:flex-start; gap:0.5rem; font-size:0.8rem; line-height:1.5; background: rgba(22,163,74,0.08); border: 1px solid rgba(22,163,74,0.3); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom:0.9rem; cursor:pointer;">
+                    <input type="checkbox" id="importDefectExcelMergeByNo" checked style="margin-top:0.2rem;">
+                    <span>
+                        <b>같은 결함번호의 핀이 도면에 이미 있으면(예: CAD 자동 배치로 만든 핀) 위치는 그대로 두고 내용만 업데이트</b><br>
+                        체크 해제하면 항상 새 핀으로 만들고 도면 좌측 상단에 임시 배치합니다.
+                    </span>
+                </label>
                 <div class="style-color-section-title">시트 ↔ 층 배정 (시트 이름으로 자동 추정, 다르면 직접 선택하세요)</div>
                 <div id="importDefectExcelSheetMapBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem;"></div>
                 <div class="style-color-section-title">엑셀 컬럼 ↔ 결함 항목 매칭 (모든 시트에 공통 적용)</div>
