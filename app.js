@@ -7699,24 +7699,42 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // Temporarily set margin-bottom to 0 for strict 1:1 A4 PDF rendering
-            const pageBlocks = element.querySelectorAll('.report-page-block');
+            const pageBlocks = Array.from(element.querySelectorAll('.report-page-block'));
             pageBlocks.forEach(b => {
                 b.style.marginBottom = '0';
                 b.style.boxShadow = 'none';
             });
 
             try {
-                if (typeof html2pdf !== 'undefined') {
-                    const opt = {
-                        margin:       0,
-                        filename:     filename,
-                        image:        { type: 'jpeg', quality: 0.98 },
-                        html2canvas:  { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 },
-                        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak:    { mode: ['css', 'legacy'] }
-                    };
+                if (pageBlocks.length > 0 && typeof html2canvas !== 'undefined' && typeof window.jspdf !== 'undefined') {
+                    // 보고서 전체를 한 장의 거대한 캔버스로 렌더링하면(예전 html2pdf 한방 방식) 페이지가
+                    // 많을 때(수십 페이지) 캔버스 높이가 브라우저 한계를 넘어서서 전부 빈 종이로 나오는
+                    // 문제가 있었다. 페이지(.report-page-block) 하나씩 따로 캡처해서 jsPDF에 이어붙이면
+                    // 캔버스 크기가 항상 A4 한 장 크기로 작게 유지되어 페이지 수와 무관하게 안전하다.
+                    const { jsPDF } = window.jspdf;
+                    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                    const pageW = pdf.internal.pageSize.getWidth();
+                    const pageH = pdf.internal.pageSize.getHeight();
 
-                    await html2pdf().set(opt).from(element).save();
+                    const loadingTextEl = document.querySelector('#globalLoadingOverlay .loading-text');
+                    for (let i = 0; i < pageBlocks.length; i++) {
+                        // showLoading()을 반복 호출하면 내부 카운터(_loadingDepth)가 계속 올라가
+                        // 끝나고 hideLoading()을 한 번만 불러선 로딩창이 영영 안 사라지므로,
+                        // 진행률 텍스트만 직접 갱신한다.
+                        if (loadingTextEl) loadingTextEl.textContent = `PDF 보고서를 생성하는 중입니다... (${i + 1}/${pageBlocks.length} 페이지)`;
+                        const block = pageBlocks[i];
+                        try {
+                            const canvas = await html2canvas(block, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
+                            const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                            const imgHeight = Math.min(pageH, (canvas.height * pageW) / canvas.width);
+                            if (i > 0) pdf.addPage();
+                            pdf.addImage(imgData, 'JPEG', 0, 0, pageW, imgHeight);
+                        } catch (pageErr) {
+                            console.error(`PDF page ${i + 1} render error:`, pageErr);
+                        }
+                    }
+
+                    pdf.save(filename);
                 } else {
                     window.print();
                 }

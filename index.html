@@ -11,11 +11,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260806_2000">
+    <link rel="stylesheet" href="styles.css?v=20260806_2100">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- html2pdf.js for one-click PDF generation -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- PDF 생성용: 페이지별로 직접 캡처해서 조립(큰 보고서에서 html2pdf 한방 렌더링이 캔버스 높이 한계로
+         빈 페이지만 나오는 문제 방지). html2canvas + jsPDF를 각각 따로 로드해서 저수준 API로 사용 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <!-- pdf.js for rendering CAD-exported PDF floor plans at high resolution -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <!-- Firebase SDK (v9/v10 compat 모드) -->
@@ -1547,7 +1549,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260806_2000"></script>
+    <script src="app.js?v=20260806_2100"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
