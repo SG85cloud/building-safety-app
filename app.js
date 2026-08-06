@@ -746,39 +746,81 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 업로드된 파일들을 인식된 층(floorCode)별로 묶어서 [{floorCode, entries:[{item, idx}]}] 형태로 반환.
+    // 같은 층으로 인식된 파일이 여러 개면 미리보기에서 "따로따로 놓인 층"이 아니라 "한 층 안에 묶인 후보 파일들"로 보이게 하기 위함
+    function groupDrawingItemsByFloor(items) {
+        const order = [];
+        const map = {};
+        items.forEach((item, idx) => {
+            if (!map[item.floorCode]) {
+                map[item.floorCode] = [];
+                order.push(item.floorCode);
+            }
+            map[item.floorCode].push({ item, idx });
+        });
+        order.sort((a, b) => window.getFloorRankFromCode(a) - window.getFloorRankFromCode(b));
+        return order.map(code => ({ floorCode: code, entries: map[code] }));
+    }
+
     function renderNewBuildingDrawingPreview() {
         const preview = document.getElementById('drawingSortPreview');
         if (!preview) return;
         const items = window.selectedUploadedDrawings || [];
 
-        const codeCounts = {};
-        items.forEach(it => { codeCounts[it.floorCode] = (codeCounts[it.floorCode] || 0) + 1; });
         const hasUnmatched = items.some(it => it.matched === false);
-        const hasDuplicate = Object.values(codeCounts).some(c => c > 1);
+        const groups = groupDrawingItemsByFloor(items);
+        const hasDuplicate = groups.some(g => g.entries.length > 1);
 
         let warningHtml = '';
         if (hasUnmatched || hasDuplicate) {
             warningHtml = `<div style="font-size:0.78rem; color:#d97706; background:rgba(217,119,6,0.12); border:1px solid #d97706; border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.4rem;">
                 ⚠️ 파일명만으로는 층을 정확히 인식하지 못한 파일이 있습니다 (촬영 사진은 파일명이 자동 생성되어 흔한 경우입니다). 아래에서 각 파일의 층을 직접 확인/선택해 주세요.
-                ${hasDuplicate ? '<br>같은 층이 중복 선택된 파일은 저장 시 마지막 파일로 덮어써집니다.' : ''}
+                ${hasDuplicate ? '<br>같은 층으로 묶인 파일은 "이 파일 저장" 버튼으로 고른 파일 하나만 실제로 저장됩니다.' : ''}
             </div>`;
         }
+
+        const singleRowHtml = (item, idx) => `
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${item.matched === false ? 'rgba(217,119,6,0.1)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${item.matched === false ? '#d97706' : 'transparent'}; padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
+                <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.fileName}">${item.fileName}</span>
+                <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem;">
+                    ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                </select>
+            </div>`;
+
+        const groupHtml = (g) => {
+            if (g.entries.length === 1) return singleRowHtml(g.entries[0].item, g.entries[0].idx);
+            const floorLabel = window.getFloorLabelFromCode(g.floorCode);
+            return `
+                <div style="border:1px solid #d97706; background:rgba(217,119,6,0.08); border-radius:8px; padding:0.5rem 0.6rem;">
+                    <div style="font-size:0.78rem; font-weight:800; color:#d97706; margin-bottom:0.3rem;">
+                        🏢 ${floorLabel} — 파일 ${g.entries.length}개가 같은 층으로 인식됨. 저장할 파일 하나를 골라주세요.
+                    </div>
+                    <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                        ${g.entries.map(({ item, idx }, i) => {
+                            const isFinal = i === g.entries.length - 1;
+                            return `
+                            <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
+                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${item.fileName}">
+                                    ${isFinal ? '✅' : '⬜'} ${item.fileName}${isFinal ? ' <b>(저장됨)</b>' : ''}
+                                </span>
+                                ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
+                                <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.72rem; padding:0.15rem 0.3rem; flex-shrink:0;">
+                                    ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                                </select>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+        };
 
         preview.innerHTML = `
             <div style="font-size:0.82rem; font-weight:700; color:#38bdf8; margin-bottom:0.2rem;">
                 ✅ 총 ${items.length}개 도면 파일이 선택되었습니다. 층을 확인해 주세요:
             </div>
             ${warningHtml}
-            ${items.map((item, idx) => {
-                const flagged = item.matched === false || codeCounts[item.floorCode] > 1;
-                return `
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${flagged ? '#d97706' : 'transparent'}; padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
-                    <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${item.fileName}">${item.fileName}</span>
-                    <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem;">
-                        ${window.buildFloorCodeOptionsHtml(item.floorCode)}
-                    </select>
-                </div>`;
-            }).join('')}
+            <div style="display:flex; flex-direction:column; gap:0.4rem;">
+                ${groups.map(groupHtml).join('')}
+            </div>
         `;
 
         preview.querySelectorAll('.drawing-floor-select').forEach(sel => {
@@ -792,6 +834,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.rank = window.getFloorRankFromCode(code);
                 item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
                 updateNewBuildingFloorsSummary();
+                renderNewBuildingDrawingPreview();
+            });
+        });
+        preview.querySelectorAll('.pick-final-drawing').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                const idx = parseInt(ev.currentTarget.dataset.idx, 10);
+                const arr = window.selectedUploadedDrawings || [];
+                const item = arr[idx];
+                if (!item) return;
+                arr.splice(idx, 1);
+                arr.push(item); // 배열 맨 뒤로 보내면 저장 루프에서 이 파일이 마지막으로 처리되어 실제로 저장됨
                 renderNewBuildingDrawingPreview();
             });
         });
@@ -1053,31 +1106,57 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // 신규추가 파일 중 같은 층으로 지정된 파일 검사 (저장 시 나중 파일이 이전 파일을 덮어씀)
-            const newDupCounts = {};
-            newFiles.forEach(it => { newDupCounts[it.floorCode] = (newDupCounts[it.floorCode] || 0) + 1; });
+            const editGroups = groupDrawingItemsByFloor(newFiles);
             const hasUnmatched = newFiles.some(it => it.matched === false);
-            const hasDuplicate = Object.values(newDupCounts).some(c => c > 1);
+            const hasDuplicate = editGroups.some(g => g.entries.length > 1);
             if (hasUnmatched || hasDuplicate) {
                 html += `<div style="font-size:0.78rem; color:#d97706; background:rgba(217,119,6,0.12); border:1px solid #d97706; border-radius:6px; padding:0.5rem 0.7rem; margin-bottom:0.4rem;">
                     ⚠️ 파일명만으로는 층을 정확히 인식하지 못한 파일이 있습니다. 아래 [신규추가] 항목에서 층을 직접 확인/선택해 주세요.
-                    ${hasDuplicate ? '<br>같은 층이 중복 선택된 파일은 저장 시 마지막 파일로 덮어써집니다.' : ''}
+                    ${hasDuplicate ? '<br>같은 층으로 묶인 파일은 "이 파일 저장" 버튼으로 고른 파일 하나만 실제로 저장됩니다.' : ''}
                 </div>`;
             }
 
-            // Render Newly Added Drawings
-            newFiles.forEach((item, idx) => {
-                const flagged = item.matched === false || newDupCounts[item.floorCode] > 1;
-                html += `
-                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#0284c7'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
-                        <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                            <strong style="color:#0369a1;">[신규추가 ${idx + 1}]</strong>
-                            <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${item.fileName}</span>
-                        </span>
-                        <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem; flex-shrink:0;">
-                            ${window.buildFloorCodeOptionsHtml(item.floorCode)}
-                        </select>
-                    </div>
-                `;
+            // Render Newly Added Drawings — 같은 층으로 인식된 파일은 한 그룹으로 묶어서 표시
+            editGroups.forEach(g => {
+                if (g.entries.length === 1) {
+                    const { item, idx } = g.entries[0];
+                    const flagged = item.matched === false;
+                    html += `
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#0284c7'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
+                            <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                <strong style="color:#0369a1;">[신규추가]</strong>
+                                <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${item.fileName}</span>
+                            </span>
+                            <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem; flex-shrink:0;">
+                                ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                            </select>
+                        </div>
+                    `;
+                } else {
+                    const floorLabel = window.getFloorLabelFromCode(g.floorCode);
+                    html += `
+                        <div style="border:1px solid #d97706; background:rgba(217,119,6,0.08); border-radius:8px; padding:0.5rem 0.6rem;">
+                            <div style="font-size:0.78rem; font-weight:800; color:#d97706; margin-bottom:0.3rem;">
+                                🏢 [신규추가] ${floorLabel} — 파일 ${g.entries.length}개가 같은 층으로 인식됨. 저장할 파일 하나를 골라주세요.
+                            </div>
+                            <div style="display:flex; flex-direction:column; gap:0.25rem;">
+                                ${g.entries.map(({ item, idx }, i) => {
+                                    const isFinal = i === g.entries.length - 1;
+                                    return `
+                                    <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
+                                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${item.fileName}">
+                                            ${isFinal ? '✅' : '⬜'} ${item.fileName}${isFinal ? ' <b>(저장됨)</b>' : ''}
+                                        </span>
+                                        ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-edit-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
+                                        <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.72rem; padding:0.15rem 0.3rem; flex-shrink:0;">
+                                            ${window.buildFloorCodeOptionsHtml(item.floorCode)}
+                                        </select>
+                                    </div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `;
+                }
             });
 
             html += `</div>`;
@@ -1095,6 +1174,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 item.floorLabel = window.getFloorLabelFromCode(code);
                 item.rank = window.getFloorRankFromCode(code);
                 item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+                renderEditDrawingPreview();
+            });
+        });
+        preview.querySelectorAll('.pick-final-edit-drawing').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                const idx = parseInt(ev.currentTarget.dataset.idx, 10);
+                const arr = window.selectedEditUploadedDrawings || [];
+                const item = arr[idx];
+                if (!item) return;
+                arr.splice(idx, 1);
+                arr.push(item); // 배열 맨 뒤로 보내면 저장 루프에서 이 파일이 마지막으로 처리되어 실제로 저장됨
                 renderEditDrawingPreview();
             });
         });
