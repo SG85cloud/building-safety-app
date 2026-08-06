@@ -8599,6 +8599,50 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnConfirmImportDefectExcel = document.getElementById('btnConfirmImportDefectExcel');
     if (btnConfirmImportDefectExcel) btnConfirmImportDefectExcel.addEventListener('click', window.confirmImportDefectExcel);
 
+    // 결함표 가져오기 양식(빈 엑셀 템플릿) 다운로드 — 헤더는 IMPORT_DEFECT_FIELD_DEFS와 항상 일치하도록 그대로 재사용
+    window.downloadImportDefectExcelTemplate = function() {
+        if (typeof XLSX === 'undefined') {
+            window.showToast('엑셀 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인 후 다시 시도해주세요.', 'error', 5000);
+            return;
+        }
+        // 헤더는 가져오기 시 자동 매칭이 정확히 되도록 별칭(aliases)의 첫 번째 값을 그대로 사용
+        const headerRow = IMPORT_DEFECT_FIELD_DEFS.map(f => f.aliases[0]);
+        const exampleRows = [
+            ['NO.01', '기둥', '구조체', '균열', '(예시) 101동 1F 기둥 C1 하부', '0.15/1.2', '0.15', '1.2', '진행중', '-', '건조수축'],
+            ['NO.02', '슬래브', '구조체', '상태양호', '(예시) 101동 1F 슬래브 중앙', '', '', '', '', '', ''],
+            ['NO.03', '조적벽', '비구조체', '조적벽체 균열', '(예시) 2F 조적벽', 'W=0.3mm', '', '', '-', '누수중', '부등침하']
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet([headerRow, ...exampleRows]);
+        ws1['!cols'] = [10, 14, 14, 18, 30, 14, 10, 10, 10, 10, 18].map(w => ({ wch: w }));
+
+        const notes = [
+            ['[스마트 건축물 안전점검] 결함표 가져오기 양식 작성 안내'],
+            [''],
+            ["1. '결함목록' 시트의 2~4행(예시 행, 위치 칸에 '(예시)' 표시)은 형식을 보여주기 위한 것입니다. 실제 데이터 입력 전 삭제하세요."],
+            ["2. 첫 행(헤더)의 열 이름은 그대로 두는 것을 권장합니다. 이름을 바꿔도 앱에서 가져올 때 직접 매칭할 수 있지만, 그대로 두면 자동으로 인식됩니다."],
+            ["3. '결함번호' 칸을 비워두면 앱에서 가져올 때 자동으로 순번(NO.01, NO.02…)을 매깁니다. 기존 번호 체계를 유지하려면 직접 입력하세요."],
+            ["4. '구분' 칸은 반드시 '구조체' / '비구조체' / '마감재' 중 하나로 입력하세요. 비워두면 '구조체'로 처리됩니다."],
+            ["5. '조사내용'은 결함 종류입니다 (예: 균열, 누수, 백태/유출, 철근노출, 조적벽체 균열 등). 상태가 양호한 항목은 '상태양호'라고 입력하면 결함크기·균열폭·균열길이·결함원인추정 칸은 비워도 자동으로 무시됩니다."],
+            ["6. '결함크기'는 자유 텍스트입니다. 균열의 경우 균열폭/균열길이를 별도 칸에 나눠 적거나, 결함크기 칸에 '0.15/1.2'처럼 슬래시로 합쳐 적어도 자동으로 나뉘어 인식됩니다."],
+            ["7. '진행여부' / '누수여부'는 해당되면 '진행중' / '누수중'처럼 아무 문자나 입력하고, 해당 없으면 '-' 또는 빈 칸으로 두세요."],
+            ["8. 작성이 끝나면 이 파일을 저장한 뒤, 이 화면의 '📥 외부 엑셀 결함표 가져오기' 버튼으로 업로드하세요."],
+            ["9. 엑셀에는 도면 위 위치(좌표) 정보가 없어, 가져온 결함은 도면 좌측 상단에 임시로 배치됩니다. 가져오기 후 좌측 결함 목록에서 각 항목을 도면 위 정확한 위치로 직접 드래그해주세요."]
+        ];
+        const ws2 = XLSX.utils.aoa_to_sheet(notes);
+        ws2['!cols'] = [{ wch: 100 }];
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws1, '결함목록');
+        XLSX.utils.book_append_sheet(wb, ws2, '작성안내');
+
+        XLSX.writeFile(wb, '결함표_가져오기_양식.xlsx');
+    };
+
+    const btnDownloadImportTemplate = document.getElementById('btnDownloadImportTemplate');
+    if (btnDownloadImportTemplate) {
+        btnDownloadImportTemplate.addEventListener('click', window.downloadImportDefectExcelTemplate);
+    }
+
     // ==========================================================================
     // 🌐 FIREBASE REALTIME SYNC ENGINE (구글 파이어베이스 실시간 1초 동기화)
     // ==========================================================================

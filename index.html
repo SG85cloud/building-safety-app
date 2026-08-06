@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260806_1400">
+    <link rel="stylesheet" href="styles.css?v=20260806_1500">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- html2pdf.js for one-click PDF generation -->
@@ -302,6 +302,7 @@
                     <button id="btnOpenReportPreview" class="btn btn-primary btn-sm" onclick="window.openReportPreviewModalFunc()" style="background:#0284c7; border-color:#0284c7;"><i class="fa-solid fa-file-contract"></i> 📋 6개 사진배치 보고서 출력/미리보기</button>
                     <button id="btnExportExcel" class="btn btn-sm" style="background: #15803d; color: #ffffff; border: 1px solid #22c55e; font-weight: 700;"><i class="fa-solid fa-file-excel"></i> 🟢 엑셀 저장 (.xls)</button>
                     <button id="btnImportDefectExcel" class="btn btn-outline btn-sm" style="border-color:#0284c7; color:#0284c7;"><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</button>
+                    <button id="btnDownloadImportTemplate" class="btn btn-outline btn-sm" style="border-color:#64748b; color:#64748b;"><i class="fa-solid fa-file-arrow-down"></i> 📄 가져오기 양식 다운로드</button>
                     <input type="file" id="inputImportDefectExcel" accept=".xlsx,.xls,.csv" style="display:none;">
                 </div>
             </div>
@@ -1544,7 +1545,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260806_1400"></script>
+    <script src="app.js?v=20260806_1500"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
