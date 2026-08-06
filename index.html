@@ -918,8 +918,19 @@
                     <button type="button" id="btnExtractDxfCircles" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-magnifying-glass"></i> 선택한 레이어에서 좌표 추출</button>
                 </div>
                 <div class="style-color-section-title">추출 결과 미리보기</div>
-                <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px;">
+                <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.9rem;">
                     <table id="dxfExtractPreviewTable" style="width:100%; border-collapse:collapse; font-size:0.78rem; white-space:nowrap;"></table>
+                </div>
+
+                <div class="style-color-section-title">캘리브레이션 (CAD 좌표 ↔ 도면 사진 위치 맞추기) — 기준점 2개 필요</div>
+                <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.5; margin-bottom:0.5rem;">
+                    지금 <b>[도면점검] 탭</b>에 이 결함이 그려진 층 도면 사진이 열려있어야 합니다. CAD에서 위치를 확실히 아는 점 2곳을 골라 그 좌표를 입력하고,
+                    "도면에서 클릭 지정"을 누른 뒤 실제 도면 사진에서 같은 지점을 클릭해주세요.
+                </div>
+                <div id="dxfCalibRows" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:0.7rem;"></div>
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <button type="button" id="btnDxfCalibPreview" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-crosshairs"></i> 🎯 변환 미리보기 (도면 위에 점 찍어보기)</button>
+                    <button type="button" id="btnDxfCalibClear" class="btn btn-sm btn-outline" style="border-color:#64748b; color:#64748b;">초기화</button>
                 </div>
             </div>
             <div class="modal-footer" style="justify-content: flex-end;">

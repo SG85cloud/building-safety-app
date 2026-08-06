@@ -1822,6 +1822,26 @@ document.addEventListener('DOMContentLoaded', () => {
             }, true);
         }
 
+        // CAD(DXF) 좌표 → 도면 이미지 좌표 변환이 실제로 맞는지 확인하기 위한 임시 미리보기 점
+        // (저장되는 결함 데이터가 아니라 화면 확인용. window._dxfCalibrationPreviewPoints가 있을 때만 그려짐)
+        if (window._dxfCalibrationPreviewPoints && window._dxfCalibrationPreviewPoints.length) {
+            window._dxfCalibrationPreviewPoints.forEach((p) => {
+                ctx.beginPath();
+                ctx.arc(p.imgX, p.imgY, 14, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(168,85,247,0.35)';
+                ctx.fill();
+                ctx.lineWidth = 2;
+                ctx.strokeStyle = '#a855f7';
+                ctx.stroke();
+                if (p.label) {
+                    ctx.fillStyle = '#a855f7';
+                    ctx.font = 'bold 12px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(p.label, p.imgX, p.imgY - 20);
+                }
+            });
+        }
+
         ctx.restore(); // Restore drawing rotation matrix
 
         ctx.restore(); // Restore view offset & scale
@@ -5450,6 +5470,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const imgX = coords.x;
         const imgY = coords.y;
 
+        // CAD(DXF) 캘리브레이션 기준점을 도면에서 클릭으로 지정하는 중이면,
+        // 이번 클릭은 결함 마킹이 아니라 좌표 캡처로만 처리하고 즉시 종료한다.
+        if (window._calibrationCaptureCallback) {
+            const cb = window._calibrationCaptureCallback;
+            window._calibrationCaptureCallback = null;
+            cb(imgX, imgY);
+            return;
+        }
+
         startMouseX = clientX;
         startMouseY = clientY;
         initialOffsetX = state.view.offsetX;
@@ -8986,6 +9015,8 @@ document.addEventListener('DOMContentLoaded', () => {
             renderDxfLayerList(dxf);
             const previewTable = document.getElementById('dxfExtractPreviewTable');
             if (previewTable) previewTable.innerHTML = '';
+            if (!window._dxfCalibPoints) loadDxfCalibPointsForCurrentFloor();
+            renderDxfCalibRows();
             openDxfImportModal();
         } catch (err) {
             console.error('[DXF 가져오기] 파싱 실패:', err);
@@ -9068,6 +9099,7 @@ document.addEventListener('DOMContentLoaded', () => {
             };
         });
 
+        window._dxfLastExtractedRows = rows;
         renderDxfExtractPreview(rows);
         window.showToast(
             `🧭 선택한 레이어 ${checked.length}개에서 원(결함 위치 후보) ${rows.length}개를 찾았습니다.`,
@@ -9076,10 +9108,164 @@ document.addEventListener('DOMContentLoaded', () => {
         );
     };
 
+    // --- CAD(DXF) 캘리브레이션: 기준점 2개로 "CAD 좌표 -> 도면 사진 픽셀" 변환식 계산 (2점 유사변환/Helmert 변환) ---
+    function computeDxfSimilarityTransform(p1, p2) {
+        const dxDX = p2.dxX - p1.dxX;
+        const dxDY = p2.dxY - p1.dxY;
+        const imgDX = p2.imgX - p1.imgX;
+        const imgDY = p2.imgY - p1.imgY;
+        const dxLenSq = dxDX * dxDX + dxDY * dxDY;
+        if (dxLenSq < 1e-9) return null; // 두 기준점의 CAD 좌표가 사실상 같으면 계산 불가
+
+        // 복소수 나눗셈: (imgDX + i*imgDY) / (dxDX + i*dxDY) = 스케일 * (cos회전 + i*sin회전)
+        const a = (imgDX * dxDX + imgDY * dxDY) / dxLenSq;
+        const b = (imgDY * dxDX - imgDX * dxDY) / dxLenSq;
+
+        return {
+            scale: Math.hypot(a, b),
+            transform: (px, py) => {
+                const ox = px - p1.dxX;
+                const oy = py - p1.dxY;
+                return { x: p1.imgX + (a * ox - b * oy), y: p1.imgY + (b * ox + a * oy) };
+            }
+        };
+    }
+
+    function getDxfCalibBuilding() {
+        return (window.state.buildings || []).find(b => b.id === window.state.currentBuildingId) || null;
+    }
+
+    function loadDxfCalibPointsForCurrentFloor() {
+        const bldg = getDxfCalibBuilding();
+        const saved = bldg && bldg.dxfCalibration && bldg.dxfCalibration[window.state.currentFloor];
+        window._dxfCalibPoints = saved ? [Object.assign({}, saved.p1), Object.assign({}, saved.p2)] : [{}, {}];
+    }
+
+    function saveDxfCalibPointsForCurrentFloorIfComplete() {
+        const pts = window._dxfCalibPoints || [];
+        const p1 = pts[0], p2 = pts[1];
+        const complete = p1 && p2 &&
+            [p1.dxX, p1.dxY, p1.imgX, p1.imgY, p2.dxX, p2.dxY, p2.imgX, p2.imgY].every(v => v !== undefined && !Number.isNaN(v));
+        if (!complete) return;
+        const bldg = getDxfCalibBuilding();
+        if (!bldg) return;
+        if (!bldg.dxfCalibration) bldg.dxfCalibration = {};
+        bldg.dxfCalibration[window.state.currentFloor] = { p1: Object.assign({}, p1), p2: Object.assign({}, p2) };
+        saveStateToLocalStorage();
+    }
+
+    function renderDxfCalibRows() {
+        const body = document.getElementById('dxfCalibRows');
+        if (!body) return;
+        if (!window._dxfCalibPoints) loadDxfCalibPointsForCurrentFloor();
+        const pts = window._dxfCalibPoints;
+
+        body.innerHTML = [0, 1].map(i => {
+            const p = pts[i] || {};
+            const captured = p.imgX !== undefined && p.imgY !== undefined;
+            return `
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; font-size:0.8rem; border:1px solid var(--border-color); border-radius:8px; padding:0.5rem;">
+                    <b>기준점 ${i + 1}</b>
+                    CAD X <input type="number" step="any" class="form-control dxf-calib-x" data-idx="${i}" value="${p.dxX !== undefined ? p.dxX : ''}" style="width:100px;">
+                    CAD Y <input type="number" step="any" class="form-control dxf-calib-y" data-idx="${i}" value="${p.dxY !== undefined ? p.dxY : ''}" style="width:100px;">
+                    <button type="button" class="btn btn-sm btn-outline dxf-calib-pick" data-idx="${i}" style="border-color:#38bdf8; color:#38bdf8;">📍 도면에서 클릭 지정</button>
+                    <span style="color:${captured ? '#16a34a' : 'var(--text-muted)'};">${captured ? `✅ 지정됨 (${p.imgX.toFixed(0)}, ${p.imgY.toFixed(0)})` : '아직 미지정'}</span>
+                </div>
+            `;
+        }).join('');
+
+        body.querySelectorAll('.dxf-calib-x').forEach(el => el.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            if (!window._dxfCalibPoints[idx]) window._dxfCalibPoints[idx] = {};
+            window._dxfCalibPoints[idx].dxX = parseFloat(e.target.value);
+            saveDxfCalibPointsForCurrentFloorIfComplete();
+        }));
+        body.querySelectorAll('.dxf-calib-y').forEach(el => el.addEventListener('input', (e) => {
+            const idx = parseInt(e.target.dataset.idx, 10);
+            if (!window._dxfCalibPoints[idx]) window._dxfCalibPoints[idx] = {};
+            window._dxfCalibPoints[idx].dxY = parseFloat(e.target.value);
+            saveDxfCalibPointsForCurrentFloorIfComplete();
+        }));
+        body.querySelectorAll('.dxf-calib-pick').forEach(el => el.addEventListener('click', (e) => {
+            const idx = parseInt(e.currentTarget.dataset.idx, 10);
+            startDxfCalibPick(idx);
+        }));
+    }
+
+    function startDxfCalibPick(idx) {
+        if (!state.bgImage) {
+            window.showToast('먼저 [도면점검] 탭에서 해당 층 도면 사진을 열어주세요.', 'warning', 5000);
+            return;
+        }
+        closeDxfImportModal();
+        window.showToast(`도면 위에서 기준점 ${idx + 1}에 해당하는 지점을 클릭해주세요.`, 'info', 4000);
+        window._calibrationCaptureCallback = (imgX, imgY) => {
+            if (!window._dxfCalibPoints[idx]) window._dxfCalibPoints[idx] = {};
+            window._dxfCalibPoints[idx].imgX = imgX;
+            window._dxfCalibPoints[idx].imgY = imgY;
+            saveDxfCalibPointsForCurrentFloorIfComplete();
+            openDxfImportModal();
+            renderDxfCalibRows();
+            window.showToast(`기준점 ${idx + 1} 위치가 지정됐습니다.`, 'success');
+        };
+    }
+
+    window.previewDxfCalibration = function() {
+        const pts = window._dxfCalibPoints || [];
+        const p1 = pts[0], p2 = pts[1];
+        const complete = p1 && p2 &&
+            [p1.dxX, p1.dxY, p1.imgX, p1.imgY, p2.dxX, p2.dxY, p2.imgX, p2.imgY].every(v => v !== undefined && !Number.isNaN(v));
+        if (!complete) {
+            window.showToast('기준점 2개(CAD 좌표 입력 + 도면 클릭 지정)를 모두 완료해주세요.', 'warning');
+            return;
+        }
+        const xf = computeDxfSimilarityTransform(p1, p2);
+        if (!xf) {
+            window.showToast('기준점 2개의 CAD 좌표가 동일합니다. 서로 다른 위치를 골라주세요.', 'error');
+            return;
+        }
+
+        const rows = window._dxfLastExtractedRows || [];
+        if (rows.length === 0) {
+            window.showToast('먼저 "선택한 레이어에서 좌표 추출"을 눌러 결함 위치 후보를 뽑아주세요.', 'warning');
+            return;
+        }
+
+        window._dxfCalibrationPreviewPoints = rows.map(r => {
+            const t = xf.transform(r.x, r.y);
+            return { imgX: t.x, imgY: t.y, label: r.label || '' };
+        });
+
+        closeDxfImportModal();
+        drawCanvas();
+        window.showToast(
+            `🎯 도면 위에 ${rows.length}개 지점을 임시로 표시했습니다 (아직 결함으로 저장되지 않았습니다). 실제 결함 위치와 맞는지 눈으로 확인해주세요.`,
+            'success',
+            8000
+        );
+    };
+
+    window.clearDxfCalibration = function() {
+        window._dxfCalibPoints = [{}, {}];
+        window._dxfCalibrationPreviewPoints = null;
+        const bldg = getDxfCalibBuilding();
+        if (bldg && bldg.dxfCalibration && bldg.dxfCalibration[window.state.currentFloor]) {
+            delete bldg.dxfCalibration[window.state.currentFloor];
+            saveStateToLocalStorage();
+        }
+        renderDxfCalibRows();
+        drawCanvas();
+        window.showToast('캘리브레이션 기준점과 미리보기를 초기화했습니다.', 'info');
+    };
+
     const btnOpenDxfImport = document.getElementById('btnOpenDxfImport');
     const inputDxfImport = document.getElementById('inputDxfImport');
     if (btnOpenDxfImport && inputDxfImport) {
-        btnOpenDxfImport.addEventListener('click', () => inputDxfImport.click());
+        btnOpenDxfImport.addEventListener('click', () => {
+            loadDxfCalibPointsForCurrentFloor();
+            renderDxfCalibRows();
+            inputDxfImport.click();
+        });
         inputDxfImport.addEventListener('change', window.handleDxfImportFile);
     }
     const btnCloseDxfImportModal = document.getElementById('btnCloseDxfImportModal');
@@ -9088,6 +9274,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCloseDxfImportModal2) btnCloseDxfImportModal2.addEventListener('click', closeDxfImportModal);
     const btnExtractDxfCircles = document.getElementById('btnExtractDxfCircles');
     if (btnExtractDxfCircles) btnExtractDxfCircles.addEventListener('click', window.extractDxfCircles);
+    const btnDxfCalibPreview = document.getElementById('btnDxfCalibPreview');
+    if (btnDxfCalibPreview) btnDxfCalibPreview.addEventListener('click', window.previewDxfCalibration);
+    const btnDxfCalibClear = document.getElementById('btnDxfCalibClear');
+    if (btnDxfCalibClear) btnDxfCalibClear.addEventListener('click', window.clearDxfCalibration);
 
     // 엑셀 시트 이름으로 쓸 수 없는 문자를 제거하고 31자로 자르며, 중복되면 뒤에 번호를 붙인다
     function sanitizeSheetName(name, usedNames) {
