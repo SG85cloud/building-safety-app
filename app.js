@@ -8512,6 +8512,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applyIntegratedDefectSpeechResult(transcript) {
+        console.log('[통합 음성입력] 인식된 원문:', transcript);
         const result = parseIntegratedDefectSpeech(transcript);
         const filled = [];
         const missed = [];
@@ -8560,10 +8561,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const progressChk = document.getElementById('defectProgressCheck');
         if (progressChk && result.progress) { progressChk.checked = true; filled.push('진행여부'); }
 
+        const heard = `🗣️ 인식된 문장: "${transcript}"`;
         const msg = filled.length
-            ? `🎙️ 자동 입력됨: ${filled.join(', ')}` + (missed.length ? ` / 직접 확인 필요: ${missed.join(', ')}` : '')
-            : '음성에서 인식 가능한 항목을 찾지 못했습니다. 각 항목을 직접 입력해 주세요.';
-        window.showToast(msg, filled.length ? 'success' : 'warning', 6000);
+            ? `${heard}\n자동 입력됨: ${filled.join(', ')}` + (missed.length ? ` / 직접 확인 필요: ${missed.join(', ')}` : '')
+            : `${heard}\n인식 가능한 항목을 찾지 못했습니다. 각 항목을 직접 입력해 주세요.`;
+        window.showToast(msg, filled.length ? 'success' : 'warning', 8000);
     }
 
     window.startIntegratedSpeechRecognition = function(btnElement) {
