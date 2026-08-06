@@ -729,8 +729,29 @@ body {
     align-items: flex-start;
 }
 
-/* 데스크탑에서는 3컬럼이 화면 높이만큼 늘어나도록(캔버스 작업공간이 아래쪽 여백 없이 꽉 차게) */
+/* 데스크탑에서는 3컬럼이 화면 높이만큼 늘어나도록(캔버스 작업공간이 아래쪽 여백 없이 꽉 차게).
+   body를 뷰포트 높이에 고정하고 각 화면 영역에 스크롤 책임을 나눠줘야, 결함목록처럼 내용이 긴
+   구역이 페이지 전체를 늘어뜨리지 않고 자기 영역 안에서만 스크롤된다(그래야 도면이 화면 아래로
+   한참 밀려 내려가지 않음). 모바일은 기존처럼 페이지 자체가 자연스럽게 스크롤되도록 그대로 둔다. */
 @media (min-width: 769px) {
+    body {
+        height: 100vh;
+        overflow: hidden;
+    }
+
+    .main-tabs {
+        flex-shrink: 0;
+    }
+
+    .app-content {
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .tab-content {
+        min-height: 0;
+    }
+
     .inspect-layout {
         align-items: stretch;
     }
