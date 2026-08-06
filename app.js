@@ -265,11 +265,19 @@ window.getFloorRankFromCode = function(code) {
 };
 
 window.buildFloorCodeOptionsHtml = function(selectedCode) {
-    return window.FLOOR_CODE_OPTION_LIST.map(code => {
+    // 선택된 층이 정해진 목록(B10F~30F, ROOF, EXT)에 없는 사용자 직접입력 값이면,
+    // 그 값도 목록에 끼워넣어 계속 선택된 상태로 보이게 한다 (필로티/기계실/중2층 등 자유 이름)
+    const isCustomSelected = selectedCode && !window.FLOOR_CODE_OPTION_LIST.includes(selectedCode);
+    let html = window.FLOOR_CODE_OPTION_LIST.map(code => {
         const label = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(code) : code;
         const sel = code === selectedCode ? 'selected' : '';
         return `<option value="${code}" ${sel}>${label}</option>`;
     }).join('');
+    if (isCustomSelected) {
+        html += `<option value="${selectedCode}" selected>✏️ ${selectedCode} (직접 입력함)</option>`;
+    }
+    html += `<option value="__CUSTOM_FLOOR__">➕ [층 이름 직접 입력...]</option>`;
+    return html;
 };
 
 window.selectedUploadedDrawings = [];
@@ -734,6 +742,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // "지상 3층 (3F)" 같은 라벨에서 뒤에 붙은 층 코드 괄호만 떼어낸다.
+    // "필로티층"처럼 사용자가 직접 입력해 괄호/공백이 없는 라벨도 그대로 안전하게 통과시키기 위함
+    function stripFloorCodeSuffix(label) {
+        const cleaned = (label || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+        return cleaned || label || '';
+    }
+
     // Listening for Add Modal Multi-Drawing Uploads
     function updateNewBuildingFloorsSummary() {
         const floorsInput = document.getElementById('inputBuildingFloors');
@@ -742,8 +757,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const sorted = [...items].sort((a, b) => a.rank - b.rank);
             const lowest = sorted[0];
             const highest = sorted[sorted.length - 1];
-            floorsInput.value = `${highest.floorLabel.split(' ')[0]} ${highest.floorLabel.split(' ')[1]} ~ ${lowest.floorLabel.split(' ')[0]} ${lowest.floorLabel.split(' ')[1]}`;
+            floorsInput.value = `${stripFloorCodeSuffix(highest.floorLabel)} ~ ${stripFloorCodeSuffix(lowest.floorLabel)}`;
         }
+    }
+
+    // 도면 파일에 지정할 층을 드롭다운에서 고를 때 호출. "➕ 직접 입력"을 고르면 사용자가 입력한
+    // 이름을 그대로 floorCode/floorLabel로 써서, 필로티·기계실·중2층처럼 정해진 목록에 없는
+    // 층 이름도 자유롭게 등록할 수 있게 한다. 취소/빈 입력이면 이전 값 그대로 둔다.
+    function applyFloorSelectValue(item, code) {
+        if (code === '__CUSTOM_FLOOR__') {
+            const typed = prompt('층 이름을 직접 입력하세요 (예: 필로티층, 기계실, 중2층):', item.floorLabel || '');
+            if (!typed || !typed.trim()) return false;
+            const trimmed = typed.trim();
+            item.floorCode = trimmed;
+            item.floorLabel = trimmed;
+            item.rank = window.getFloorRankFromCode(trimmed);
+            item.matched = true;
+            return true;
+        }
+        item.floorCode = code;
+        item.floorLabel = window.getFloorLabelFromCode(code);
+        item.rank = window.getFloorRankFromCode(code);
+        item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+        return true;
     }
 
     // 업로드된 파일들을 인식된 층(floorCode)별로 묶어서 [{floorCode, entries:[{item, idx}]}] 형태로 반환.
@@ -828,11 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const idx = parseInt(ev.target.dataset.idx, 10);
                 const item = (window.selectedUploadedDrawings || [])[idx];
                 if (!item) return;
-                const code = ev.target.value;
-                item.floorCode = code;
-                item.floorLabel = window.getFloorLabelFromCode(code);
-                item.rank = window.getFloorRankFromCode(code);
-                item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+                applyFloorSelectValue(item, ev.target.value);
                 updateNewBuildingFloorsSummary();
                 renderNewBuildingDrawingPreview();
             });
@@ -1169,11 +1201,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const idx = parseInt(ev.target.dataset.idx, 10);
                 const item = (window.selectedEditUploadedDrawings || [])[idx];
                 if (!item) return;
-                const code = ev.target.value;
-                item.floorCode = code;
-                item.floorLabel = window.getFloorLabelFromCode(code);
-                item.rank = window.getFloorRankFromCode(code);
-                item.matched = true; // 사용자가 직접 지정했으므로 신뢰 가능
+                applyFloorSelectValue(item, ev.target.value);
                 renderEditDrawingPreview();
             });
         });
