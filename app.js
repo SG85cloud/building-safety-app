@@ -1554,7 +1554,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const ch = state.canvas.height;
 
         ctx.clearRect(0, 0, cw, ch);
-        ctx.fillStyle = '#1b2333';
+        ctx.fillStyle = '#e2e8f0';
         ctx.fillRect(0, 0, cw, ch);
 
         ctx.save();
