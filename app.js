@@ -201,8 +201,13 @@ window.parseFloorInfoFromFilename = function(fileName) {
     const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
     const cleanName = nameWithoutExt.toUpperCase();
 
-    if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('PH')) {
-        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상 층 (ROOF)', matched: true };
+    // 옥상~옥탑(지붕)까지는 별도 층으로 나누지 않고 한 층("옥상/옥탑")으로 합쳐서 관리
+    if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('옥탑') || cleanName.includes('PH')) {
+        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상/옥탑 층 (ROOF)', matched: true };
+    }
+
+    if (cleanName.includes('외부') || cleanName.includes('외벽') || cleanName.includes('파사드') || cleanName.includes('입면') || cleanName.includes('FACADE') || cleanName.includes('ELEVATION') || cleanName.includes('EXTERIOR')) {
+        return { rank: 1000, floorCode: 'EXT', floorLabel: '건축물 외부 (EXT)', matched: true };
     }
 
     const bMatch = cleanName.match(/(?:B|지하)\s*([0-9]{1,2})(?![0-9])/i);
@@ -235,19 +240,21 @@ window.parseFloorInfoFromFilename = function(fileName) {
     return { rank: 1, floorCode: '1F', floorLabel: '지상 1층 (1F)', matched: false };
 };
 
-// 층 코드 수동 선택용 옵션 목록 (지하10층 ~ 지상30층 + 옥상)
+// 층 코드 수동 선택용 옵션 목록 (지하10층 ~ 지상30층 + 옥상/옥탑 + 건축물 외부)
 window.FLOOR_CODE_OPTION_LIST = (function() {
     const list = [];
     for (let i = 10; i >= 1; i--) list.push(`B${i}F`);
     for (let i = 1; i <= 30; i++) list.push(`${i}F`);
     list.push('ROOF');
+    list.push('EXT');
     return list;
 })();
 
 window.getFloorRankFromCode = function(code) {
     if (!code) return 0;
     const c = String(code).toUpperCase().trim();
-    if (c.includes('ROOF') || c.includes('옥상') || c.includes('PH')) return 9999;
+    if (c.includes('EXT') || c.includes('외부')) return 10000;
+    if (c.includes('ROOF') || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return 9999;
     const bMatch = c.match(/B\s*([0-9]+)/);
     if (bMatch) return -parseInt(bMatch[1], 10);
     const fMatch = c.match(/([0-9]+)\s*F/);
@@ -626,7 +633,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.getFloorLabelFromCode = function(code) {
         if (!code) return '1F';
         const c = String(code).toUpperCase().trim();
-        if (c === 'ROOF' || c.includes('옥상') || c.includes('PH')) return '옥상 층 (ROOF)';
+        if (c === 'EXT' || c.includes('외부')) return '건축물 외부 (EXT)';
+        if (c === 'ROOF' || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return '옥상/옥탑 층 (ROOF)';
         const bMatch = c.match(/B\s*([0-9]+)/);
         if (bMatch) return `지하 ${bMatch[1]}층 (${c})`;
         const fMatch = c.match(/([0-9]+)\s*F/);
@@ -693,7 +701,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <option value="B1F">지하 1층 (B1F)</option>
                 <option value="1F" selected>지상 1층 (1F)</option>
                 <option value="2F">지상 2층 (2F)</option>
-                <option value="ROOF">옥상 층 (ROOF)</option>
+                <option value="ROOF">옥상/옥탑 층 (ROOF)</option>
+                <option value="EXT">건축물 외부 (EXT)</option>
             `;
             window.state.currentFloor = '1F';
         }
@@ -928,7 +937,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const getRank = (code) => {
             if (!code) return 0;
             const c = String(code).toUpperCase().trim();
-            if (c.includes('ROOF') || c.includes('옥상') || c.includes('PH')) return 9999;
+            if (c.includes('EXT') || c.includes('외부')) return 10000;
+            if (c.includes('ROOF') || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return 9999;
             const bMatch = c.match(/B\s*([0-9]+)/);
             if (bMatch) return -parseInt(bMatch[1], 10);
             const fMatch = c.match(/([0-9]+)\s*F/);
