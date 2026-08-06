@@ -194,6 +194,16 @@ window.compressDefectPhoto43 = function(file, targetW = 1000, quality = 0.85) {
     });
 };
 
+// 건축물 외부는 보통 동서남북 4장의 입면도로 나뉘므로, 파일명에 방향이 있으면
+// 하나의 "건축물 외부"가 아니라 방향별로 별도 층(EXT_N/EXT_E/EXT_S/EXT_W)으로 인식한다.
+// getFloorLabelFromCode/getFloorRankFromCode/parseFloorInfoFromFilename이 공통으로 사용.
+window.EXT_DIRECTION_DEFS = [
+    { code: 'EXT_N', label: '건축물 외부-북측 (EXT_N)', strongKeys: ['북측', '북면', '북쪽', 'NORTH'], soloChar: '북' },
+    { code: 'EXT_E', label: '건축물 외부-동측 (EXT_E)', strongKeys: ['동측', '동면', '동쪽', 'EAST'], soloChar: '동' },
+    { code: 'EXT_S', label: '건축물 외부-남측 (EXT_S)', strongKeys: ['남측', '남면', '남쪽', 'SOUTH'], soloChar: '남' },
+    { code: 'EXT_W', label: '건축물 외부-서측 (EXT_W)', strongKeys: ['서측', '서면', '서쪽', 'WEST'], soloChar: '서' }
+];
+
 /**
  * Intelligent Floor Parser from File Names (e.g. B2.jpg -> 지하 2층)
  */
@@ -207,6 +217,21 @@ window.parseFloorInfoFromFilename = function(fileName) {
     }
 
     if (cleanName.includes('외부') || cleanName.includes('외벽') || cleanName.includes('파사드') || cleanName.includes('입면') || cleanName.includes('FACADE') || cleanName.includes('ELEVATION') || cleanName.includes('EXTERIOR')) {
+        // 방향이 뚜렷하게 적혀있으면(북측/NORTH 등) 그 방향 전용 층으로
+        for (let i = 0; i < window.EXT_DIRECTION_DEFS.length; i++) {
+            const d = window.EXT_DIRECTION_DEFS[i];
+            if (d.strongKeys.some(k => cleanName.includes(k))) {
+                return { rank: 1001 + i, floorCode: d.code, floorLabel: d.label, matched: true };
+            }
+        }
+        // "외부_북.jpg"처럼 방위 한 글자만 있는 경우도 보조로 인식
+        for (let i = 0; i < window.EXT_DIRECTION_DEFS.length; i++) {
+            const d = window.EXT_DIRECTION_DEFS[i];
+            if (cleanName.includes(d.soloChar)) {
+                return { rank: 1001 + i, floorCode: d.code, floorLabel: d.label, matched: true };
+            }
+        }
+        // 방향 표시가 없으면 통합 "건축물 외부" 한 층으로
         return { rank: 1000, floorCode: 'EXT', floorLabel: '건축물 외부 (EXT)', matched: true };
     }
 
@@ -247,6 +272,7 @@ window.FLOOR_CODE_OPTION_LIST = (function() {
     for (let i = 1; i <= 30; i++) list.push(`${i}F`);
     list.push('ROOF');
     list.push('EXT');
+    window.EXT_DIRECTION_DEFS.forEach(d => list.push(d.code));
     return list;
 })();
 
@@ -641,6 +667,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.getFloorLabelFromCode = function(code) {
         if (!code) return '1F';
         const c = String(code).toUpperCase().trim();
+        const dirDef = window.EXT_DIRECTION_DEFS.find(d => d.code === c);
+        if (dirDef) return dirDef.label;
         if (c === 'EXT' || c.includes('외부')) return '건축물 외부 (EXT)';
         if (c === 'ROOF' || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return '옥상/옥탑 층 (ROOF)';
         const bMatch = c.match(/B\s*([0-9]+)/);
