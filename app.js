@@ -1210,6 +1210,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const inspectionType = document.getElementById('inputBuildingInspectionType')?.value || '정밀안전점검';
             const inspectionYear = document.getElementById('inputBuildingInspectionYear')?.value || '2026년';
             const inspectionPeriod = document.getElementById('inputBuildingInspectionPeriod')?.value || '하반기';
+            const structureType = (document.getElementById('inputBuildingStructureType')?.value || '').trim();
+            const facilityGrade = document.getElementById('inputBuildingFacilityGrade')?.value || '';
             const notes = document.getElementById('inputBuildingNotes')?.value || '';
 
             const newBuildingId = 'bldg-' + Date.now();
@@ -1264,6 +1266,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 inspectionType: inspectionType,
                 inspectionYear: inspectionYear,
                 inspectionPeriod: inspectionPeriod,
+                structureType: structureType,
+                facilityGrade: facilityGrade,
                 floorsList: floorsList.length > 0 ? floorsList : null,
                 floorDrawings: floorDrawingsMap,
                 notes: notes
@@ -1324,6 +1328,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('inputEditBuildingInspectionType')) document.getElementById('inputEditBuildingInspectionType').value = bldg.inspectionType || '정밀안전점검';
         if (document.getElementById('inputEditBuildingInspectionYear')) document.getElementById('inputEditBuildingInspectionYear').value = bldg.inspectionYear || '2026년';
         if (document.getElementById('inputEditBuildingInspectionPeriod')) document.getElementById('inputEditBuildingInspectionPeriod').value = bldg.inspectionPeriod || '하반기';
+        if (document.getElementById('inputEditBuildingStructureType')) document.getElementById('inputEditBuildingStructureType').value = bldg.structureType || '';
+        if (document.getElementById('inputEditBuildingFacilityGrade')) document.getElementById('inputEditBuildingFacilityGrade').value = bldg.facilityGrade || '';
         if (document.getElementById('inputEditBuildingNotes')) document.getElementById('inputEditBuildingNotes').value = bldg.notes || '';
 
         const fileInput = document.getElementById('inputEditBuildingDrawings');
@@ -1568,6 +1574,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const inspectionType = document.getElementById('inputEditBuildingInspectionType')?.value || bldg.inspectionType || '정밀안전점검';
             const inspectionYear = document.getElementById('inputEditBuildingInspectionYear')?.value || bldg.inspectionYear || '2026년';
             const inspectionPeriod = document.getElementById('inputEditBuildingInspectionPeriod')?.value || bldg.inspectionPeriod || '하반기';
+            const structureType = (document.getElementById('inputEditBuildingStructureType')?.value || '').trim();
+            const facilityGrade = document.getElementById('inputEditBuildingFacilityGrade')?.value || '';
             const notes = document.getElementById('inputEditBuildingNotes')?.value || '';
 
             // Process newly added drawings and merge into existing bldg
@@ -1630,6 +1638,8 @@ document.addEventListener('DOMContentLoaded', () => {
             bldg.inspectionType = inspectionType;
             bldg.inspectionYear = inspectionYear;
             bldg.inspectionPeriod = inspectionPeriod;
+            bldg.structureType = structureType;
+            bldg.facilityGrade = facilityGrade;
             bldg.notes = notes;
 
             // Save state & sync

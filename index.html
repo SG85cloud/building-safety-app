@@ -1176,6 +1176,28 @@
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
                     <div class="form-group" style="flex:1;">
+                        <label class="form-label">🏗️ 주구조</label>
+                        <input type="text" id="inputBuildingStructureType" class="form-control" list="structureTypeOptions" placeholder="예: RC, SRC, 철골구조">
+                        <datalist id="structureTypeOptions">
+                            <option value="RC(철근콘크리트조)">
+                            <option value="SRC(철골철근콘크리트조)">
+                            <option value="철골구조(S조)">
+                            <option value="조적조">
+                            <option value="목구조">
+                        </datalist>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label">🏷️ 시설물 종별</label>
+                        <select id="inputBuildingFacilityGrade" class="form-control">
+                            <option value="" selected>미지정</option>
+                            <option value="제1종시설물">제1종시설물</option>
+                            <option value="제2종시설물">제2종시설물</option>
+                            <option value="제3종시설물">제3종시설물</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row" style="display:flex; gap:0.8rem;">
+                    <div class="form-group" style="flex:1;">
                         <label class="form-label">📋 점검 종류</label>
                         <select id="inputBuildingInspectionType" class="form-control">
                             <option value="정밀안전점검" selected>정밀안전점검</option>
@@ -1259,6 +1281,28 @@
                     <div class="form-group" style="flex:1;">
                         <label class="form-label" style="font-weight: 700; color: #334155;">📅 점검 일시</label>
                         <input type="date" id="inputEditBuildingDate" class="form-control">
+                    </div>
+                </div>
+                <div class="form-row" style="display:flex; gap:0.8rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" style="font-weight: 700; color: #334155;">🏗️ 주구조</label>
+                        <input type="text" id="inputEditBuildingStructureType" class="form-control" list="editStructureTypeOptions" placeholder="예: RC, SRC, 철골구조">
+                        <datalist id="editStructureTypeOptions">
+                            <option value="RC(철근콘크리트조)">
+                            <option value="SRC(철골철근콘크리트조)">
+                            <option value="철골구조(S조)">
+                            <option value="조적조">
+                            <option value="목구조">
+                        </datalist>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" style="font-weight: 700; color: #334155;">🏷️ 시설물 종별</label>
+                        <select id="inputEditBuildingFacilityGrade" class="form-control">
+                            <option value="">미지정</option>
+                            <option value="제1종시설물">제1종시설물</option>
+                            <option value="제2종시설물">제2종시설물</option>
+                            <option value="제3종시설물">제3종시설물</option>
+                        </select>
                     </div>
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
@@ -1562,7 +1606,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260807_1900"></script>
+    <script src="app.js?v=20260807_2000"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
