@@ -3657,10 +3657,101 @@ document.addEventListener('DOMContentLoaded', () => {
         URL.revokeObjectURL(url);
     };
 
+    // --- 콘크리트 강도(반발경도) 추정 엔진 ---
+    // 회사에서 쓰던 엑셀(반발경도-고강도포함) 자료를 그대로 옮겼다.
+    // 각 행: [R, 0도 보정값, +90도 보정값, +45도 보정값, -45도 보정값, -90도 보정값]
+    // 원본 엑셀의 R=80 행은 R=70 행이 그대로 복사되어 있던 오류였다(0/-1.50/-1.10/1.10/1.20로 동일).
+    // R=70~79 구간의 일정한 변화폭(예: +90도 보정값이 한 칸당 +0.08씩 증가)을 그대로 이어서
+    // R=80 값을 다시 계산해 넣었다: 0/-0.70/-0.60/0.90/0.70.
+    const CONCRETE_ANGLE_CORRECTION_TABLE = [
+        [10, 0, 0, 0, 2.40, 3.20], [11, 0, 0, 0, 2.41, 3.22], [12, 0, 0, 0, 2.42, 3.24],
+        [13, 0, 0, 0, 2.43, 3.26], [14, 0, 0, 0, 2.44, 3.28], [15, 0, 0, 0, 2.45, 3.30],
+        [16, 0, 0, 0, 2.46, 3.32], [17, 0, 0, 0, 2.47, 3.34], [18, 0, 0, 0, 2.48, 3.36],
+        [19, 0, 0, 0, 2.49, 3.38], [20, 0, -5.40, -3.50, 2.50, 3.40], [21, 0, -5.33, -3.46, 2.48, 3.37],
+        [22, 0, -5.26, -3.42, 2.46, 3.34], [23, 0, -5.19, -3.38, 2.44, 3.31], [24, 0, -5.12, -3.34, 2.42, 3.28],
+        [25, 0, -5.05, -3.30, 2.40, 3.25], [26, 0, -4.98, -3.26, 2.38, 3.22], [27, 0, -4.91, -3.22, 2.36, 3.19],
+        [28, 0, -4.84, -3.18, 2.34, 3.16], [29, 0, -4.77, -3.14, 2.32, 3.13], [30, 0, -4.70, -3.10, 2.30, 3.10],
+        [31, 0, -4.62, -3.05, 2.27, 3.06], [32, 0, -4.54, -3.00, 2.24, 3.02], [33, 0, -4.46, -2.95, 2.21, 2.98],
+        [34, 0, -4.38, -2.90, 2.18, 2.94], [35, 0, -4.30, -2.85, 2.15, 2.90], [36, 0, -4.22, -2.80, 2.12, 2.86],
+        [37, 0, -4.14, -2.75, 2.09, 2.82], [38, 0, -4.06, -2.70, 2.06, 2.78], [39, 0, -3.98, -2.65, 2.03, 2.74],
+        [40, 0, -3.90, -2.60, 2.00, 2.70], [41, 0, -3.82, -2.55, 1.95, 2.65], [42, 0, -3.74, -2.50, 1.90, 2.60],
+        [43, 0, -3.66, -2.45, 1.85, 2.55], [44, 0, -3.58, -2.40, 1.80, 2.50], [45, 0, -3.50, -2.35, 1.75, 2.45],
+        [46, 0, -3.42, -2.30, 1.70, 2.40], [47, 0, -3.34, -2.25, 1.65, 2.35], [48, 0, -3.26, -2.20, 1.60, 2.30],
+        [49, 0, -3.18, -2.15, 1.55, 2.25], [50, 0, -3.10, -2.10, 1.50, 2.20], [51, 0, -3.02, -2.05, 1.48, 2.15],
+        [52, 0, -2.94, -2.00, 1.46, 2.10], [53, 0, -2.86, -1.95, 1.44, 2.05], [54, 0, -2.78, -1.90, 1.42, 2.00],
+        [55, 0, -2.70, -1.85, 1.40, 1.95], [56, 0, -2.62, -1.80, 1.38, 1.90], [57, 0, -2.54, -1.75, 1.36, 1.85],
+        [58, 0, -2.46, -1.70, 1.34, 1.80], [59, 0, -2.38, -1.65, 1.32, 1.75], [60, 0, -2.30, -1.60, 1.30, 1.70],
+        [61, 0, -2.22, -1.55, 1.28, 1.65], [62, 0, -2.14, -1.50, 1.26, 1.60], [63, 0, -2.06, -1.45, 1.24, 1.55],
+        [64, 0, -1.98, -1.40, 1.22, 1.50], [65, 0, -1.90, -1.35, 1.20, 1.45], [66, 0, -1.82, -1.30, 1.18, 1.40],
+        [67, 0, -1.74, -1.25, 1.16, 1.35], [68, 0, -1.66, -1.20, 1.14, 1.30], [69, 0, -1.58, -1.15, 1.12, 1.25],
+        [70, 0, -1.50, -1.10, 1.10, 1.20], [71, 0, -1.42, -1.05, 1.08, 1.15], [72, 0, -1.34, -1.00, 1.06, 1.10],
+        [73, 0, -1.26, -0.95, 1.04, 1.05], [74, 0, -1.18, -0.90, 1.02, 1.00], [75, 0, -1.10, -0.85, 1.00, 0.95],
+        [76, 0, -1.02, -0.80, 0.98, 0.90], [77, 0, -0.94, -0.75, 0.96, 0.85], [78, 0, -0.86, -0.70, 0.94, 0.80],
+        [79, 0, -0.78, -0.65, 0.92, 0.75], [80, 0, -0.70, -0.60, 0.90, 0.70]
+    ];
+    const CONCRETE_ANGLE_COLUMN_INDEX = { '0': 1, '90': 2, '45': 3, '-45': 4, '-90': 5 };
+
+    // 각도별 보정값 표에서 R값에 해당하는 보정값을 찾는다. 표에 없는 R(정수 아닌 평균값 등)은
+    // 앞뒤 정수 R행 사이를 선형보간하고, 표 범위(10~80) 밖이면 가장 가까운 끝 행 값을 그대로 쓴다.
+    function getAngleCorrection(rValue, angleDeg) {
+        const colIdx = CONCRETE_ANGLE_COLUMN_INDEX[String(angleDeg)];
+        if (colIdx === undefined) return 0;
+        const table = CONCRETE_ANGLE_CORRECTION_TABLE;
+        if (rValue <= table[0][0]) return table[0][colIdx];
+        if (rValue >= table[table.length - 1][0]) return table[table.length - 1][colIdx];
+        const lowIdx = Math.floor(rValue) - table[0][0];
+        const rowLow = table[lowIdx];
+        const rowHigh = table[Math.min(lowIdx + 1, table.length - 1)];
+        const frac = rValue - rowLow[0];
+        return rowLow[colIdx] + (rowHigh[colIdx] - rowLow[colIdx]) * frac;
+    }
+
+    // 압축강도 추정식 3가지 (사용자 회사 자료 기준)
+    const CONCRETE_STRENGTH_FORMULAS = [
+        { name: '일본재료학회식', calc: (ro) => -18.0 + 1.27 * ro },
+        { name: '일본건축학회 제안식', calc: (ro) => (7.3 * ro + 100) * 0.098 },
+        { name: '과학기술부식', calc: (ro) => (15.2 * ro - 112.8) * 0.1 }
+    ];
+
+    // R값 목록(최대 20개) → ±20% 이상 벗어난 값 제외(KS F 2732 관례) → 재평균 → 각도보정(Ro) →
+    // 3개 추정식 결과까지 한 번에 계산한다.
+    function calcConcreteStrength(readings, angleDeg) {
+        const nums = (readings || []).map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
+        if (nums.length === 0) return null;
+
+        const rawAvg = nums.reduce((a, b) => a + b, 0) / nums.length;
+        const threshold = rawAvg * 0.2;
+        const kept = nums.filter(v => Math.abs(v - rawAvg) <= threshold);
+        const excludedCount = nums.length - kept.length;
+        // 전부 제외되는 극단적인 경우(이론상 거의 없음) 방지용 안전장치
+        const finalSet = kept.length > 0 ? kept : nums;
+        const finalAvg = finalSet.reduce((a, b) => a + b, 0) / finalSet.length;
+
+        const correction = getAngleCorrection(finalAvg, angleDeg);
+        const ro = finalAvg + correction;
+
+        const results = CONCRETE_STRENGTH_FORMULAS.map(f => ({
+            name: f.name,
+            value: f.calc(ro)
+        }));
+
+        return {
+            totalCount: nums.length,
+            excludedCount,
+            rawAvg,
+            finalAvg,
+            correction,
+            ro,
+            results
+        };
+    }
+
     window.toggleNdtModalFields = function() {
         const cat = document.getElementById('ndtCategory')?.value || '강도';
         const stdGrp = document.getElementById('groupNdtStandardFields');
         const tiltGrp = document.getElementById('groupNdtTiltFields');
+        const strengthGrp = document.getElementById('groupNdtStrengthFields');
+        const genericValuesGrp = document.getElementById('groupNdtGenericValues');
         const statusGrp = document.getElementById('groupNdtStatus');
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
@@ -3671,6 +3762,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const v1El = document.getElementById('ndtVal1');
         const v2El = document.getElementById('ndtVal2');
         const v3El = document.getElementById('ndtVal3');
+
+        // 콘크리트 강도(반발경도)는 전용 UI(R값 스캔/목록 + 각도 + 추정식 3개)를 쓰고,
+        // 나머지 항목(실측/탄산화/기울기/부재변위)은 기존 1~3회 입력 UI를 그대로 쓴다.
+        if (strengthGrp) strengthGrp.style.display = (cat === '강도') ? 'flex' : 'none';
+        if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도') ? 'none' : 'block';
 
         if (cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
@@ -3708,6 +3804,102 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- 콘크리트 강도 R값 목록 UI (최대 20개) ---
+    let ndtRValues = [];
+
+    function renderNdtRValuesList() {
+        const container = document.getElementById('ndtRValuesList');
+        if (!container) return;
+        container.innerHTML = ndtRValues.map((v, i) => `
+            <span style="display:flex; align-items:center; gap:0.15rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:6px; padding:0.15rem 0.15rem 0.15rem 0.4rem;">
+                <span style="font-size:0.7rem; color:var(--text-muted);">${i + 1}</span>
+                <input type="number" step="1" class="form-control ndt-r-value-input" data-idx="${i}" value="${v !== null && v !== undefined ? v : ''}" style="width:52px; padding:0.2rem 0.3rem; border:none; background:transparent;">
+                <button type="button" class="ndt-r-value-remove" data-idx="${i}" title="삭제" style="border:none; background:transparent; color:#ef4444; cursor:pointer; padding:0 0.3rem;">×</button>
+            </span>
+        `).join('') + (ndtRValues.length === 0 ? '<span style="font-size:0.78rem; color:var(--text-muted);">R값을 추가하거나 사진으로 스캔해주세요.</span>' : '');
+
+        container.querySelectorAll('.ndt-r-value-input').forEach(el => {
+            el.addEventListener('input', (e) => {
+                const idx = parseInt(e.target.dataset.idx, 10);
+                ndtRValues[idx] = e.target.value;
+                recalcNdtStrength();
+            });
+        });
+        container.querySelectorAll('.ndt-r-value-remove').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.dataset.idx, 10);
+                ndtRValues.splice(idx, 1);
+                renderNdtRValuesList();
+                recalcNdtStrength();
+            });
+        });
+    }
+
+    function addNdtRValue(value) {
+        if (ndtRValues.length >= 20) {
+            window.showToast('R값은 최대 20개까지 입력할 수 있습니다.', 'warning');
+            return;
+        }
+        ndtRValues.push(value !== undefined ? value : '');
+        renderNdtRValuesList();
+    }
+
+    function recalcNdtStrength() {
+        const summaryEl = document.getElementById('ndtStrengthCalcSummary');
+        const resultsEl = document.getElementById('ndtStrengthFormulaResults');
+        const angleEl = document.getElementById('ndtAngle');
+        const avgEl = document.getElementById('ndtAvgValue');
+        if (!summaryEl || !resultsEl) return;
+
+        const angle = angleEl ? parseFloat(angleEl.value) : 0;
+        const calc = calcConcreteStrength(ndtRValues, angle);
+
+        if (!calc) {
+            summaryEl.textContent = 'R값을 입력하면 자동으로 계산됩니다.';
+            resultsEl.innerHTML = '';
+            if (avgEl) avgEl.value = '';
+            return;
+        }
+
+        summaryEl.innerHTML = `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
+        resultsEl.innerHTML = calc.results.map(r => `
+            <tr>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${r.name}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:#0284c7;">${r.value.toFixed(1)}</td>
+            </tr>
+        `).join('');
+
+        if (avgEl) avgEl.value = `${calc.finalAvg.toFixed(1)} (Ro=${calc.ro.toFixed(1)})`;
+    }
+
+    async function scanRValuesFromImage(file) {
+        const statusEl = document.getElementById('rScanStatus');
+        if (!file) return;
+        if (typeof Tesseract === 'undefined') {
+            if (statusEl) statusEl.textContent = 'OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.';
+            return;
+        }
+        if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
+        try {
+            const { data: { text } } = await Tesseract.recognize(file, 'eng');
+            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
+            const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
+            const scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
+
+            if (scanned.length === 0) {
+                if (statusEl) statusEl.textContent = '❌ 숫자를 인식하지 못했습니다. 직접 입력해주세요.';
+                return;
+            }
+            ndtRValues = scanned.slice(0, 20);
+            renderNdtRValuesList();
+            recalcNdtStrength();
+            if (statusEl) statusEl.textContent = `✅ ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
+        } catch (err) {
+            console.error('R값 스캔 실패:', err);
+            if (statusEl) statusEl.textContent = '❌ 인식에 실패했습니다. 직접 입력해주세요.';
+        }
+    }
+
     function openNdtModal(imgX, imgY, existingItem = null, extraOpts = null) {
         const modal = document.getElementById('ndtModal');
         if (!modal) return;
@@ -3738,6 +3930,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = existingItem.v3 || '';
             if (avgEl) avgEl.value = existingItem.avgValue || '';
             if (statusEl) statusEl.value = existingItem.status || '양호';
+            ndtRValues = Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [];
+            const angleElExisting = document.getElementById('ndtAngle');
+            if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '0';
+            const rScanStatusExisting = document.getElementById('rScanStatus');
+            if (rScanStatusExisting) rScanStatusExisting.textContent = '';
 
             window._pendingNdtExtra = {
                 targetX: existingItem.targetX !== undefined ? existingItem.targetX : existingItem.x,
@@ -3764,6 +3961,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = '';
             if (avgEl) avgEl.value = '';
             if (statusEl) statusEl.value = '양호';
+            ndtRValues = [];
+            const angleElNew = document.getElementById('ndtAngle');
+            if (angleElNew) angleElNew.value = '0';
+            const rScanStatusNew = document.getElementById('rScanStatus');
+            if (rScanStatusNew) rScanStatusNew.textContent = '';
 
             window._pendingNdtExtra = extraOpts || {
                 targetX: imgX,
@@ -3774,6 +3976,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.toggleNdtModalFields();
+        renderNdtRValuesList();
+        recalcNdtStrength();
         modal.style.display = 'flex';
         modal.classList.add('open');
     }
@@ -3861,12 +4065,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 window.toggleNdtModalFields();
                 calcNdtAvg();
+                recalcNdtStrength();
             });
         }
 
         [v1El, v2El, v3El, heightEl].forEach(el => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
+
+        // --- 콘크리트 강도 R값 스캔/목록/각도 UI ---
+        const btnAddRValue = document.getElementById('btnAddRValue');
+        if (btnAddRValue) btnAddRValue.addEventListener('click', () => addNdtRValue(''));
+
+        const ndtAngleEl = document.getElementById('ndtAngle');
+        if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcNdtStrength);
+
+        const btnScanRValues = document.getElementById('btnScanRValues');
+        const inputScanRValues = document.getElementById('inputScanRValues');
+        if (btnScanRValues && inputScanRValues) {
+            btnScanRValues.addEventListener('click', () => inputScanRValues.click());
+            inputScanRValues.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) scanRValuesFromImage(file);
+                e.target.value = '';
+            });
+        }
 
         function closeNdtModal() {
             if (modal) {
@@ -3911,8 +4134,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
-                const valsArr = [v1, v2, v3].filter(x => x.trim() !== '');
+
+                // 콘크리트 강도(반발경도)는 R값 목록 + 각도보정 + 추정식 3개 결과를 별도로 저장한다.
+                const strengthAngle = document.getElementById('ndtAngle')?.value;
+                const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle)) : null;
+                const valsArr = (cat === '강도')
+                    ? ndtRValues.filter(v => v !== '' && v !== null && v !== undefined)
+                    : [v1, v2, v3].filter(x => x.trim() !== '');
                 const valuesText = valsArr.join(', ') || '-';
+                const strengthExtra = (cat === '강도') ? {
+                    strengthReadings: ndtRValues.slice(),
+                    strengthAngle: parseFloat(strengthAngle) || 0,
+                    strengthResults: strengthCalc ? strengthCalc.results : [],
+                    strengthRo: strengthCalc ? strengthCalc.ro : null
+                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null };
 
                 if (pinId) {
                     const idx = state.ndtData[key].findIndex(x => x.id === pinId);
@@ -3935,6 +4170,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             status,
                             tiltRatio,
                             grade,
+                            ...strengthExtra,
                             inspectorName: state.ndtData[key][idx].inspectorName || window.state.userName || ''
                         };
                     }
@@ -3957,6 +4193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         status,
                         tiltRatio,
                         grade,
+                        ...strengthExtra,
                         inspectorName: window.state.userName || '',
                         x: extra.targetX,
                         y: extra.targetY
