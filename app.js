@@ -5356,6 +5356,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let startMouseY = 0;
     let initialOffsetX = 0;
     let initialOffsetY = 0;
+    let lastDragClientX = 0;
+    let lastDragClientY = 0;
+    let isCalibPickPending = false; // 캘리브레이션 좌표 지정 중 팬(이동)과 클릭을 구분하기 위한 플래그
 
     function getTouchDistance(t1, t2) {
         const dx = t1.clientX - t2.clientX;
@@ -5471,11 +5474,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const imgY = coords.y;
 
         // CAD(DXF) 캘리브레이션 기준점을 도면에서 클릭으로 지정하는 중이면,
-        // 이번 클릭은 결함 마킹이 아니라 좌표 캡처로만 처리하고 즉시 종료한다.
+        // 눌렀다고 바로 캡처하지 않는다. 확대한 뒤 화면을 이동(팬)해서 원하는
+        // 지점을 찾아야 할 수도 있으므로, 일반 팬처럼 드래그를 시작해두고
+        // handleDragEnd에서 "많이 움직이지 않았을 때(클릭)"만 실제로 캡처한다.
         if (window._calibrationCaptureCallback) {
-            const cb = window._calibrationCaptureCallback;
-            window._calibrationCaptureCallback = null;
-            cb(imgX, imgY);
+            isCalibPickPending = true;
+            startMouseX = clientX;
+            startMouseY = clientY;
+            lastDragClientX = clientX;
+            lastDragClientY = clientY;
+            initialOffsetX = state.view.offsetX;
+            initialOffsetY = state.view.offsetY;
+            isDragging = true;
+            elements.planCanvas.style.cursor = 'grabbing';
             return;
         }
 
@@ -5597,6 +5608,8 @@ document.addEventListener('DOMContentLoaded', () => {
             areaCurImgY = coords.y;
             drawCanvas();
         } else if (isDragging) {
+            lastDragClientX = clientX;
+            lastDragClientY = clientY;
             const dx = clientX - startMouseX;
             const dy = clientY - startMouseY;
             state.view.offsetX = initialOffsetX + dx;
@@ -5606,6 +5619,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleDragEnd() {
+        if (isCalibPickPending) {
+            isCalibPickPending = false;
+            isDragging = false;
+            const movedDist = Math.hypot(lastDragClientX - startMouseX, lastDragClientY - startMouseY);
+            if (movedDist <= 6 && window._calibrationCaptureCallback) {
+                // 거의 안 움직이고 뗐다 = 화면 이동이 아니라 이 지점을 찍겠다는 클릭
+                const rect = elements.planCanvas.getBoundingClientRect();
+                const mouseX = lastDragClientX - rect.left;
+                const mouseY = lastDragClientY - rect.top;
+                const vx = (mouseX - state.view.offsetX) / state.view.scale;
+                const vy = (mouseY - state.view.offsetY) / state.view.scale;
+                const coords = viewToImgCoords(vx, vy);
+                const cb = window._calibrationCaptureCallback;
+                window._calibrationCaptureCallback = null;
+                cb(coords.x, coords.y);
+            }
+            // 많이 움직였으면 화면 이동(팬)으로 간주하고 콜백은 그대로 유지해
+            // 사용자가 다시 클릭할 때 캡처되게 한다.
+            if (elements.planCanvas) {
+                elements.planCanvas.style.cursor = window._calibrationCaptureCallback ? 'crosshair' : 'grab';
+            }
+            return;
+        }
+
         if (pendingDragHit && !isDraggingPin) {
             // 이동임계값을 넘지 않고 그냥 뗐음 = 클릭으로 간주 → 수정 모달 오픈
             const d = pendingDragHit.hitInfo.defect;
@@ -5675,6 +5712,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isDraggingPin = false;
                 isAreaDrag = false;
                 activeDragPin = null;
+                isCalibPickPending = false; // 2손가락 핀치줌 시작이면 캘리브레이션 클릭 판정은 취소(콜백은 유지)
 
                 isPinching = true;
                 const rect = elements.planCanvas.getBoundingClientRect();
