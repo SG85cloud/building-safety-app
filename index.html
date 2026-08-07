@@ -1243,6 +1243,10 @@
                             <option value="제3종시설물">제3종시설물</option>
                         </select>
                     </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label">🗓️ 준공일 (콘크리트 재령 계산용)</label>
+                        <input type="date" id="inputBuildingCompletionDate" class="form-control">
+                    </div>
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
                     <div class="form-group" style="flex:1;">
@@ -1351,6 +1355,10 @@
                             <option value="제2종시설물">제2종시설물</option>
                             <option value="제3종시설물">제3종시설물</option>
                         </select>
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label class="form-label" style="font-weight: 700; color: #334155;">🗓️ 준공일 (콘크리트 재령 계산용)</label>
+                        <input type="date" id="inputEditBuildingCompletionDate" class="form-control">
                     </div>
                 </div>
                 <div class="form-row" style="display:flex; gap:0.8rem;">
@@ -1654,7 +1662,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260807_2100"></script>
+    <script src="app.js?v=20260807_2200"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

@@ -1212,6 +1212,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const inspectionPeriod = document.getElementById('inputBuildingInspectionPeriod')?.value || '하반기';
             const structureType = (document.getElementById('inputBuildingStructureType')?.value || '').trim();
             const facilityGrade = document.getElementById('inputBuildingFacilityGrade')?.value || '';
+            const completionDate = document.getElementById('inputBuildingCompletionDate')?.value || '';
             const notes = document.getElementById('inputBuildingNotes')?.value || '';
 
             const newBuildingId = 'bldg-' + Date.now();
@@ -1268,6 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 inspectionPeriod: inspectionPeriod,
                 structureType: structureType,
                 facilityGrade: facilityGrade,
+                completionDate: completionDate,
                 floorsList: floorsList.length > 0 ? floorsList : null,
                 floorDrawings: floorDrawingsMap,
                 notes: notes
@@ -1330,6 +1332,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (document.getElementById('inputEditBuildingInspectionPeriod')) document.getElementById('inputEditBuildingInspectionPeriod').value = bldg.inspectionPeriod || '하반기';
         if (document.getElementById('inputEditBuildingStructureType')) document.getElementById('inputEditBuildingStructureType').value = bldg.structureType || '';
         if (document.getElementById('inputEditBuildingFacilityGrade')) document.getElementById('inputEditBuildingFacilityGrade').value = bldg.facilityGrade || '';
+        if (document.getElementById('inputEditBuildingCompletionDate')) document.getElementById('inputEditBuildingCompletionDate').value = bldg.completionDate || '';
         if (document.getElementById('inputEditBuildingNotes')) document.getElementById('inputEditBuildingNotes').value = bldg.notes || '';
 
         const fileInput = document.getElementById('inputEditBuildingDrawings');
@@ -1576,6 +1579,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const inspectionPeriod = document.getElementById('inputEditBuildingInspectionPeriod')?.value || bldg.inspectionPeriod || '하반기';
             const structureType = (document.getElementById('inputEditBuildingStructureType')?.value || '').trim();
             const facilityGrade = document.getElementById('inputEditBuildingFacilityGrade')?.value || '';
+            const completionDate = document.getElementById('inputEditBuildingCompletionDate')?.value || '';
             const notes = document.getElementById('inputEditBuildingNotes')?.value || '';
 
             // Process newly added drawings and merge into existing bldg
@@ -1640,6 +1644,7 @@ document.addEventListener('DOMContentLoaded', () => {
             bldg.inspectionPeriod = inspectionPeriod;
             bldg.structureType = structureType;
             bldg.facilityGrade = facilityGrade;
+            bldg.completionDate = completionDate;
             bldg.notes = notes;
 
             // Save state & sync
@@ -3844,6 +3849,21 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNdtRValuesList();
     }
 
+    // 준공일(건축물 개요) ~ 점검일 사이 재령일수를 계산해 참고용으로 표시한다.
+    // 회사 엑셀에서는 이 재령일수로 α(재령보정계수)를 구해 4식·5식에만 곱하는데,
+    // 그 α 산출 곡선/표는 아직 확보하지 못해 지금은 4식·5식 자체가 계산에서 빠져있다.
+    // 그래서 재령일수는 지금은 참고 표시용이고, 최종 강도값 계산에는 아직 반영되지 않는다.
+    function getConcreteAgeInDaysText() {
+        const bldg = window.state.currentBuilding;
+        if (!bldg || !bldg.completionDate) return '';
+        const completion = new Date(bldg.completionDate);
+        const inspection = bldg.date ? new Date(bldg.date) : new Date();
+        if (isNaN(completion.getTime()) || isNaN(inspection.getTime())) return '';
+        const days = Math.round((inspection - completion) / (1000 * 60 * 60 * 24));
+        if (days < 0) return '';
+        return `📅 재령일수: 준공일(${bldg.completionDate}) ~ 점검일(${bldg.date || '오늘'}) = <b>${days}일</b> <span style="color:var(--text-muted);">(현재는 참고 표시만, 4식·5식 α 보정 계산에는 미반영)</span>`;
+    }
+
     function recalcNdtStrength() {
         const summaryEl = document.getElementById('ndtStrengthCalcSummary');
         const resultsEl = document.getElementById('ndtStrengthFormulaResults');
@@ -3861,7 +3881,9 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        summaryEl.innerHTML = `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
+        const ageInfo = getConcreteAgeInDaysText();
+        summaryEl.innerHTML = (ageInfo ? `${ageInfo}<br>` : '') +
+            `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
         resultsEl.innerHTML = calc.results.map(r => `
             <tr>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${r.name}</td>
