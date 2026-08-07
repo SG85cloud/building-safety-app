@@ -4672,6 +4672,30 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(formatPinNumberLabel(defect.no || 'NO.01', areaStyleKey), 0, 0);
+
+            // 중요 결함(⭐)은 결함위치도(도면)에서만 눈에 띄게 강조 표시. 보고서(forReport)는 그대로 둠.
+            if (defect.isBookmark && !forReport) {
+                const starX = w / 2;
+                const starY = -h / 2;
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.4)';
+                ctx.shadowBlur = 3;
+                ctx.beginPath();
+                ctx.arc(starX, starY, 8 * scale, 0, Math.PI * 2);
+                ctx.fillStyle = '#facc15';
+                ctx.strokeStyle = '#b45309';
+                ctx.lineWidth = 1.5;
+                ctx.fill();
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#7c2d12';
+                ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('★', starX, starY + 0.5);
+                ctx.restore();
+            }
+
             ctx.restore();
         }
     }
@@ -4796,6 +4820,30 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', defectStyleKey), 0, 0);
+
+        // 중요 결함(⭐)은 결함위치도(도면)에서만 눈에 띄게 강조 표시.
+        // 보고서(drawPinSafe)는 일부러 그대로 둬서 다른 결함과 똑같이 나오게 한다.
+        if (defect.isBookmark) {
+            const starX = w / 2;
+            const starY = -h / 2;
+            ctx.save();
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 3;
+            ctx.beginPath();
+            ctx.arc(starX, starY, 8 * scale, 0, Math.PI * 2);
+            ctx.fillStyle = '#facc15';
+            ctx.strokeStyle = '#b45309';
+            ctx.lineWidth = 1.5;
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#7c2d12';
+            ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('★', starX, starY + 0.5);
+            ctx.restore();
+        }
 
         ctx.restore();
     }
@@ -5980,6 +6028,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const progCheckEl = document.getElementById('defectProgressCheck');
         const leakCheckEl = document.getElementById('defectLeakCheck');
         const carriedOverEl = document.getElementById('defectCarriedOver');
+        const bookmarkEl = document.getElementById('defectBookmark');
 
         if (existingPin) {
             if (pinIdEl) pinIdEl.value = existingPin.id;
@@ -5999,6 +6048,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (crackLengthElExisting) crackLengthElExisting.value = (existingPin.crackLength !== undefined && existingPin.crackLength !== null) ? existingPin.crackLength : '';
             if (progCheckEl) progCheckEl.checked = !!existingPin.isProgress;
             if (leakCheckEl) leakCheckEl.checked = !!existingPin.isLeak;
+            if (bookmarkEl) bookmarkEl.checked = !!existingPin.isBookmark;
 
             window._pendingPhotos = existingPin.photos || [];
             if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
@@ -6032,6 +6082,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (crackLengthElNew) crackLengthElNew.value = (tmpl && tmpl.crackLength) || '';
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
+            if (bookmarkEl) bookmarkEl.checked = false;
             window._pendingPhotos = [];
 
             if (areaRect) {
@@ -6352,6 +6403,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
+        const isBookmark = document.getElementById('defectBookmark')?.checked || false;
         const photosVal = window._pendingPhotos || [];
         const dTypeVal = document.getElementById('defectType')?.value || '균열';
         const isCrackType = dTypeVal === '균열';
@@ -6376,6 +6428,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].isProgress = isProgress;
                 state.defects[key][idx].isLeak = isLeak;
                 state.defects[key][idx].isCarriedOver = isCarriedOver;
+                state.defects[key][idx].isBookmark = isBookmark;
                 invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
@@ -6399,6 +6452,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isProgress: isProgress,
                 isLeak: isLeak,
                 isCarriedOver: isCarriedOver,
+                isBookmark: isBookmark,
                 surveyRound: getCurrentSurveyRoundKey(),
                 photos: photosVal,
                 inspectorName: window.state.userName || '',
