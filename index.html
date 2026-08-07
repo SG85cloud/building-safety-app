@@ -28,8 +28,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <!-- 외부(엑셀) 결함표 가져오기 파싱용 SheetJS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- CAD(DXF) 결함 위치 좌표 추출용 -->
-    <script src="https://cdn.jsdelivr.net/npm/dxf-parser@1.1.2/dist/dxf-parser.js"></script>
 </head>
 <body class="theme-light">
 
@@ -308,8 +306,6 @@
                     <button id="btnImportDefectExcel" class="btn btn-outline btn-sm" style="border-color:#0284c7; color:#0284c7;"><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</button>
                     <button id="btnDownloadImportTemplate" class="btn btn-outline btn-sm" style="border-color:#64748b; color:#64748b;"><i class="fa-solid fa-file-arrow-down"></i> 📄 가져오기 양식 다운로드</button>
                     <input type="file" id="inputImportDefectExcel" accept=".xlsx,.xls,.csv" style="display:none;">
-                    <button id="btnOpenDxfImport" class="btn btn-outline btn-sm" style="border-color:#a855f7; color:#a855f7;"><i class="fa-solid fa-drafting-compass"></i> 🧭 CAD(DXF) 결함 위치 좌표 추출 (테스트)</button>
-                    <input type="file" id="inputDxfImport" accept=".dxf" style="display:none;">
                 </div>
             </div>
 
@@ -900,60 +896,6 @@
             <div class="modal-footer" style="justify-content: space-between;">
                 <button type="button" id="btnCancelImportDefectExcel" class="btn btn-outline">취소</button>
                 <button type="button" id="btnConfirmImportDefectExcel" class="btn btn-primary"><i class="fa-solid fa-check"></i> 가져오기 실행</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- MODAL: CAD(DXF) 결함 위치 좌표 추출 미리보기 (1단계 테스트 - 아직 도면에 자동 배치는 안 함) -->
-    <div class="modal-overlay" id="dxfImportModal">
-        <div class="modal-card" style="max-width: 760px; width: 94%;">
-            <div class="modal-header">
-                <h3><i class="fa-solid fa-drafting-compass"></i> 🧭 CAD(DXF) 결함 위치 좌표 추출 (테스트)</h3>
-                <button type="button" class="modal-close" id="btnCloseDxfImportModal">&times;</button>
-            </div>
-            <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
-                <div style="background: rgba(168,85,247,0.08); border: 1px solid rgba(168,85,247,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.82rem; line-height: 1.5; margin-bottom: 0.9rem;">
-                    <span id="dxfImportSummary">DXF 파일을 아직 불러오지 않았습니다.</span><br>
-                    이 화면은 <b>좌표가 잘 뽑히는지 확인하는 테스트 단계</b>입니다. 아직 도면에 핀을 자동으로 찍지는 않아요.
-                    결함 원이 그려진 레이어를 골라서 좌표가 정확히 나오는지 먼저 확인해주세요.
-                </div>
-                <div class="style-color-section-title">레이어 선택 (결함 원이 그려진 레이어를 체크하세요)</div>
-                <div id="dxfLayerListBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem; max-height:180px; overflow-y:auto; border:1px solid var(--border-color); border-radius:8px; padding:0.5rem;">
-                    <div style="font-size:0.8rem; color:var(--text-muted);">DXF 파일을 먼저 불러와주세요.</div>
-                </div>
-                <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.78rem; color:var(--text-muted); margin-bottom:0.7rem; cursor:pointer;">
-                    <input type="checkbox" id="dxfSearchAllLayersForText">
-                    결함번호 텍스트/인출선을 다른 레이어에서도 찾기 (기본: 위에서 체크한 레이어 안에서만 찾음)
-                </label>
-                <div style="display:flex; justify-content:flex-end; margin-bottom:0.9rem;">
-                    <button type="button" id="btnExtractDxfCircles" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-magnifying-glass"></i> 선택한 레이어에서 좌표 추출</button>
-                </div>
-                <div class="style-color-section-title">추출 결과 미리보기</div>
-                <div style="overflow-x:auto; border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.9rem;">
-                    <table id="dxfExtractPreviewTable" style="width:100%; border-collapse:collapse; font-size:0.78rem; white-space:nowrap;"></table>
-                </div>
-
-                <div class="style-color-section-title">캘리브레이션 (CAD 좌표 ↔ 도면 사진 위치 맞추기) — 기준점 2개 필요</div>
-                <div style="font-size:0.78rem; color:var(--text-muted); line-height:1.5; margin-bottom:0.5rem;">
-                    지금 <b>[도면점검] 탭</b>에 이 결함이 그려진 층 도면 사진이 열려있어야 합니다. CAD에서 위치를 확실히 아는 점 2곳을 골라 그 좌표를 입력하고,
-                    "도면에서 클릭 지정"을 누른 뒤 실제 도면 사진에서 같은 지점을 클릭해주세요.
-                </div>
-                <div id="dxfCalibRows" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:0.7rem;"></div>
-                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.9rem;">
-                    <button type="button" id="btnDxfCalibPreview" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-crosshairs"></i> 🎯 변환 미리보기 (도면 위에 점 찍어보기)</button>
-                    <button type="button" id="btnDxfCalibClear" class="btn btn-sm btn-outline" style="border-color:#64748b; color:#64748b;">초기화</button>
-                </div>
-
-                <div class="style-color-section-title">결함 핀 생성</div>
-                <div style="background: rgba(22,163,74,0.08); border: 1px solid rgba(22,163,74,0.3); border-radius: 8px; padding: 0.7rem 0.9rem; font-size: 0.8rem; line-height: 1.5; margin-bottom: 0.7rem;">
-                    위 미리보기 점이 실제 결함 위치와 맞는 것을 확인하셨으면 아래 버튼으로 <b>진짜 결함 핀</b>을 만듭니다.
-                    결함번호는 CAD의 번호 텍스트를 그대로 쓰고, 부재명칭·결함종류·원인 등 세부 내용은 자동으로 채워지지 않으므로
-                    생성 후 각 핀을 클릭해 직접 입력해주세요. (되돌리기 버튼으로 취소 가능합니다)
-                </div>
-                <button type="button" id="btnCreateDxfDefectPins" class="btn btn-sm" style="background:#16a34a; color:#fff; border:none;"><i class="fa-solid fa-map-pin"></i> ✅ 이 위치에 결함 핀 생성</button>
-            </div>
-            <div class="modal-footer" style="justify-content: flex-end;">
-                <button type="button" id="btnCloseDxfImportModal2" class="btn btn-outline">닫기</button>
             </div>
         </div>
     </div>
@@ -1614,7 +1556,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260807_1130"></script>
+    <script src="app.js?v=20260807_1300"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
