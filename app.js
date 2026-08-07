@@ -4399,7 +4399,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 손상 유형 필터링이 적용된 현재 층 결함 목록 반환
     function getCurrentFloorFilteredDefects() {
-        const list = getCurrentFloorDefects();
+        let list = getCurrentFloorDefects();
+        if (window.state.bookmarkOnlyFilter) {
+            list = list.filter(d => !!d.isBookmark);
+        }
         const filter = window.state.damageTypeFilter || 'ALL';
         if (filter === 'ALL') return list;
         return list.filter(d => {
@@ -8396,6 +8399,16 @@ document.addEventListener('DOMContentLoaded', () => {
         filterDamageTypeSel.addEventListener('change', (e) => {
             window.state.damageTypeFilter = e.target.value;
             if (typeof drawCanvas === 'function') drawCanvas();
+        });
+    }
+
+    // --- 2-1. ⭐ 중요 결함만 보기 필터 ---
+    const filterOnlyBookmarkEl = document.getElementById('filterOnlyBookmark');
+    if (filterOnlyBookmarkEl) {
+        filterOnlyBookmarkEl.addEventListener('change', (e) => {
+            window.state.bookmarkOnlyFilter = e.target.checked;
+            if (typeof drawCanvas === 'function') drawCanvas();
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
         });
     }
 
