@@ -36,6 +36,76 @@ if (!window.state) {
 }
 window.appState = window.state;
 
+// --- 1B. LOCAL IMAGE STORE (IndexedDB) ---
+// localStorage는 브라우저당 보통 5~10MB로 용량이 작아서, 도면 사진·결함 사진(base64)을
+// 계속 쌓다 보면 압축을 해도 금방 꽉 찬다 ("저장 공간이 가득 찼습니다" 에러의 원인).
+// IndexedDB는 보통 수백MB~수GB까지 쓸 수 있으므로, 무거운 이미지 데이터는 여기로 옮기고
+// localStorage에는 가벼운 텍스트 데이터만 남긴다.
+const LOCAL_IMAGE_DB_NAME = 'building_safety_local_images';
+const LOCAL_IMAGE_DB_VERSION = 1;
+let _localImageDbPromise = null;
+
+function openLocalImageDb() {
+    if (_localImageDbPromise) return _localImageDbPromise;
+    _localImageDbPromise = new Promise((resolve, reject) => {
+        if (!window.indexedDB) { reject(new Error('이 브라우저는 IndexedDB를 지원하지 않습니다.')); return; }
+        const req = indexedDB.open(LOCAL_IMAGE_DB_NAME, LOCAL_IMAGE_DB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('floorDrawings')) db.createObjectStore('floorDrawings');
+            if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+    return _localImageDbPromise;
+}
+
+async function idbSet(storeName, key, value) {
+    try {
+        const db = await openLocalImageDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            tx.objectStore(storeName).put(value, key);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (e) {
+        console.warn(`IndexedDB 저장 실패 (${storeName}/${key}):`, e);
+        return false;
+    }
+}
+
+async function idbGet(storeName, key) {
+    try {
+        const db = await openLocalImageDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readonly');
+            const req = tx.objectStore(storeName).get(key);
+            req.onsuccess = () => resolve(req.result || null);
+            req.onerror = () => reject(req.error);
+        });
+    } catch (e) {
+        console.warn(`IndexedDB 조회 실패 (${storeName}/${key}):`, e);
+        return null;
+    }
+}
+
+async function idbDelete(storeName, key) {
+    try {
+        const db = await openLocalImageDb();
+        return await new Promise((resolve, reject) => {
+            const tx = db.transaction(storeName, 'readwrite');
+            tx.objectStore(storeName).delete(key);
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = () => reject(tx.error);
+        });
+    } catch (e) {
+        console.warn(`IndexedDB 삭제 실패 (${storeName}/${key}):`, e);
+        return false;
+    }
+}
+
 // --- 2. IMAGE COMPRESSION & FLOOR PARSER HELPERS ---
 
 // 사용자/외부 파일에서 온 문자열을 innerHTML에 넣기 전에 이스케이프 (HTML 인젝션 방지)
@@ -441,15 +511,81 @@ document.addEventListener('DOMContentLoaded', () => {
         window.showToast('오프라인 상태입니다. 변경사항은 이 기기에 저장되며, 인터넷 연결 시 자동 동기화됩니다.', 'warning', 5000);
     });
 
-    // --- 4. PERSISTENCE ENGINE (LOCAL STORAGE) ---
+    // --- 4. PERSISTENCE ENGINE (LOCAL STORAGE + INDEXEDDB) ---
     let _localStorageSaveFailedNotified = false;
+
+    // 이미 IndexedDB에 저장해둔 이미지는 매번 다시 쓰지 않도록 키를 기억해둔다
+    // (saveStateToLocalStorage는 아주 자주 호출되므로, 안 그러면 같은 이미지를 계속 다시 쓰게 된다)
+    const _idbPersistedDrawingKeys = new Set();
+    const _idbPersistedPhotoKeys = new Set();
+
+    // 결함 사진은 편집 시 배열 전체가 통째로 교체되는데(같은 인덱스라도 실제 사진이
+    // 바뀔 수 있음), "이미 저장했다"는 기록을 그대로 두면 바뀐 사진이 IndexedDB에
+    // 다시 안 쓰여서 예전 사진이 그대로 남는다. 편집 직전에 이 결함의 기록을 지워서
+    // 새 사진들이 다시 저장되게 한다.
+    function invalidatePersistedPhotoCacheForDefect(defectId) {
+        const prefix = `${defectId}_`;
+        Array.from(_idbPersistedPhotoKeys).forEach(k => {
+            if (k.startsWith(prefix)) _idbPersistedPhotoKeys.delete(k);
+        });
+    }
+
+    // 도면/사진처럼 무거운 base64 이미지는 localStorage가 아니라 IndexedDB에 저장한다.
+    // (localStorage는 5~10MB로 작아서 이미지를 계속 쌓으면 금방 꽉 차지만, IndexedDB는
+    // 훨씬 여유롭다.) 새로 생긴 이미지만 골라서 저장하므로 매 호출마다 부담이 크지 않다.
+    function persistLocalImagesToIndexedDb(buildings, defectsMap) {
+        (buildings || []).forEach(b => {
+            const drawings = b.floorDrawings || {};
+            Object.entries(drawings).forEach(([floorCode, dataUrl]) => {
+                if (!dataUrl) return;
+                const key = `${b.id}_${floorCode}`;
+                if (_idbPersistedDrawingKeys.has(key)) return;
+                _idbPersistedDrawingKeys.add(key);
+                idbSet('floorDrawings', key, dataUrl);
+            });
+        });
+        Object.values(defectsMap || {}).forEach(arr => {
+            (arr || []).forEach(d => {
+                if (!d.photos || d.photos.length === 0) return;
+                d.photos.forEach((url, i) => {
+                    if (!url) return;
+                    const key = getPhotoDocId(d.id, i);
+                    if (_idbPersistedPhotoKeys.has(key)) return;
+                    _idbPersistedPhotoKeys.add(key);
+                    idbSet('photos', key, url);
+                });
+            });
+        });
+    }
+
     function saveStateToLocalStorage() {
         try {
+            const rawBuildings = window.state.buildings || [];
+            const rawDefects = window.state.defects || {};
+
+            // 무거운 이미지(도면/사진)는 IndexedDB로 옮겨서 저장하고,
+            // localStorage에는 가벼운 참조(photoIds)와 텍스트 데이터만 남긴다.
+            persistLocalImagesToIndexedDb(rawBuildings, rawDefects);
+
+            const sanitizedBuildings = rawBuildings.map(b => {
+                const { floorDrawings, ...rest } = b;
+                return rest;
+            });
+            const sanitizedDefects = {};
+            Object.entries(rawDefects).forEach(([key, arr]) => {
+                sanitizedDefects[key] = (arr || []).map(d => {
+                    const { photos, ...rest } = d;
+                    return (photos && photos.length > 0)
+                        ? { ...rest, photoIds: photos.map((_, i) => getPhotoDocId(d.id, i)) }
+                        : rest;
+                });
+            });
+
             const dataToSave = {
-                defects: window.state.defects || {},
+                defects: sanitizedDefects,
                 ndtData: window.state.ndtData || {},
                 ndtDisplacementGroups: window.state.ndtDisplacementGroups || {},
-                buildings: window.state.buildings || [],
+                buildings: sanitizedBuildings,
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 customDefectTypes: window.state.customDefectTypes || {},
                 customDefectCauses: window.state.customDefectCauses || {},
@@ -573,9 +709,57 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const compInput = document.getElementById('inputHomeCompanyName');
             if (compInput && window.state.companyName) compInput.value = window.state.companyName;
+
+            // 도면/사진은 localStorage가 아니라 IndexedDB에서 비동기로 복원한다(위 저장 로직과 짝).
+            // 화면은 먼저 그리고, 이미지는 도착하는 대로 다시 그려서 채워넣는다.
+            hydrateLocalImagesFromIndexedDb();
         } catch (e) {
             console.error('LocalStorage load failed:', e);
             window.state.buildings = getDefaultBuildings();
+        }
+    }
+
+    // saveStateToLocalStorage에서 IndexedDB로 옮겨 저장한 도면/사진을 다시 불러와
+    // state.buildings[].floorDrawings / state.defects[].photos를 채운다.
+    // (구버전 데이터가 이미 photos/floorDrawings를 그대로 갖고 있으면 건드리지 않고 그대로 둔다 —
+    // 다음 저장 때 자연스럽게 IndexedDB로 옮겨진다.)
+    async function hydrateLocalImagesFromIndexedDb() {
+        try {
+            const buildings = window.state.buildings || [];
+            let anyHydrated = false;
+
+            await Promise.all(buildings.map(async (b) => {
+                if (!b.floorDrawings) b.floorDrawings = {};
+                const floors = (b.floorsList || []).map(f => f.floorCode);
+                await Promise.all(floors.map(async (floorCode) => {
+                    if (b.floorDrawings[floorCode]) return;
+                    const cached = await idbGet('floorDrawings', `${b.id}_${floorCode}`);
+                    if (cached) {
+                        b.floorDrawings[floorCode] = cached;
+                        anyHydrated = true;
+                    }
+                }));
+            }));
+
+            const defectsMap = window.state.defects || {};
+            await Promise.all(Object.values(defectsMap).map(arr => Promise.all((arr || []).map(async (d) => {
+                if ((d.photos && d.photos.length > 0) || !d.photoIds || d.photoIds.length === 0) return;
+                const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+                const filled = photos.filter(Boolean);
+                if (filled.length > 0) {
+                    d.photos = filled;
+                    anyHydrated = true;
+                }
+            }))));
+
+            if (anyHydrated) {
+                if (typeof drawCanvas === 'function') drawCanvas();
+                if (typeof renderDashboard === 'function' && window.state.currentTab === 'tab-home') renderDashboard();
+                if (typeof renderSurveyTable === 'function') renderSurveyTable();
+                if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+            }
+        } catch (e) {
+            console.warn('IndexedDB 이미지 복원 실패:', e);
         }
     }
 
@@ -1307,6 +1491,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bldg.floorDrawings && bldg.floorDrawings[floorCode]) {
                 delete bldg.floorDrawings[floorCode];
             }
+            // IndexedDB에 저장해둔 예전 도면도 지우고, "이미 저장했다"는 기록도 지워서
+            // 나중에 이 층에 새 도면을 올리면 다시 저장되게 한다(안 지우면 새 도면이 안 덮어써짐).
+            const drawingKey = `${bldg.id}_${floorCode}`;
+            _idbPersistedDrawingKeys.delete(drawingKey);
+            idbDelete('floorDrawings', drawingKey);
             if (bldg.floorsList) {
                 bldg.floorsList = bldg.floorsList.filter(f => f.floorCode !== floorCode);
             }
@@ -1414,6 +1603,9 @@ document.addEventListener('DOMContentLoaded', () => {
                             try {
                                 const compressedDataUrl = await window.compressDrawingImage(item.file);
                                 if (compressedDataUrl) {
+                                    // 같은 층 도면을 재업로드(교체)하는 경우, "이미 저장했다"는 기록을
+                                    // 지워야 바뀐 새 도면이 IndexedDB에도 다시 저장된다.
+                                    _idbPersistedDrawingKeys.delete(`${bldg.id}_${item.floorCode}`);
                                     bldg.floorDrawings[item.floorCode] = compressedDataUrl;
                                     await uploadFloorDrawing(bldg.id, item.floorCode, compressedDataUrl);
                                 }
@@ -1616,25 +1808,38 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const hasFloorRegistered = bldg && bldg.floorsList && bldg.floorsList.some(f => f.floorCode === floorCode);
 
-        if (!dataUrl && hasFloorRegistered && db && window.state.companyId) {
-            // 로컬 캐시엔 없지만 이 건물에 등록된 층 도면 -> Firestore에서 1회 조회 후 캐싱
-            db.collection('safety_app').doc(getCompanyDocId())
-                .collection('floorDrawings').doc(`${bldg.id}_${floorCode}`).get()
-                .then(doc => {
-                    const fetchedUrl = doc.exists ? doc.data().dataUrl : null;
-                    if (fetchedUrl) {
-                        if (!bldg.floorDrawings) bldg.floorDrawings = {};
-                        bldg.floorDrawings[floorCode] = fetchedUrl;
-                    }
-                    if (state.currentFloor === floorCode) {
-                        tryLoadImage(fetchedUrl || getDefaultBlueprintSvgDataUrl(floorCode || '1F'), !fetchedUrl);
-                    }
-                })
-                .catch(() => {
-                    if (state.currentFloor === floorCode) {
-                        tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
-                    }
-                });
+        if (!dataUrl && hasFloorRegistered) {
+            // 로컬 캐시(메모리)엔 없지만 이 건물에 등록된 층 도면 -> 먼저 IndexedDB에서
+            // 찾아보고(이 기기에 저장해둔 도면), 거기에도 없으면(다른 기기 등) Firestore에서 조회한다.
+            idbGet('floorDrawings', `${bldg.id}_${floorCode}`).then(cachedUrl => {
+                if (cachedUrl) {
+                    if (!bldg.floorDrawings) bldg.floorDrawings = {};
+                    bldg.floorDrawings[floorCode] = cachedUrl;
+                    if (state.currentFloor === floorCode) tryLoadImage(cachedUrl, false);
+                    return;
+                }
+                if (db && window.state.companyId) {
+                    db.collection('safety_app').doc(getCompanyDocId())
+                        .collection('floorDrawings').doc(`${bldg.id}_${floorCode}`).get()
+                        .then(doc => {
+                            const fetchedUrl = doc.exists ? doc.data().dataUrl : null;
+                            if (fetchedUrl) {
+                                if (!bldg.floorDrawings) bldg.floorDrawings = {};
+                                bldg.floorDrawings[floorCode] = fetchedUrl;
+                            }
+                            if (state.currentFloor === floorCode) {
+                                tryLoadImage(fetchedUrl || getDefaultBlueprintSvgDataUrl(floorCode || '1F'), !fetchedUrl);
+                            }
+                        })
+                        .catch(() => {
+                            if (state.currentFloor === floorCode) {
+                                tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
+                            }
+                        });
+                } else if (state.currentFloor === floorCode) {
+                    tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
+                }
+            });
         } else if (!dataUrl || (isLocalFileUrl && window.location.protocol !== 'file:')) {
             // Mobile browser or web server accessing local file:/// path -> use high-res CAD SVG immediately
             tryLoadImage(getDefaultBlueprintSvgDataUrl(floorCode || '1F'), true);
@@ -6171,6 +6376,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].isProgress = isProgress;
                 state.defects[key][idx].isLeak = isLeak;
                 state.defects[key][idx].isCarriedOver = isCarriedOver;
+                invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
                     state.defects[key][idx].inspectorName = window.state.userName || '';
@@ -9149,34 +9355,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 반환값: 삭제 실패 건수. 실패해도 예외를 던지지 않지만, 호출부에서 사용자에게 알릴 수 있도록 건수를 반환한다.
     async function deletePhotosForDefect(defectId, count) {
-        if (!db || !window.state.companyId || !count) return 0;
-        const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
+        if (!count) return 0;
+        const companyPhotos = (db && window.state.companyId)
+            ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
+            : null;
         let failCount = 0;
         const jobs = [];
         for (let i = 0; i < count; i++) {
             const photoDocId = getPhotoDocId(defectId, i);
-            jobs.push(companyPhotos.doc(photoDocId).delete().catch(e => {
-                failCount++;
-                console.warn(`사진 삭제 실패 (${photoDocId}):`, e);
-            }));
+            _idbPersistedPhotoKeys.delete(photoDocId);
+            jobs.push(idbDelete('photos', photoDocId));
+            if (companyPhotos) {
+                jobs.push(companyPhotos.doc(photoDocId).delete().catch(e => {
+                    failCount++;
+                    console.warn(`사진 삭제 실패 (${photoDocId}):`, e);
+                }));
+            }
         }
         await Promise.all(jobs);
         return failCount;
     }
 
     async function deleteFloorDrawingsForBuilding(bldg) {
-        if (!db || !window.state.companyId || !bldg) return 0;
+        if (!bldg) return 0;
         const floors = (bldg.floorsList && bldg.floorsList.length > 0)
             ? bldg.floorsList.map(f => f.floorCode)
             : Object.keys(bldg.floorDrawings || {});
-        const companyDrawings = db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings');
+        const companyDrawings = (db && window.state.companyId)
+            ? db.collection('safety_app').doc(getCompanyDocId()).collection('floorDrawings')
+            : null;
         let failCount = 0;
         await Promise.all(floors.map(fc => {
             const drawingDocId = `${bldg.id}_${fc}`;
-            return companyDrawings.doc(drawingDocId).delete().catch(e => {
-                failCount++;
-                console.warn(`도면 삭제 실패 (${drawingDocId}):`, e);
-            });
+            _idbPersistedDrawingKeys.delete(drawingDocId);
+            const jobs = [idbDelete('floorDrawings', drawingDocId)];
+            if (companyDrawings) {
+                jobs.push(companyDrawings.doc(drawingDocId).delete().catch(e => {
+                    failCount++;
+                    console.warn(`도면 삭제 실패 (${drawingDocId}):`, e);
+                }));
+            }
+            return Promise.all(jobs);
         }));
         return failCount;
     }
