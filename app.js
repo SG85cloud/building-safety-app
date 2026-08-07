@@ -3720,6 +3720,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // R값 목록(최대 20개) → ±20% 이상 벗어난 값 제외(KS F 2732 관례) → 재평균 → 각도보정(Ro) →
     // 3개 추정식 결과까지 한 번에 계산한다.
+    // 강도비(αc, %) → 등급표. a/b는 둘 다 100% 이상이고 손상 유무로만 갈리는데(육안 확인
+    // 필요, 수치만으로는 자동 판정 불가), 그 아래(c/d/e)는 강도비 구간으로 자동 판정 가능하다.
+    function getStrengthGrade(ratioPercent) {
+        if (ratioPercent >= 100) return { label: 'a 또는 b (100% 이상 — 손상 유무 육안 확인 필요)', code: 'a_or_b' };
+        if (ratioPercent >= 85) return { label: 'c', code: 'c' };
+        if (ratioPercent >= 70) return { label: 'd', code: 'd' };
+        return { label: 'e', code: 'e' };
+    }
+
     function calcConcreteStrength(readings, angleDeg, ageDays) {
         const nums = (readings || []).map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
         if (nums.length === 0) return null;
@@ -3766,6 +3775,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const stdGrp = document.getElementById('groupNdtStandardFields');
         const tiltGrp = document.getElementById('groupNdtTiltFields');
         const strengthGrp = document.getElementById('groupNdtStrengthFields');
+        const carbGrp = document.getElementById('groupNdtCarbonationFields');
         const genericValuesGrp = document.getElementById('groupNdtGenericValues');
         const statusGrp = document.getElementById('groupNdtStatus');
         const valTitle = document.getElementById('lblNdtValueTitle');
@@ -3778,10 +3788,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const v2El = document.getElementById('ndtVal2');
         const v3El = document.getElementById('ndtVal3');
 
-        // 콘크리트 강도(반발경도)는 전용 UI(R값 스캔/목록 + 각도 + 추정식 3개)를 쓰고,
-        // 나머지 항목(실측/탄산화/기울기/부재변위)은 기존 1~3회 입력 UI를 그대로 쓴다.
+        // 콘크리트 강도(반발경도)/탄산화는 각자 전용 UI를 쓰고,
+        // 나머지 항목(실측/기울기/부재변위)은 기존 1~3회 입력 UI를 그대로 쓴다.
         if (strengthGrp) strengthGrp.style.display = (cat === '강도') ? 'flex' : 'none';
-        if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도') ? 'none' : 'block';
+        if (carbGrp) carbGrp.style.display = (cat === '탄산화') ? 'flex' : 'none';
+        if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화') ? 'none' : 'block';
 
         if (cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
@@ -3941,7 +3952,87 @@ document.addEventListener('DOMContentLoaded', () => {
             </tr>
         `;
 
+        const designStrengthEl = document.getElementById('ndtDesignStrength');
+        const designStrength = designStrengthEl ? parseFloat(designStrengthEl.value) : NaN;
+        if (!isNaN(designStrength) && designStrength > 0) {
+            const ratio = (calc.finalStrength / designStrength) * 100;
+            const grade = getStrengthGrade(ratio);
+            resultsEl.innerHTML += `
+                <tr>
+                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
+                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${ratio.toFixed(0)}%</td>
+                </tr>
+                <tr>
+                    <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">등급</td>
+                    <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800;">${grade.label}</td>
+                </tr>
+            `;
+        }
+
         if (avgEl) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
+    }
+
+    // --- 콘크리트 탄산화(중성화) 계산 엔진 ---
+    // 회사 자료(비파괴.pdf)의 공식을 그대로 반영:
+    // 탄산화속도계수(A) = 탄산화깊이 / √재령(년)
+    // 수명예측(년) = (피복두께 / A)^2
+    // 잔존수명예측(년) = 수명예측(년) - 준공후 경과년수
+    function calcCarbonation(depthMm, coverMm, ageYears) {
+        if (isNaN(depthMm) || isNaN(coverMm) || depthMm <= 0 || coverMm <= 0) return null;
+        const remainMm = coverMm - depthMm;
+        if (!ageYears || ageYears <= 0) {
+            return { remainMm, rate: null, lifeYears: null, remainingLifeYears: null };
+        }
+        const rate = depthMm / Math.sqrt(ageYears);
+        const lifeYears = Math.pow(coverMm / rate, 2);
+        const remainingLifeYears = lifeYears - ageYears;
+        return { remainMm, rate, lifeYears, remainingLifeYears };
+    }
+
+    function recalcNdtCarbonation() {
+        const resultsEl = document.getElementById('ndtCarbResults');
+        if (!resultsEl) return;
+        const depth = parseFloat(document.getElementById('ndtCarbDepth')?.value);
+        const cover = parseFloat(document.getElementById('ndtCarbCover')?.value);
+        const ageDays = getConcreteAgeInDays();
+        const ageYears = ageDays !== null ? ageDays / 365 : null;
+        const calc = calcCarbonation(depth, cover, ageYears);
+
+        if (!calc) {
+            resultsEl.innerHTML = '<tr><td style="padding:0.4rem; color:var(--text-muted);">탄산화 깊이와 피복두께를 입력하면 자동으로 계산됩니다.</td></tr>';
+            const avgElCarb = document.getElementById('ndtAvgValue');
+            if (avgElCarb) avgElCarb.value = '';
+            return;
+        }
+
+        const row = (label, value) => `
+            <tr>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${label}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800;">${value}</td>
+            </tr>
+        `;
+
+        let html = row('잔여깊이 (mm)', calc.remainMm.toFixed(2));
+        if (calc.rate !== null) {
+            html += row('탄산화속도계수 (A)', calc.rate.toFixed(2));
+            html += row('수명예측 (년)', Math.round(calc.lifeYears));
+            html += `
+                <tr>
+                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">잔존수명 예측 (년)</td>
+                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800; color:#16a34a; font-size:0.95rem;">${Math.round(calc.remainingLifeYears)}</td>
+                </tr>
+            `;
+        } else {
+            html += `<tr><td colspan="2" style="padding:0.4rem; color:var(--text-muted);">건축물 개요에 준공일을 입력하면 수명예측/잔존수명이 계산됩니다.</td></tr>`;
+        }
+        resultsEl.innerHTML = html;
+
+        const avgElCarb = document.getElementById('ndtAvgValue');
+        if (avgElCarb) {
+            avgElCarb.value = calc.remainingLifeYears !== null
+                ? `잔존수명 ${Math.round(calc.remainingLifeYears)}년 (깊이${depth}mm/피복${cover}mm)`
+                : `깊이${depth}mm/피복${cover}mm (잔여${calc.remainMm.toFixed(1)}mm)`;
+        }
     }
 
     async function scanRValuesFromImage(file) {
@@ -4005,6 +4096,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ndtRValues = Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [];
             const angleElExisting = document.getElementById('ndtAngle');
             if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '0';
+            const designStrengthElExisting = document.getElementById('ndtDesignStrength');
+            if (designStrengthElExisting) designStrengthElExisting.value = (existingItem.designStrength !== undefined && existingItem.designStrength !== null) ? existingItem.designStrength : '';
+            const carbDepthElExisting = document.getElementById('ndtCarbDepth');
+            if (carbDepthElExisting) carbDepthElExisting.value = (existingItem.carbDepth !== undefined && existingItem.carbDepth !== null) ? existingItem.carbDepth : '';
+            const carbCoverElExisting = document.getElementById('ndtCarbCover');
+            if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '40';
             const rScanStatusExisting = document.getElementById('rScanStatus');
             if (rScanStatusExisting) rScanStatusExisting.textContent = '';
 
@@ -4036,6 +4133,12 @@ document.addEventListener('DOMContentLoaded', () => {
             ndtRValues = [];
             const angleElNew = document.getElementById('ndtAngle');
             if (angleElNew) angleElNew.value = '0';
+            const designStrengthElNew = document.getElementById('ndtDesignStrength');
+            if (designStrengthElNew) designStrengthElNew.value = '';
+            const carbDepthElNew = document.getElementById('ndtCarbDepth');
+            if (carbDepthElNew) carbDepthElNew.value = '';
+            const carbCoverElNew = document.getElementById('ndtCarbCover');
+            if (carbCoverElNew) carbCoverElNew.value = '40';
             const rScanStatusNew = document.getElementById('rScanStatus');
             if (rScanStatusNew) rScanStatusNew.textContent = '';
 
@@ -4050,6 +4153,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.toggleNdtModalFields();
         renderNdtRValuesList();
         recalcNdtStrength();
+        recalcNdtCarbonation();
         modal.style.display = 'flex';
         modal.classList.add('open');
     }
@@ -4138,6 +4242,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.toggleNdtModalFields();
                 calcNdtAvg();
                 recalcNdtStrength();
+                recalcNdtCarbonation();
             });
         }
 
@@ -4151,6 +4256,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const ndtAngleEl = document.getElementById('ndtAngle');
         if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcNdtStrength);
+
+        const ndtDesignStrengthEl = document.getElementById('ndtDesignStrength');
+        if (ndtDesignStrengthEl) ndtDesignStrengthEl.addEventListener('input', recalcNdtStrength);
+
+        const ndtCarbDepthEl = document.getElementById('ndtCarbDepth');
+        const ndtCarbCoverEl = document.getElementById('ndtCarbCover');
+        [ndtCarbDepthEl, ndtCarbCoverEl].forEach(el => {
+            if (el) el.addEventListener('input', recalcNdtCarbonation);
+        });
 
         const btnScanRValues = document.getElementById('btnScanRValues');
         const inputScanRValues = document.getElementById('inputScanRValues');
@@ -4211,6 +4325,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 const strengthAngle = document.getElementById('ndtAngle')?.value;
                 const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
                 const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle), strengthAgeDays) : null;
+                const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
+                const strengthRatio = (strengthCalc && !isNaN(designStrengthVal) && designStrengthVal > 0)
+                    ? (strengthCalc.finalStrength / designStrengthVal) * 100 : null;
+                const strengthGradeObj = strengthRatio !== null ? getStrengthGrade(strengthRatio) : null;
+
+                const carbDepthVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbDepth')?.value) : NaN;
+                const carbCoverVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbCover')?.value) : NaN;
+                const carbAgeDays = (cat === '탄산화') ? getConcreteAgeInDays() : null;
+                const carbCalc = (cat === '탄산화') ? calcCarbonation(carbDepthVal, carbCoverVal, carbAgeDays !== null ? carbAgeDays / 365 : null) : null;
+
                 const valsArr = (cat === '강도')
                     ? ndtRValues.filter(v => v !== '' && v !== null && v !== undefined)
                     : [v1, v2, v3].filter(x => x.trim() !== '');
@@ -4223,8 +4347,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     strengthAgeDays: strengthCalc ? strengthCalc.ageDays : null,
                     strengthAlpha: strengthCalc ? strengthCalc.alpha : null,
                     strengthFormulaAvg: strengthCalc ? strengthCalc.formulaAvg : null,
-                    strengthFinal: strengthCalc ? strengthCalc.finalStrength : null
-                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null };
+                    strengthFinal: strengthCalc ? strengthCalc.finalStrength : null,
+                    designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
+                    strengthRatio: strengthRatio,
+                    strengthGrade: strengthGradeObj ? strengthGradeObj.code : null
+                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
+
+                const carbExtra = (cat === '탄산화') ? {
+                    carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
+                    carbCover: !isNaN(carbCoverVal) ? carbCoverVal : null,
+                    carbAgeDays: carbAgeDays,
+                    carbRemainMm: carbCalc ? carbCalc.remainMm : null,
+                    carbRate: carbCalc ? carbCalc.rate : null,
+                    carbLifeYears: carbCalc ? carbCalc.lifeYears : null,
+                    carbRemainingLifeYears: carbCalc ? carbCalc.remainingLifeYears : null
+                } : { carbDepth: null, carbCover: null, carbAgeDays: null, carbRemainMm: null, carbRate: null, carbLifeYears: null, carbRemainingLifeYears: null };
 
                 if (pinId) {
                     const idx = state.ndtData[key].findIndex(x => x.id === pinId);
@@ -4248,6 +4385,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             tiltRatio,
                             grade,
                             ...strengthExtra,
+                            ...carbExtra,
                             inspectorName: state.ndtData[key][idx].inspectorName || window.state.userName || ''
                         };
                     }
@@ -4271,6 +4409,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         tiltRatio,
                         grade,
                         ...strengthExtra,
+                        ...carbExtra,
                         inspectorName: window.state.userName || '',
                         x: extra.targetX,
                         y: extra.targetY
