@@ -9067,6 +9067,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return best ? { text: best.text, dist: bestDist } : null;
     }
 
+    // 원(결함 위치)에 붙어있는 인출선(LINE/LWPOLYLINE/POLYLINE)을 찾아, 그 선을 따라간
+    // 반대쪽 끝점에서 가장 가까운 텍스트를 결함번호 후보로 찾는다.
+    // 리더선의 어느 쪽 끝도 원에 붙어있지 않으면 null을 반환해 호출부에서 기존 최단거리 방식으로 폴백하게 한다.
+    function nearestDxfTextViaLeader(cx, cy, radius, connectors, texts) {
+        const tolerance = Math.max((radius || 0) * 3, 5);
+        let best = null;
+        connectors.forEach(line => {
+            const start = line.start, end = line.end;
+            if (!start || !end) return;
+            const distToStart = Math.hypot(start.x - cx, start.y - cy);
+            const distToEnd = Math.hypot(end.x - cx, end.y - cy);
+            const attachedIsStart = distToStart <= distToEnd;
+            const attachedDist = attachedIsStart ? distToStart : distToEnd;
+            if (attachedDist > tolerance) return; // 이 선은 원에 붙어있지 않음
+            const farEnd = attachedIsStart ? end : start;
+            const candidate = nearestDxfTextForPoint(farEnd.x, farEnd.y, texts);
+            if (candidate && (!best || candidate.dist < best.dist)) best = candidate;
+        });
+        return best;
+    }
+
     function renderDxfExtractPreview(rows) {
         const table = document.getElementById('dxfExtractPreviewTable');
         if (!table) return;
@@ -9080,7 +9101,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">X</th>
                 <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">Y</th>
                 <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">반지름</th>
-                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">가까운 텍스트(결함번호 후보)</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">결함번호 후보</th>
+                <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">매칭방식</th>
                 <th style="border:1px solid var(--border-color); background:var(--bg-primary); padding:0.35rem 0.5rem; text-align:left;">텍스트까지 거리</th>
             </tr></thead>
             <tbody>${rows.map(r => `
@@ -9090,6 +9112,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.y.toFixed(2)}</td>
                     <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.radius !== undefined && r.radius !== null ? r.radius.toFixed(2) : '-'}</td>
                     <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.label ? escapeHtml(r.label) : '<span style="color:var(--text-muted);">(없음)</span>'}</td>
+                    <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.label ? (r.viaLine ? '<span style="color:#16a34a;">🧵 인출선</span>' : '<span style="color:var(--text-muted);">최단거리</span>') : '-'}</td>
                     <td style="border:1px solid var(--border-color); padding:0.35rem 0.5rem;">${r.labelDist !== null ? r.labelDist.toFixed(2) : '-'}</td>
                 </tr>
             `).join('')}</tbody>
@@ -9115,27 +9138,38 @@ document.addEventListener('DOMContentLoaded', () => {
                 const p = en.startPoint || en.position || en.insertionPoint || {};
                 return { x: p.x || 0, y: p.y || 0, text: (en.text || '').toString() };
             });
+        // 결함번호 인출선 후보: 원과 텍스트를 잇는 선(LINE/LWPOLYLINE/POLYLINE).
+        // 레이어를 가리지 않고 전체 도형에서 찾는다 (인출선이 결함 원과 다른 레이어에 있는 경우가 흔하므로).
+        const connectors = (dxf.entities || [])
+            .filter(en => (en.type === 'LINE' || en.type === 'LWPOLYLINE' || en.type === 'POLYLINE') && en.vertices && en.vertices.length >= 2)
+            .map(en => ({ start: en.vertices[0], end: en.vertices[en.vertices.length - 1] }));
 
         const rows = circles.map(c => {
             const cx = c.center ? c.center.x : 0;
             const cy = c.center ? c.center.y : 0;
-            const nearest = nearestDxfTextForPoint(cx, cy, texts);
+            // 원에 붙어있는 인출선을 따라간 끝점 근처의 텍스트를 우선 사용하고,
+            // 붙어있는 인출선이 없으면 기존처럼 원에서 가장 가까운 텍스트로 폴백한다.
+            let nearest = nearestDxfTextViaLeader(cx, cy, c.radius, connectors, texts);
+            let viaLine = !!nearest;
+            if (!nearest) nearest = nearestDxfTextForPoint(cx, cy, texts);
             return {
                 layer: c.layer,
                 x: cx,
                 y: cy,
                 radius: c.radius,
                 label: nearest ? nearest.text : '',
-                labelDist: nearest ? nearest.dist : null
+                labelDist: nearest ? nearest.dist : null,
+                viaLine
             };
         });
 
         window._dxfLastExtractedRows = rows;
         renderDxfExtractPreview(rows);
+        const viaLineCount = rows.filter(r => r.viaLine).length;
         window.showToast(
-            `🧭 선택한 레이어 ${checked.length}개에서 원(결함 위치 후보) ${rows.length}개를 찾았습니다.`,
+            `🧭 선택한 레이어 ${checked.length}개에서 원(결함 위치 후보) ${rows.length}개를 찾았습니다. (인출선 매칭 ${viaLineCount}개, 최단거리 폴백 ${rows.length - viaLineCount}개)`,
             rows.length ? 'success' : 'warning',
-            5000
+            6000
         );
     };
 
