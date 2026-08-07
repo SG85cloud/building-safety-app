@@ -7277,7 +7277,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 let sectionNo = 4;
 
                 // --- 4. 📏 부재 실측 결과표 및 측정 위치도 (강도·탄산화와 별도 도면) ---
-                if (measureNdtItems.length > 0 || (strengthCarbNdtItems.length === 0 && tiltNdtItems.length === 0 && settlementGroups.length === 0 && memberDispGroups.length === 0)) {
+                if (measureNdtItems.length > 0) {
                     const measureDrawingUrl = renderNdtFloorPlanCanvasDataUrl(floorCode, '실측');
                     const curSecNo1 = sectionNo++;
                     reportPagesHtml += `
