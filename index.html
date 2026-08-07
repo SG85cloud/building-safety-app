@@ -921,6 +921,10 @@
                 <div id="dxfLayerListBody" style="display:flex; flex-direction:column; gap:0.4rem; margin-bottom:0.9rem; max-height:180px; overflow-y:auto; border:1px solid var(--border-color); border-radius:8px; padding:0.5rem;">
                     <div style="font-size:0.8rem; color:var(--text-muted);">DXF 파일을 먼저 불러와주세요.</div>
                 </div>
+                <label style="display:flex; align-items:center; gap:0.5rem; font-size:0.78rem; color:var(--text-muted); margin-bottom:0.7rem; cursor:pointer;">
+                    <input type="checkbox" id="dxfSearchAllLayersForText">
+                    결함번호 텍스트/인출선을 다른 레이어에서도 찾기 (기본: 위에서 체크한 레이어 안에서만 찾음)
+                </label>
                 <div style="display:flex; justify-content:flex-end; margin-bottom:0.9rem;">
                     <button type="button" id="btnExtractDxfCircles" class="btn btn-sm" style="background:#a855f7; color:#fff; border:none;"><i class="fa-solid fa-magnifying-glass"></i> 선택한 레이어에서 좌표 추출</button>
                 </div>
@@ -1610,7 +1614,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260807_0900"></script>
+    <script src="app.js?v=20260807_1030"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

@@ -9132,16 +9132,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const circles = (dxf.entities || []).filter(en => en.type === 'CIRCLE' && checked.includes(en.layer));
+
+        // 결함번호 텍스트/인출선은 기본적으로 체크한 레이어 안에서만 찾는다.
+        // (같은 도면 안에 방이름/치수/재료표기 같은 무관한 글자와 선이 훨씬 많으므로,
+        // 무심코 다른 레이어 것을 잡지 않도록 범위를 좁힌다. 결함번호가 별도 레이어에
+        // 있는 도면이면 아래 체크박스로 전체 레이어 검색을 켤 수 있다.)
+        const searchAllLayers = document.getElementById('dxfSearchAllLayersForText')?.checked === true;
+        const layerOk = (layer) => searchAllLayers || checked.includes(layer);
+
         const texts = (dxf.entities || [])
-            .filter(en => (en.type === 'TEXT' || en.type === 'MTEXT') && en.text)
+            .filter(en => (en.type === 'TEXT' || en.type === 'MTEXT') && en.text && layerOk(en.layer))
             .map(en => {
                 const p = en.startPoint || en.position || en.insertionPoint || {};
                 return { x: p.x || 0, y: p.y || 0, text: (en.text || '').toString() };
             });
-        // 결함번호 인출선 후보: 원과 텍스트를 잇는 선(LINE/LWPOLYLINE/POLYLINE).
-        // 레이어를 가리지 않고 전체 도형에서 찾는다 (인출선이 결함 원과 다른 레이어에 있는 경우가 흔하므로).
+        // 결함번호 인출선 후보: 원과 텍스트를 잇는 선(LINE/LWPOLYLINE/POLYLINE)
         const connectors = (dxf.entities || [])
-            .filter(en => (en.type === 'LINE' || en.type === 'LWPOLYLINE' || en.type === 'POLYLINE') && en.vertices && en.vertices.length >= 2)
+            .filter(en => (en.type === 'LINE' || en.type === 'LWPOLYLINE' || en.type === 'POLYLINE') && en.vertices && en.vertices.length >= 2 && layerOk(en.layer))
             .map(en => ({ start: en.vertices[0], end: en.vertices[en.vertices.length - 1] }));
 
         const rows = circles.map(c => {
@@ -9263,6 +9270,11 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         closeDxfImportModal();
+        // DXF 가져오기 버튼은 [상태조사표] 탭에 있어서, 모달만 닫으면 캔버스가 없는
+        // 상태조사표 화면이 그대로 보인다. 도면이 실제로 보이는 [도면점검] 탭으로 전환해야
+        // 사용자가 도면 사진 위를 클릭할 수 있다.
+        window.switchTab('tab-map');
+        drawCanvas();
         window.showToast(`도면 위에서 기준점 ${idx + 1}에 해당하는 지점을 클릭해주세요.`, 'info', 4000);
         window._calibrationCaptureCallback = (imgX, imgY) => {
             if (!window._dxfCalibPoints[idx]) window._dxfCalibPoints[idx] = {};
