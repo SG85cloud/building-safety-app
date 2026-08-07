@@ -39,7 +39,7 @@
 
         <div class="nav-building-tabs" id="navBuildingTabs" style="display: none;">
             <button type="button" class="tab-btn" data-tab="tab-map" onclick="window.switchTab('tab-map')">
-                <i class="fa-solid fa-map-location-dot"></i> 도면점검
+                <i class="fa-solid fa-map-location-dot"></i> 결함위치도 작성
             </button>
             <button type="button" class="tab-btn" data-tab="tab-survey" onclick="window.switchTab('tab-survey')">
                 <i class="fa-solid fa-clipboard-list"></i> 상태조사표
@@ -179,6 +179,12 @@
                                 <button id="btnZoomFit" class="zoom-pill-btn text-btn" title="화면에 맞추기"><i class="fa-solid fa-expand"></i> 맞춤</button>
                             </div>
                         </div>
+                    </div>
+
+                    <!-- 핀/화살표 크기 일괄 조정 (전체 항목 공통 적용, 드래그하면 바로 도면에 반영) -->
+                    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:0.4rem 0.7rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.5rem;">
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">📍 핀(박스) 크기 <input type="range" id="stylePinSizeAll" min="0.5" max="4.4" step="0.1" value="1.0" style="width:110px;"> <span id="stylePinSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">➔ 화살표 크기 <input type="range" id="styleArrowSizeAll" min="0.5" max="5.0" step="0.1" value="1.0" style="width:110px;"> <span id="styleArrowSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
                     </div>
 
                     <!-- Canvas Viewport -->
@@ -1556,7 +1562,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260807_1400"></script>
+    <script src="app.js?v=20260807_1530"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {

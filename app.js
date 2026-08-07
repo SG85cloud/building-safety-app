@@ -5166,6 +5166,47 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        // 항목마다 핀/화살표 크기를 하나씩 맞추기 번거로우므로, 이 슬라이더 하나로
+        // 전체 카테고리(결함+NDT)의 핀/화살표 크기를 한 번에 같은 값으로 맞춘다.
+        const pinAllInput = document.getElementById('stylePinSizeAll');
+        const pinAllLabel = document.getElementById('stylePinSizeAllLabel');
+        if (pinAllInput) {
+            pinAllInput.addEventListener('input', () => {
+                const v = parseFloat(pinAllInput.value);
+                if (pinAllLabel) pinAllLabel.textContent = `${Math.round(v * 100)}%`;
+                if (!state.styleSizes) state.styleSizes = {};
+                STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
+                    state.styleSizes[key].pin = v;
+                    const pinInput = document.getElementById(`stylePinSize${suffix}`);
+                    const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+                    if (pinInput) pinInput.value = v;
+                    if (pinLabel) pinLabel.textContent = `${Math.round(v * 100)}%`;
+                });
+                refreshAllStyleColoredCanvases();
+            });
+            pinAllInput.addEventListener('change', () => saveStateToLocalStorage());
+        }
+        const arrowAllInput = document.getElementById('styleArrowSizeAll');
+        const arrowAllLabel = document.getElementById('styleArrowSizeAllLabel');
+        if (arrowAllInput) {
+            arrowAllInput.addEventListener('input', () => {
+                const v = parseFloat(arrowAllInput.value);
+                if (arrowAllLabel) arrowAllLabel.textContent = `${Math.round(v * 100)}%`;
+                if (!state.styleSizes) state.styleSizes = {};
+                STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
+                    state.styleSizes[key].arrow = v;
+                    const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+                    const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+                    if (arrowInput) arrowInput.value = v;
+                    if (arrowLabel) arrowLabel.textContent = `${Math.round(v * 100)}%`;
+                });
+                refreshAllStyleColoredCanvases();
+            });
+            arrowAllInput.addEventListener('change', () => saveStateToLocalStorage());
+        }
+
         STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
             const shapeInput = document.getElementById(`styleShape${suffix}`);
             const fillInput = document.getElementById(`styleFill${suffix}`);
