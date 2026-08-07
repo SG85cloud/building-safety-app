@@ -3720,7 +3720,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // R값 목록(최대 20개) → ±20% 이상 벗어난 값 제외(KS F 2732 관례) → 재평균 → 각도보정(Ro) →
     // 3개 추정식 결과까지 한 번에 계산한다.
-    function calcConcreteStrength(readings, angleDeg) {
+    function calcConcreteStrength(readings, angleDeg, ageDays) {
         const nums = (readings || []).map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
         if (nums.length === 0) return null;
 
@@ -3740,6 +3740,12 @@ document.addEventListener('DOMContentLoaded', () => {
             value: f.calc(ro)
         }));
 
+        // 최종 강도(FC) = 추정식 결과 평균 × α(재령보정계수). 준공일이 없어 재령을
+        // 못 구하면 α 없이(=1) 평균값을 그대로 최종 강도로 보여준다.
+        const formulaAvg = results.reduce((a, r) => a + r.value, 0) / results.length;
+        const alpha = getAgeCorrectionFactor(ageDays);
+        const finalStrength = formulaAvg * (alpha !== null ? alpha : 1);
+
         return {
             totalCount: nums.length,
             excludedCount,
@@ -3747,7 +3753,11 @@ document.addEventListener('DOMContentLoaded', () => {
             finalAvg,
             correction,
             ro,
-            results
+            results,
+            formulaAvg,
+            ageDays: ageDays !== undefined ? ageDays : null,
+            alpha,
+            finalStrength
         };
     }
 
@@ -3849,19 +3859,49 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNdtRValuesList();
     }
 
-    // 준공일(건축물 개요) ~ 점검일 사이 재령일수를 계산해 참고용으로 표시한다.
-    // 회사 엑셀에서는 이 재령일수로 α(재령보정계수)를 구해 4식·5식에만 곱하는데,
-    // 그 α 산출 곡선/표는 아직 확보하지 못해 지금은 4식·5식 자체가 계산에서 빠져있다.
-    // 그래서 재령일수는 지금은 참고 표시용이고, 최종 강도값 계산에는 아직 반영되지 않는다.
-    function getConcreteAgeInDaysText() {
+    // 준공일(건축물 개요) ~ 점검일 사이 재령일수를 구한다. null이면 계산 불가(준공일 미입력 등).
+    function getConcreteAgeInDays() {
         const bldg = window.state.currentBuilding;
-        if (!bldg || !bldg.completionDate) return '';
+        if (!bldg || !bldg.completionDate) return null;
         const completion = new Date(bldg.completionDate);
         const inspection = bldg.date ? new Date(bldg.date) : new Date();
-        if (isNaN(completion.getTime()) || isNaN(inspection.getTime())) return '';
+        if (isNaN(completion.getTime()) || isNaN(inspection.getTime())) return null;
         const days = Math.round((inspection - completion) / (1000 * 60 * 60 * 24));
-        if (days < 0) return '';
-        return `📅 재령일수: 준공일(${bldg.completionDate}) ~ 점검일(${bldg.date || '오늘'}) = <b>${days}일</b> <span style="color:var(--text-muted);">(현재는 참고 표시만, 4식·5식 α 보정 계산에는 미반영)</span>`;
+        return days >= 0 ? days : null;
+    }
+
+    // 재령일수 → α(재령보정계수) 구간표. 회사 자료 원본은 하루 단위로 값이 있지만,
+    // 값이 바뀌는 지점(day)만 기록해 압축했다 — 예: day=250이면 다음 구간(day=300)
+    // 전까지 α=0.71을 그대로 쓴다. 원본 표는 day 1~3이 공란("-")이었는데(타설 직후라
+    // 이 앱의 실사용 범위 밖), day 4부터의 값만 반영했다. day 3000(=0.63) 이후 값은
+    // 원본 표에 없어서 마지막 값을 그대로 유지한다.
+    const AGE_CORRECTION_BREAKPOINTS = [
+        [4, 1.90], [5, 1.84], [6, 1.78], [7, 1.72], [8, 1.67], [9, 1.61], [10, 1.55],
+        [11, 1.49], [12, 1.45], [13, 1.40], [14, 1.36], [15, 1.32], [16, 1.25], [17, 1.23],
+        [18, 1.22], [19, 1.18], [20, 1.15], [21, 1.12], [22, 1.10], [23, 1.08], [24, 1.06],
+        [25, 1.04], [26, 1.02], [27, 1.01], [28, 1.00], [29, 0.99], [32, 0.98], [34, 0.96],
+        [36, 0.95], [38, 0.94], [40, 0.93], [42, 0.92], [44, 0.91], [46, 0.90], [48, 0.89],
+        [49, 0.88], [50, 0.87], [56, 0.86], [62, 0.85], [68, 0.84], [74, 0.83], [78, 0.82],
+        [84, 0.81], [88, 0.80], [95, 0.79], [100, 0.78], [113, 0.77], [125, 0.76], [138, 0.75],
+        [150, 0.74], [175, 0.73], [200, 0.72], [250, 0.71], [300, 0.70], [351, 0.69], [400, 0.68],
+        [500, 0.67], [750, 0.66], [1000, 0.65], [2000, 0.64], [3000, 0.63]
+    ];
+
+    function getAgeCorrectionFactor(days) {
+        if (days === null || days === undefined || isNaN(days) || days < AGE_CORRECTION_BREAKPOINTS[0][0]) return null;
+        let alpha = AGE_CORRECTION_BREAKPOINTS[0][1];
+        for (const [day, a] of AGE_CORRECTION_BREAKPOINTS) {
+            if (days >= day) alpha = a; else break;
+        }
+        return alpha;
+    }
+
+    function getConcreteAgeInDaysText() {
+        const days = getConcreteAgeInDays();
+        const bldg = window.state.currentBuilding;
+        if (days === null || !bldg) return '';
+        const alpha = getAgeCorrectionFactor(days);
+        return `📅 재령일수: 준공일(${bldg.completionDate}) ~ 점검일(${bldg.date || '오늘'}) = <b>${days}일</b> → α(재령보정계수) = <b>${alpha !== null ? alpha.toFixed(2) : '-'}</b>`;
     }
 
     function recalcNdtStrength() {
@@ -3872,7 +3912,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!summaryEl || !resultsEl) return;
 
         const angle = angleEl ? parseFloat(angleEl.value) : 0;
-        const calc = calcConcreteStrength(ndtRValues, angle);
+        const ageDays = getConcreteAgeInDays();
+        const calc = calcConcreteStrength(ndtRValues, angle, ageDays);
 
         if (!calc) {
             summaryEl.textContent = 'R값을 입력하면 자동으로 계산됩니다.';
@@ -3882,16 +3923,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const ageInfo = getConcreteAgeInDaysText();
-        summaryEl.innerHTML = (ageInfo ? `${ageInfo}<br>` : '') +
+        summaryEl.innerHTML = (ageInfo ? `${ageInfo}<br>` : '준공일을 입력하지 않아 α 없이(=1) 계산됩니다.<br>') +
             `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
         resultsEl.innerHTML = calc.results.map(r => `
             <tr>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${r.name}</td>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:#0284c7;">${r.value.toFixed(1)}</td>
             </tr>
-        `).join('');
+        `).join('') + `
+            <tr>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4);">평균</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${calc.formulaAvg.toFixed(1)}</td>
+            </tr>
+            <tr>
+                <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">최종 강도 (평균 × α${calc.alpha !== null ? '=' + calc.alpha.toFixed(2) : '(미적용)'})</td>
+                <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800; color:#16a34a; font-size:0.95rem;">${calc.finalStrength.toFixed(1)}</td>
+            </tr>
+        `;
 
-        if (avgEl) avgEl.value = `${calc.finalAvg.toFixed(1)} (Ro=${calc.ro.toFixed(1)})`;
+        if (avgEl) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
     }
 
     async function scanRValuesFromImage(file) {
@@ -4159,7 +4209,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // 콘크리트 강도(반발경도)는 R값 목록 + 각도보정 + 추정식 3개 결과를 별도로 저장한다.
                 const strengthAngle = document.getElementById('ndtAngle')?.value;
-                const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle)) : null;
+                const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
+                const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle), strengthAgeDays) : null;
                 const valsArr = (cat === '강도')
                     ? ndtRValues.filter(v => v !== '' && v !== null && v !== undefined)
                     : [v1, v2, v3].filter(x => x.trim() !== '');
@@ -4168,8 +4219,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     strengthReadings: ndtRValues.slice(),
                     strengthAngle: parseFloat(strengthAngle) || 0,
                     strengthResults: strengthCalc ? strengthCalc.results : [],
-                    strengthRo: strengthCalc ? strengthCalc.ro : null
-                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null };
+                    strengthRo: strengthCalc ? strengthCalc.ro : null,
+                    strengthAgeDays: strengthCalc ? strengthCalc.ageDays : null,
+                    strengthAlpha: strengthCalc ? strengthCalc.alpha : null,
+                    strengthFormulaAvg: strengthCalc ? strengthCalc.formulaAvg : null,
+                    strengthFinal: strengthCalc ? strengthCalc.finalStrength : null
+                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null };
 
                 if (pinId) {
                     const idx = state.ndtData[key].findIndex(x => x.id === pinId);
