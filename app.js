@@ -7447,10 +7447,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             ${pagePhotos.length > 0 ? `
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.4rem;">
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.4rem; flex: 1; align-content: space-between;">
                                     ${pagePhotos.map(p => `
                                         <div style="border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fafafa; box-sizing: border-box;">
-                                            <div style="position: relative; width: 100%; padding-bottom: 64%; background: #e2e8f0; overflow: hidden;">
+                                            <div style="position: relative; width: 100%; padding-bottom: 75%; background: #e2e8f0; overflow: hidden;">
                                                 <img src="${p.src}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;">
                                             </div>
                                             <div style="padding: 0.3rem; text-align: center;">
