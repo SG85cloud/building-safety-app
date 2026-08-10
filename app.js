@@ -8679,6 +8679,156 @@ document.addEventListener('DOMContentLoaded', () => {
 
             targetTbl.setAttribute('rowCnt', String(HEADER_ROW_COUNT + pageDefects.length));
 
+            // ---- 결함 사진 갤러리 ----
+            // 템플릿에는 사진 2장씩 짝지은 표(id=1122472061)가 같은 hp:run 안에 여러 개(원본 예시는 8개)
+            // 나란히 들어있다. 이걸 전부 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
+            const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
+            const PHOTO_TABLE_ID = '1122472061';
+            const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
+            if (photoDefects.length > 0) {
+                let photoTbl = null;
+                const allTables2 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+                for (let i = 0; i < allTables2.length; i++) {
+                    if (allTables2[i].getAttribute('id') === PHOTO_TABLE_ID) { photoTbl = allTables2[i]; break; }
+                }
+                if (!photoTbl) throw new Error('템플릿에서 사진첩 표를 찾지 못했습니다.');
+
+                const dataUrlToBytes = (dataUrl) => {
+                    const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+                    if (!m) throw new Error('사진 데이터 형식을 인식할 수 없습니다.');
+                    const mime = m[1];
+                    const binary = atob(m[2]);
+                    const bytes = new Uint8Array(binary.length);
+                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                    const ext = mime === 'image/png' ? 'png' : 'jpg';
+                    return { bytes, mime, ext };
+                };
+                const loadImageSize = (dataUrl) => new Promise((resolve, reject) => {
+                    const img = new Image();
+                    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                    img.onerror = () => reject(new Error('사진을 불러오지 못했습니다.'));
+                    img.src = dataUrl;
+                });
+
+                const MAX_PHOTOS = 10;
+                const items = photoDefects.slice(0, MAX_PHOTOS);
+                if (photoDefects.length > MAX_PHOTOS) {
+                    window.showToast(`시험 기능은 사진 최대 ${MAX_PHOTOS}장까지만 지원합니다.`, 'info', 4000);
+                }
+
+                const tplPics = photoTbl.getElementsByTagNameNS(HP_NS, 'pic');
+                const maxW = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
+                const maxH = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
+
+                // 사진 1장을 표 안의 hp:pic 하나에 앉히는 작업. curSz/scaMatrix가 서로 어긋나면 비율이
+                // 깨져 보이는 걸 검증 과정에서 확인해서, orgSz/curSz/scaMatrix를 전부 일치시켜 계산한다.
+                const setPicImage = (pic, imgId, pxW, pxH) => {
+                    pic.getElementsByTagNameNS(HC_NS, 'img')[0].setAttribute('binaryItemIDRef', imgId);
+                    const orgW = pxW * 100, orgH = pxH * 100;
+                    pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('width', String(orgW));
+                    pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('height', String(orgH));
+                    const aspect = pxW / pxH;
+                    const boxAspect = maxW / maxH;
+                    let curW, curH;
+                    if (aspect >= boxAspect) { curW = maxW; curH = Math.round(maxW / aspect); }
+                    else { curH = maxH; curW = Math.round(maxH * aspect); }
+                    pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('width', String(curW));
+                    pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('height', String(curH));
+                    Array.from(pic.children).filter(c => c.localName === 'sz').forEach(sz => {
+                        sz.setAttribute('width', String(curW));
+                        sz.setAttribute('height', String(curH));
+                    });
+                    const rect = pic.getElementsByTagNameNS(HP_NS, 'imgRect')[0];
+                    rect.getElementsByTagNameNS(HC_NS, 'pt1')[0].setAttribute('x', String(orgW));
+                    const pt2 = rect.getElementsByTagNameNS(HC_NS, 'pt2')[0];
+                    pt2.setAttribute('x', String(orgW)); pt2.setAttribute('y', String(orgH));
+                    rect.getElementsByTagNameNS(HC_NS, 'pt3')[0].setAttribute('y', String(orgH));
+                    const dimW = Math.round(orgW * 0.2095), dimH = Math.round(orgH * 0.2090);
+                    const clip = pic.getElementsByTagNameNS(HP_NS, 'imgClip')[0];
+                    clip.setAttribute('right', String(dimW)); clip.setAttribute('bottom', String(dimH));
+                    const dim = pic.getElementsByTagNameNS(HP_NS, 'imgDim')[0];
+                    dim.setAttribute('dimwidth', String(dimW)); dim.setAttribute('dimheight', String(dimH));
+                    const cmt = pic.getElementsByTagNameNS(HP_NS, 'shapeComment')[0];
+                    if (cmt) cmt.textContent = '';
+                    const sca = pic.getElementsByTagNameNS(HC_NS, 'scaMatrix')[0];
+                    sca.setAttribute('e1', String(curW / orgW));
+                    sca.setAttribute('e5', String(curH / orgH));
+                    const rot = pic.getElementsByTagNameNS(HP_NS, 'rotationInfo')[0];
+                    if (rot) { rot.setAttribute('centerX', String(Math.round(curW / 2))); rot.setAttribute('centerY', String(Math.round(curH / 2))); }
+                };
+
+                // 사진 디코딩(비동기)은 미리 다 끝내둔다
+                const decoded = [];
+                for (const d of items) {
+                    const { bytes, mime, ext } = dataUrlToBytes(d.photos[0]);
+                    const size = await loadImageSize(d.photos[0]);
+                    decoded.push({ d, bytes, mime, ext, w: size.w, h: size.h });
+                }
+
+                const photoRun = photoTbl.parentNode; // 사진첩 표 여러 개가 같은 hp:run 안에 나란히 들어있다
+                const existingPhotoTables = Array.from(photoRun.children).filter(c => c.localName === 'tbl');
+                const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
+                existingPhotoTables.forEach(t => photoRun.removeChild(t));
+
+                const manifestAdds = [];
+                let imgCounter = 0;
+                let photoLabelCounter = 0;
+
+                for (let i = 0; i < decoded.length; i += 2) {
+                    const slot1 = decoded[i];
+                    const slot2 = decoded[i + 1] || null;
+
+                    const newTbl = photoTbl.cloneNode(true);
+                    newTbl.setAttribute('id', String(9500000 + i));
+                    const pics = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'pic'));
+                    pics.forEach((p, idx) => {
+                        p.setAttribute('id', String(9600000 + i * 2 + idx));
+                        p.setAttribute('instid', String(9700000 + i * 2 + idx));
+                    });
+
+                    const trs2 = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === newTbl);
+                    const capTcs = trs2[1].getElementsByTagNameNS(HP_NS, 'tc');
+                    const descTcs = trs2[2].getElementsByTagNameNS(HP_NS, 'tc');
+
+                    imgCounter++;
+                    const imgId1 = `photoAuto${imgCounter}`;
+                    zip.file(`BinData/${imgId1}.${slot1.ext}`, slot1.bytes);
+                    manifestAdds.push(`<opf:item id="${imgId1}" href="BinData/${imgId1}.${slot1.ext}" media-type="${slot1.mime}" isEmbeded="1"/>`);
+                    setPicImage(pics[0], imgId1, slot1.w, slot1.h);
+                    photoLabelCounter++;
+                    capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = `사진${photoLabelCounter}`;
+                    capTcs[2].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot1.d);
+                    descTcs[1].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot1.d);
+
+                    // 짝이 없는 마지막 홀수 장은 오른쪽 칸에 같은 사진을 다시 앉혀 빈 칸으로 남지 않게 한다
+                    const useSlot2 = slot2 || slot1;
+                    imgCounter++;
+                    const imgId2 = `photoAuto${imgCounter}`;
+                    zip.file(`BinData/${imgId2}.${useSlot2.ext}`, useSlot2.bytes);
+                    manifestAdds.push(`<opf:item id="${imgId2}" href="BinData/${imgId2}.${useSlot2.ext}" media-type="${useSlot2.mime}" isEmbeded="1"/>`);
+                    setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h);
+                    if (slot2) {
+                        photoLabelCounter++;
+                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = `사진${photoLabelCounter}`;
+                        capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot2.d);
+                        descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot2.d);
+                    } else {
+                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                        capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                        descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                    }
+
+                    if (trailingNode) photoRun.insertBefore(newTbl, trailingNode);
+                    else photoRun.appendChild(newTbl);
+                }
+
+                let hpfText = await zip.file('Contents/content.hpf').async('string');
+                const manifestMarker = '<opf:item id="section1"';
+                if (hpfText.indexOf(manifestMarker) < 0) throw new Error('매니페스트 삽입 위치를 찾지 못했습니다.');
+                hpfText = hpfText.replace(manifestMarker, manifestAdds.join('') + manifestMarker);
+                zip.file('Contents/content.hpf', hpfText);
+            }
+
             let newXml = new XMLSerializer().serializeToString(xmlDoc);
             if (!newXml.startsWith('<?xml')) {
                 newXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + newXml;
