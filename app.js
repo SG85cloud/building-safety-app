@@ -7142,11 +7142,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const DEFAULT_SURVEY_COLUMNS = [
         { key: 'no', label: '결함번호' },
         { key: 'location', label: '위치' },
+        { key: 'component', label: '부재종류' },
         { key: 'defectType', label: '조사내용' },
-        { key: 'category', label: '구조체여부' },
-        { key: 'size', label: '결함크기' },
-        { key: 'crackWidth', label: '균열폭' },
-        { key: 'crackLength', label: '균열길이' },
+        { key: 'category', label: '구조체 구분' },
         { key: 'progress', label: '진행여부' },
         { key: 'leak', label: '누수여부' },
         { key: 'cause', label: '결함원인추정' },
@@ -7169,10 +7167,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCrack = d.defectType === '균열';
         const isGood = d.defectType === '상태양호';
         switch (colKey) {
-            case 'no': return d.no || '';
+            case 'no': return (d.no || '').replace(/^NO\.?\s*/i, '');
             case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
+            case 'component': return d.component || '기둥';
             case 'defectType': return d.defectType || '';
-            case 'category': return d.category === '구조체' ? '○' : '-';
+            case 'category': return d.category || '비구조체';
             case 'size': {
                 if (isCrack && (d.crackWidth !== undefined && d.crackWidth !== '' || d.crackLength !== undefined && d.crackLength !== '')) {
                     const w = (d.crackWidth !== undefined && d.crackWidth !== '') ? d.crackWidth : '-';
@@ -7199,14 +7198,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 결함위치도 핀 색상과 동일한 팔레트(구조체=빨강/비구조체=파랑/마감재=주황)를 상태조사표에도 그대로 씀
+    function getCategoryColor(category) {
+        if (category === '구조체') return '#ef4444';
+        if (category === '마감재') return '#f97316';
+        return '#3b82f6'; // 비구조체(기본)
+    }
+
     // 화면(스크린) 상태조사표 한 셀의 스타일 있는 HTML을 만든다 (renderSurveyTable에서 사용)
     function renderScreenSurveyCellHtml(colKey, d, ctx) {
         const text = getSurveyCellText(colKey, d, ctx);
         switch (colKey) {
             case 'no': return `<strong style="color:#0284c7; font-size:0.95rem;">${text}</strong>`;
             case 'location': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
+            case 'component': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'defectType': return `<span style="font-weight:700; color:#0369a1;">${text}</span>`;
-            case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#94a3b8'};">${text}</span>`;
+            case 'category': return `<span style="font-weight:800; color:${getCategoryColor(d.category)};">${text}</span>`;
             case 'size': case 'crackWidth': case 'crackLength': return text;
             case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
             case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};">${text}</span>`;
@@ -7222,8 +7229,9 @@ document.addEventListener('DOMContentLoaded', () => {
         switch (colKey) {
             case 'no': return 'font-weight:700; color:#0284c7;';
             case 'location': return 'font-weight:700;';
+            case 'component': return 'font-weight:700;';
             case 'defectType': return 'font-weight:700; color:#0369a1;';
-            case 'category': return `font-weight:800; color:${text === '○' ? '#ef4444' : '#94a3b8'};`;
+            case 'category': return `font-weight:800; color:${getCategoryColor(d.category)};`;
             case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};`;
             case 'leak': return `font-weight:800; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};`;
             case 'cause': return 'font-weight:700;';
@@ -8616,7 +8624,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             if (!targetTbl) throw new Error('템플릿에서 상태조사표를 찾지 못했습니다.');
 
-            const HEADER_ROW_COUNT = 2; // 표 상단 2줄(구분/위치/... 헤더, 구조체구분 하위 라벨)은 그대로 둔다
+            const HEADER_ROW_COUNT = 1; // 표 상단 1줄(구분/위치/... 헤더)은 그대로 둔다. 구조체구분은 구조/비구조 하위 2칸을 합쳐 헤더가 1줄로 줄었다
             const allTrs = Array.from(targetTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === targetTbl);
             const dataRows = allTrs.slice(HEADER_ROW_COUNT);
             if (dataRows.length < 3) throw new Error('템플릿 표의 첫/중간/마지막 행 테두리 스타일을 판별할 수 없습니다.');
@@ -8640,14 +8648,14 @@ document.addEventListener('DOMContentLoaded', () => {
             dataRows.forEach(tr => targetTbl.removeChild(tr));
 
             pageDefects.forEach((d, idx) => {
-                const isStructure = d.category === '구조체';
+                // 템플릿 표에서 구조체구분(구조부재/비구조부재) 두 칸을 하나로 합쳐뒀으므로, 마감재까지
+                // 포함한 실제 구조체 종류(구조체/비구조체/마감재) 문구를 그 한 칸에 그대로 적어 넣는다.
                 const values = [
                     getSurveyCellText('no', d),
                     getSurveyCellText('location', d),
+                    getSurveyCellText('component', d),
                     getSurveyCellText('defectType', d),
-                    getSurveyCellText('size', d),
-                    isStructure ? '○' : '-',
-                    isStructure ? '-' : '○',
+                    getSurveyCellText('category', d),
                     getSurveyCellText('progress', d),
                     getSurveyCellText('leak', d),
                     getSurveyCellText('cause', d),
