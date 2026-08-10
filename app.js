@@ -7144,7 +7144,8 @@ document.addEventListener('DOMContentLoaded', () => {
         { key: 'location', label: '위치' },
         { key: 'component', label: '부재종류' },
         { key: 'defectType', label: '조사내용' },
-        { key: 'category', label: '구조체 구분' },
+        { key: 'size', label: '결함크기' },
+        { key: 'category', label: '구조체 여부' },
         { key: 'progress', label: '진행여부' },
         { key: 'leak', label: '누수여부' },
         { key: 'cause', label: '결함원인추정' },
@@ -7171,7 +7172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
             case 'component': return d.component || '기둥';
             case 'defectType': return d.defectType || '';
-            case 'category': return d.category || '비구조체';
+            case 'category': return d.category === '구조체' ? '○' : '-';
             case 'size': {
                 if (isCrack && (d.crackWidth !== undefined && d.crackWidth !== '' || d.crackLength !== undefined && d.crackLength !== '')) {
                     const w = (d.crackWidth !== undefined && d.crackWidth !== '') ? d.crackWidth : '-';
@@ -7198,13 +7199,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 결함위치도 핀 색상과 동일한 팔레트(구조체=빨강/비구조체=파랑/마감재=주황)를 상태조사표에도 그대로 씀
-    function getCategoryColor(category) {
-        if (category === '구조체') return '#ef4444';
-        if (category === '마감재') return '#f97316';
-        return '#3b82f6'; // 비구조체(기본)
-    }
-
     // 화면(스크린) 상태조사표 한 셀의 스타일 있는 HTML을 만든다 (renderSurveyTable에서 사용)
     function renderScreenSurveyCellHtml(colKey, d, ctx) {
         const text = getSurveyCellText(colKey, d, ctx);
@@ -7213,7 +7207,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'location': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'component': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'defectType': return `<span style="font-weight:700; color:#0369a1;">${text}</span>`;
-            case 'category': return `<span style="font-weight:800; color:${getCategoryColor(d.category)};">${text}</span>`;
+            case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#94a3b8'};">${text}</span>`;
             case 'size': case 'crackWidth': case 'crackLength': return text;
             case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
             case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};">${text}</span>`;
@@ -7231,7 +7225,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'location': return 'font-weight:700;';
             case 'component': return 'font-weight:700;';
             case 'defectType': return 'font-weight:700; color:#0369a1;';
-            case 'category': return `font-weight:800; color:${getCategoryColor(d.category)};`;
+            case 'category': return `font-weight:800; color:${text === '○' ? '#ef4444' : '#94a3b8'};`;
             case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};`;
             case 'leak': return `font-weight:800; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};`;
             case 'cause': return 'font-weight:700;';
@@ -8606,7 +8600,10 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             if (typeof JSZip === 'undefined') throw new Error('JSZip 라이브러리를 불러오지 못했습니다.');
 
-            const resp = await fetch('./templates/hwpx_survey_template.hwpx');
+            // 템플릿 파일은 버전 쿼리스트링이 없어서, 브라우저 캐시에 옛 버전이 남아있으면 그걸 계속
+            // 쓰는 문제가 있었다(실제로 표/사진이 예전 버전 그대로 나온 원인). 매번 네트워크에서
+            // 새로 받아오도록 강제한다.
+            const resp = await fetch('./templates/hwpx_survey_template.hwpx', { cache: 'no-store' });
             if (!resp.ok) throw new Error('템플릿 파일을 불러오지 못했습니다.');
             const zip = await JSZip.loadAsync(await resp.arrayBuffer());
 
@@ -8655,6 +8652,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     getSurveyCellText('location', d),
                     getSurveyCellText('component', d),
                     getSurveyCellText('defectType', d),
+                    getSurveyCellText('size', d),
                     getSurveyCellText('category', d),
                     getSurveyCellText('progress', d),
                     getSurveyCellText('leak', d),
@@ -8684,6 +8682,17 @@ document.addEventListener('DOMContentLoaded', () => {
             // 나란히 들어있다. 이걸 전부 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
             const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
             const PHOTO_TABLE_ID = '1122472061';
+            // 사진은 localStorage가 아니라 IndexedDB에 저장되고 앱 시작 시 백그라운드로 채워지는데,
+            // 층 진입 직후 곧바로 내보내면 아직 안 채워졌을 수 있다. 여기서 한 번 더 직접 확인해서
+            // photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 IndexedDB로부터 채워 넣는다.
+            await Promise.all(pageDefects.map(async (d) => {
+                if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
+                    const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+                    const filled = photos.filter(Boolean);
+                    if (filled.length > 0) d.photos = filled;
+                }
+            }));
+
             const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
             if (photoDefects.length > 0) {
                 let photoTbl = null;
