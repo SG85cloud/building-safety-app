@@ -8576,6 +8576,142 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    // --- HWPX(한글) 상태조사표 내보내기 (시험 기능: 현재 층, 표 1페이지=최대 15행분만 지원) ---
+    // 번들 템플릿(templates/hwpx_survey_template.hwpx)의 상태조사표 표(id=1122472057) 안에 있는
+    // 기존 데이터 행을 전부 지우고, 지금 앱에 등록된 현재 층 결함 개수만큼 행을 새로 복제해 채운다.
+    // 표 테두리는 "첫 행(위 굵은선)/중간 행(얇은선)/마지막 행(아래 굵은선)" 3가지 스타일을 템플릿 표
+    // 자체에서 읽어와 그대로 재사용한다 (직접 스타일 ID를 하드코딩하지 않음 -> 템플릿이 바뀌어도 대응됨).
+    window.exportHwpxSurveyTable = async function() {
+        const floorCode = window.state.currentFloor;
+        if (!floorCode) { window.showToast('층을 먼저 선택해주세요.', 'warning'); return; }
+
+        const defects = consolidateDefectGroups(getCurrentFloorDefects());
+        if (!defects.length) { window.showToast('현재 층에 등록된 결함이 없습니다.', 'warning'); return; }
+
+        const MAX_ROWS_PER_PAGE = 15;
+        const pageDefects = defects.slice(0, MAX_ROWS_PER_PAGE);
+        if (defects.length > MAX_ROWS_PER_PAGE) {
+            window.showToast(`시험 기능은 표 1페이지(최대 ${MAX_ROWS_PER_PAGE}건)까지만 지원합니다. 총 ${defects.length}건 중 앞 ${MAX_ROWS_PER_PAGE}건만 반영됩니다.`, 'info', 5000);
+        }
+
+        window.showLoading('한글(hwpx) 상태조사표를 생성하는 중입니다...');
+        try {
+            if (typeof JSZip === 'undefined') throw new Error('JSZip 라이브러리를 불러오지 못했습니다.');
+
+            const resp = await fetch('./templates/hwpx_survey_template.hwpx');
+            if (!resp.ok) throw new Error('템플릿 파일을 불러오지 못했습니다.');
+            const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+
+            const HP_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
+            const sectionPath = 'Contents/section1.xml';
+            const xmlText = await zip.file(sectionPath).async('string');
+            const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
+            if (xmlDoc.querySelector('parsererror')) throw new Error('템플릿 section1.xml 파싱에 실패했습니다.');
+
+            const TARGET_TABLE_ID = '1122472057';
+            let targetTbl = null;
+            const allTables = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+            for (let i = 0; i < allTables.length; i++) {
+                if (allTables[i].getAttribute('id') === TARGET_TABLE_ID) { targetTbl = allTables[i]; break; }
+            }
+            if (!targetTbl) throw new Error('템플릿에서 상태조사표를 찾지 못했습니다.');
+
+            const HEADER_ROW_COUNT = 2; // 표 상단 2줄(구분/위치/... 헤더, 구조체구분 하위 라벨)은 그대로 둔다
+            const allTrs = Array.from(targetTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === targetTbl);
+            const dataRows = allTrs.slice(HEADER_ROW_COUNT);
+            if (dataRows.length < 3) throw new Error('템플릿 표의 첫/중간/마지막 행 테두리 스타일을 판별할 수 없습니다.');
+
+            const borderStyleByCol = (row) => {
+                const map = {};
+                Array.from(row.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
+                    const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                    if (addr) map[addr.getAttribute('colAddr')] = tc.getAttribute('borderFillIDRef');
+                });
+                return map;
+            };
+            const firstStyleRow = dataRows[0];
+            const normalStyleRow = dataRows[1];
+            const styleMaps = {
+                first: borderStyleByCol(firstStyleRow),
+                normal: borderStyleByCol(normalStyleRow),
+                last: borderStyleByCol(dataRows[dataRows.length - 1])
+            };
+
+            dataRows.forEach(tr => targetTbl.removeChild(tr));
+
+            pageDefects.forEach((d, idx) => {
+                const isStructure = d.category === '구조체';
+                const values = [
+                    getSurveyCellText('no', d),
+                    getSurveyCellText('location', d),
+                    getSurveyCellText('defectType', d),
+                    getSurveyCellText('size', d),
+                    isStructure ? '○' : '-',
+                    isStructure ? '-' : '○',
+                    getSurveyCellText('progress', d),
+                    getSurveyCellText('leak', d),
+                    getSurveyCellText('cause', d),
+                    getSurveyCellText('remark', d)
+                ];
+                const styleMap = idx === 0 ? styleMaps.first : (idx === pageDefects.length - 1 ? styleMaps.last : styleMaps.normal);
+
+                const newRow = normalStyleRow.cloneNode(true);
+                Array.from(newRow.getElementsByTagNameNS(HP_NS, 'tc')).forEach((tc, colIdx) => {
+                    const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                    if (addr) {
+                        addr.setAttribute('rowAddr', String(HEADER_ROW_COUNT + idx));
+                        const bf = styleMap[addr.getAttribute('colAddr')];
+                        if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
+                    }
+                    const tNode = tc.getElementsByTagNameNS(HP_NS, 't')[0];
+                    if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
+                });
+                targetTbl.appendChild(newRow);
+            });
+
+            targetTbl.setAttribute('rowCnt', String(HEADER_ROW_COUNT + pageDefects.length));
+
+            let newXml = new XMLSerializer().serializeToString(xmlDoc);
+            if (!newXml.startsWith('<?xml')) {
+                newXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>' + newXml;
+            }
+            zip.file(sectionPath, newXml);
+
+            // 원본처럼 mimetype/version.xml은 무압축(Store)으로 유지
+            zip.file('mimetype', await zip.file('mimetype').async('string'), { compression: 'STORE' });
+            zip.file('version.xml', await zip.file('version.xml').async('string'), { compression: 'STORE' });
+
+            // JSZip이 중첩 경로(Contents/section1.xml) 파일을 다시 쓸 때 원본에는 없던 빈 폴더
+            // 항목(예: "Contents/")을 자동으로 끼워 넣는 경우가 있어 원본과 항목 구성을 동일하게
+            // 맞춘다. zip.remove()는 폴더 지정 시 그 안의 파일까지 재귀적으로 지워버리므로 절대
+            // 쓰면 안 되고, 내부 맵(zip.files)에서 그 폴더 키 하나만 직접 지운다.
+            Object.keys(zip.files).forEach(name => { if (zip.files[name].dir) delete zip.files[name]; });
+
+            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/hwp+zip' });
+
+            const bldg = window.state.currentBuilding || { name: '건축물' };
+            const bldgName = (bldg.name || '건축물').replace(/^🏢\s*/, '').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
+            const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+            const filename = `${bldgName}_${floorCode}_상태조사표_${dateStr}.hwpx`;
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            window.showToast(`hwpx 파일을 생성했습니다 (${pageDefects.length}건 반영).`, 'success', 4000);
+        } catch (err) {
+            console.error('HWPX export error:', err);
+            window.showToast('hwpx 생성 중 오류가 발생했습니다: ' + err.message, 'error', 5000);
+        } finally {
+            window.hideLoading();
+        }
+    };
+
     // Binding All Header & Survey Report Action Buttons
     const btnPreviewReport = document.getElementById('btnPreviewReport');
     if (btnPreviewReport) {
