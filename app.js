@@ -8868,8 +8868,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 살려서 내보내야 하므로, 여기서 실패해도 전체를 중단시키지 않는다.
                 try {
                     const bldgForMap = window.state.currentBuilding || {};
-                    await preloadFloorDrawings(bldgForMap);
-                    const mapDataUrl = renderFloorPlanCanvasDataUrl(floorCode);
+
+                    // getFloorDrawingSrc()는 정확한 층 코드로 도면을 못 찾으면 "층 코드에 포함된
+                    // 숫자가 비슷한 다른 층 도면"까지 갖다 쓰는 폴백이 있어(예: 지하1층 "B1F"가
+                    // 지상1층 "1F" 도면과 섞여버림), 위치도만큼은 그 폴백을 타지 않도록 정확히
+                    // 일치하는 도면이 있는지 직접 먼저 확인한다. 못 찾으면 그냥 위치도를 뺀다.
+                    if (!bldgForMap.floorDrawings) bldgForMap.floorDrawings = {};
+                    if (!bldgForMap.floorDrawings[floorCode]) {
+                        const idbDrawing = await idbGet('floorDrawings', `${bldgForMap.id}_${floorCode}`);
+                        if (idbDrawing) bldgForMap.floorDrawings[floorCode] = idbDrawing;
+                    }
+                    const hasExactDrawing = !!bldgForMap.floorDrawings[floorCode];
+
+                    // 예전에(버그가 있던 상태로) 이미 한 번 잘못된 층 도면이 캐시됐을 수 있으니
+                    // 이번엔 무조건 새로 그리도록 캐시를 지운다.
+                    if (window.state.floorImageCache) delete window.state.floorImageCache[`${bldgForMap.id}_${floorCode}`];
+
+                    const mapDataUrl = hasExactDrawing ? (await (async () => {
+                        await preloadFloorDrawings(bldgForMap);
+                        return renderFloorPlanCanvasDataUrl(floorCode);
+                    })()) : null;
                     if (mapDataUrl) {
                         const mapPic = locationMapTbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
                         const mapMaxW = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
