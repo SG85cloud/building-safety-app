@@ -8707,30 +8707,76 @@ document.addEventListener('DOMContentLoaded', () => {
             // (photoDefects/photoLabelByDefect는 상태조사표의 "비고" 칸과 번호를 맞추기 위해 위에서 이미 계산해뒀다)
             const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
             const PHOTO_TABLE_ID = '1122472061';
-            if (photoDefects.length > 0) {
+
+            // 사진/위치도 이미지 삽입에 공용으로 쓰는 헬퍼들 (한 곳에서만 관리해 두 군데가 다르게
+            // 어긋나지 않게 한다). dataUrlToBytes/loadImageSize/manifestAdds/zip에 새 파일 추가는
+            // 사진 갤러리와 위치도 양쪽에서 그대로 재사용한다.
+            const dataUrlToBytes = (dataUrl) => {
+                const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+                if (!m) throw new Error('이미지 데이터 형식을 인식할 수 없습니다.');
+                const mime = m[1];
+                const binary = atob(m[2]);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                const ext = mime === 'image/png' ? 'png' : 'jpg';
+                return { bytes, mime, ext };
+            };
+            const loadImageSize = (dataUrl) => new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
+                img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'));
+                img.src = dataUrl;
+            });
+            // 사진 1장을 표 안의 hp:pic 하나에 앉히는 작업. curSz/scaMatrix가 서로 어긋나면 비율이
+            // 깨져 보이는 걸 검증 과정에서 확인해서, orgSz/curSz/scaMatrix를 전부 일치시켜 계산한다.
+            // maxW/maxH는 그 hp:pic이 원래 차지하던 표시 박스 크기(넘지 않게 fit)다.
+            const setPicImage = (pic, imgId, pxW, pxH, maxW, maxH) => {
+                pic.getElementsByTagNameNS(HC_NS, 'img')[0].setAttribute('binaryItemIDRef', imgId);
+                pic.removeAttribute('thumbnailBinIDRef');
+                const orgW = pxW * 100, orgH = pxH * 100;
+                pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('width', String(orgW));
+                pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('height', String(orgH));
+                const aspect = pxW / pxH;
+                const boxAspect = maxW / maxH;
+                let curW, curH;
+                if (aspect >= boxAspect) { curW = maxW; curH = Math.round(maxW / aspect); }
+                else { curH = maxH; curW = Math.round(maxH * aspect); }
+                pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('width', String(curW));
+                pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('height', String(curH));
+                Array.from(pic.children).filter(c => c.localName === 'sz').forEach(sz => {
+                    sz.setAttribute('width', String(curW));
+                    sz.setAttribute('height', String(curH));
+                });
+                const rect = pic.getElementsByTagNameNS(HP_NS, 'imgRect')[0];
+                rect.getElementsByTagNameNS(HC_NS, 'pt1')[0].setAttribute('x', String(orgW));
+                const pt2 = rect.getElementsByTagNameNS(HC_NS, 'pt2')[0];
+                pt2.setAttribute('x', String(orgW)); pt2.setAttribute('y', String(orgH));
+                rect.getElementsByTagNameNS(HC_NS, 'pt3')[0].setAttribute('y', String(orgH));
+                const dimW = Math.round(orgW * 0.2095), dimH = Math.round(orgH * 0.2090);
+                const clip = pic.getElementsByTagNameNS(HP_NS, 'imgClip')[0];
+                clip.setAttribute('right', String(dimW)); clip.setAttribute('bottom', String(dimH));
+                const dim = pic.getElementsByTagNameNS(HP_NS, 'imgDim')[0];
+                dim.setAttribute('dimwidth', String(dimW)); dim.setAttribute('dimheight', String(dimH));
+                const cmt = pic.getElementsByTagNameNS(HP_NS, 'shapeComment')[0];
+                if (cmt) cmt.textContent = '';
+                const sca = pic.getElementsByTagNameNS(HC_NS, 'scaMatrix')[0];
+                sca.setAttribute('e1', String(curW / orgW));
+                sca.setAttribute('e5', String(curH / orgH));
+                const rot = pic.getElementsByTagNameNS(HP_NS, 'rotationInfo')[0];
+                if (rot) { rot.setAttribute('centerX', String(Math.round(curW / 2))); rot.setAttribute('centerY', String(Math.round(curH / 2))); }
+            };
+
+            // 사진 갤러리와 위치도가 새로 추가하는 이미지의 매니페스트 항목을 여기에 같이 모았다가
+            // 마지막에 한 번만 content.hpf에 반영한다.
+            const manifestAdds = [];
+
+            if (photoDefects.length > 0) { try {
                 let photoTbl = null;
                 const allTables2 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
                 for (let i = 0; i < allTables2.length; i++) {
                     if (allTables2[i].getAttribute('id') === PHOTO_TABLE_ID) { photoTbl = allTables2[i]; break; }
                 }
                 if (!photoTbl) throw new Error('템플릿에서 사진첩 표를 찾지 못했습니다.');
-
-                const dataUrlToBytes = (dataUrl) => {
-                    const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
-                    if (!m) throw new Error('사진 데이터 형식을 인식할 수 없습니다.');
-                    const mime = m[1];
-                    const binary = atob(m[2]);
-                    const bytes = new Uint8Array(binary.length);
-                    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-                    const ext = mime === 'image/png' ? 'png' : 'jpg';
-                    return { bytes, mime, ext };
-                };
-                const loadImageSize = (dataUrl) => new Promise((resolve, reject) => {
-                    const img = new Image();
-                    img.onload = () => resolve({ w: img.naturalWidth, h: img.naturalHeight });
-                    img.onerror = () => reject(new Error('사진을 불러오지 못했습니다.'));
-                    img.src = dataUrl;
-                });
 
                 const MAX_PHOTOS = 10;
                 const items = photoDefects.slice(0, MAX_PHOTOS);
@@ -8741,43 +8787,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const tplPics = photoTbl.getElementsByTagNameNS(HP_NS, 'pic');
                 const maxW = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
                 const maxH = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
-
-                // 사진 1장을 표 안의 hp:pic 하나에 앉히는 작업. curSz/scaMatrix가 서로 어긋나면 비율이
-                // 깨져 보이는 걸 검증 과정에서 확인해서, orgSz/curSz/scaMatrix를 전부 일치시켜 계산한다.
-                const setPicImage = (pic, imgId, pxW, pxH) => {
-                    pic.getElementsByTagNameNS(HC_NS, 'img')[0].setAttribute('binaryItemIDRef', imgId);
-                    const orgW = pxW * 100, orgH = pxH * 100;
-                    pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('width', String(orgW));
-                    pic.getElementsByTagNameNS(HP_NS, 'orgSz')[0].setAttribute('height', String(orgH));
-                    const aspect = pxW / pxH;
-                    const boxAspect = maxW / maxH;
-                    let curW, curH;
-                    if (aspect >= boxAspect) { curW = maxW; curH = Math.round(maxW / aspect); }
-                    else { curH = maxH; curW = Math.round(maxH * aspect); }
-                    pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('width', String(curW));
-                    pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].setAttribute('height', String(curH));
-                    Array.from(pic.children).filter(c => c.localName === 'sz').forEach(sz => {
-                        sz.setAttribute('width', String(curW));
-                        sz.setAttribute('height', String(curH));
-                    });
-                    const rect = pic.getElementsByTagNameNS(HP_NS, 'imgRect')[0];
-                    rect.getElementsByTagNameNS(HC_NS, 'pt1')[0].setAttribute('x', String(orgW));
-                    const pt2 = rect.getElementsByTagNameNS(HC_NS, 'pt2')[0];
-                    pt2.setAttribute('x', String(orgW)); pt2.setAttribute('y', String(orgH));
-                    rect.getElementsByTagNameNS(HC_NS, 'pt3')[0].setAttribute('y', String(orgH));
-                    const dimW = Math.round(orgW * 0.2095), dimH = Math.round(orgH * 0.2090);
-                    const clip = pic.getElementsByTagNameNS(HP_NS, 'imgClip')[0];
-                    clip.setAttribute('right', String(dimW)); clip.setAttribute('bottom', String(dimH));
-                    const dim = pic.getElementsByTagNameNS(HP_NS, 'imgDim')[0];
-                    dim.setAttribute('dimwidth', String(dimW)); dim.setAttribute('dimheight', String(dimH));
-                    const cmt = pic.getElementsByTagNameNS(HP_NS, 'shapeComment')[0];
-                    if (cmt) cmt.textContent = '';
-                    const sca = pic.getElementsByTagNameNS(HC_NS, 'scaMatrix')[0];
-                    sca.setAttribute('e1', String(curW / orgW));
-                    sca.setAttribute('e5', String(curH / orgH));
-                    const rot = pic.getElementsByTagNameNS(HP_NS, 'rotationInfo')[0];
-                    if (rot) { rot.setAttribute('centerX', String(Math.round(curW / 2))); rot.setAttribute('centerY', String(Math.round(curH / 2))); }
-                };
 
                 // 사진 디코딩(비동기)은 미리 다 끝내둔다
                 const decoded = [];
@@ -8792,7 +8801,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
                 existingPhotoTables.forEach(t => photoRun.removeChild(t));
 
-                const manifestAdds = [];
                 let imgCounter = 0;
 
                 for (let i = 0; i < decoded.length; i += 2) {
@@ -8815,7 +8823,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const imgId1 = `photoAuto${imgCounter}`;
                     zip.file(`BinData/${imgId1}.${slot1.ext}`, slot1.bytes);
                     manifestAdds.push(`<opf:item id="${imgId1}" href="BinData/${imgId1}.${slot1.ext}" media-type="${slot1.mime}" isEmbeded="1"/>`);
-                    setPicImage(pics[0], imgId1, slot1.w, slot1.h);
+                    setPicImage(pics[0], imgId1, slot1.w, slot1.h, maxW, maxH);
                     capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot1.d);
                     capTcs[2].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot1.d);
                     descTcs[1].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot1.d);
@@ -8826,7 +8834,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const imgId2 = `photoAuto${imgCounter}`;
                     zip.file(`BinData/${imgId2}.${useSlot2.ext}`, useSlot2.bytes);
                     manifestAdds.push(`<opf:item id="${imgId2}" href="BinData/${imgId2}.${useSlot2.ext}" media-type="${useSlot2.mime}" isEmbeded="1"/>`);
-                    setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h);
+                    setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h, maxW, maxH);
                     if (slot2) {
                         capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot2.d);
                         capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot2.d);
@@ -8840,7 +8848,56 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (trailingNode) photoRun.insertBefore(newTbl, trailingNode);
                     else photoRun.appendChild(newTbl);
                 }
+            } catch (photoErr) {
+                console.error('사진 갤러리 삽입 실패(나머지는 계속 진행):', photoErr);
+                window.showToast('사진 삽입 중 오류가 있어 사진은 제외하고 만듭니다: ' + photoErr.message, 'warning', 5000);
+            } }
 
+            // ---- 결함위치도 ----
+            // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다. 원본 템플릿의
+            // 이 표(id=1122472099)는 CAD에서 내보낸 WMF(벡터) 그림이 들어있던 자리인데, 우리 도면은
+            // 캔버스로 그린 PNG라 사진 삽입과 동일한 방식(비율 계산 포함)으로 이미지만 갈아 끼운다.
+            const LOCATION_MAP_TABLE_ID = '1122472099';
+            let locationMapTbl = null;
+            const allTables3 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+            for (let i = 0; i < allTables3.length; i++) {
+                if (allTables3[i].getAttribute('id') === LOCATION_MAP_TABLE_ID) { locationMapTbl = allTables3[i]; break; }
+            }
+            if (locationMapTbl) {
+                // 위치도 렌더링이 실패해도(도면 로딩 오류 등) 이미 다 만들어둔 상태조사표/사진 갤러리는
+                // 살려서 내보내야 하므로, 여기서 실패해도 전체를 중단시키지 않는다.
+                try {
+                    const bldgForMap = window.state.currentBuilding || {};
+                    await preloadFloorDrawings(bldgForMap);
+                    const mapDataUrl = renderFloorPlanCanvasDataUrl(floorCode);
+                    if (mapDataUrl) {
+                        const mapPic = locationMapTbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
+                        const mapMaxW = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
+                        const mapMaxH = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
+                        const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
+                        const size = await loadImageSize(mapDataUrl);
+                        const mapImgId = 'locationMapAuto1';
+                        zip.file(`BinData/${mapImgId}.${ext}`, bytes);
+                        manifestAdds.push(`<opf:item id="${mapImgId}" href="BinData/${mapImgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
+                        setPicImage(mapPic, mapImgId, size.w, size.h, mapMaxW, mapMaxH);
+
+                        const floorLabel = (() => {
+                            const f = (bldgForMap.floorsList || []).find(f => f.floorCode === floorCode);
+                            return f ? f.floorLabel : floorCode;
+                        })();
+                        const captionTc = locationMapTbl.getElementsByTagNameNS(HP_NS, 'tc')[1];
+                        const captionT = captionTc.getElementsByTagNameNS(HP_NS, 't')[0];
+                        if (captionT) captionT.textContent = `${floorLabel} 결함위치도`;
+                    } else {
+                        window.showToast('현재 층에 등록된 도면이 없어 위치도는 제외하고 만듭니다.', 'info', 4000);
+                    }
+                } catch (mapErr) {
+                    console.error('위치도 삽입 실패(나머지는 계속 진행):', mapErr);
+                    window.showToast('위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.', 'warning', 4000);
+                }
+            }
+
+            if (manifestAdds.length > 0) {
                 let hpfText = await zip.file('Contents/content.hpf').async('string');
                 const manifestMarker = '<opf:item id="section1"';
                 if (hpfText.indexOf(manifestMarker) < 0) throw new Error('매니페스트 삽입 위치를 찾지 못했습니다.');
