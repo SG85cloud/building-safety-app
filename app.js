@@ -8644,6 +8644,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
             dataRows.forEach(tr => targetTbl.removeChild(tr));
 
+            // 사진은 localStorage가 아니라 IndexedDB에 저장되고 앱 시작 시 백그라운드로 채워지는데,
+            // 층 진입 직후 곧바로 내보내면 아직 안 채워졌을 수 있다. 여기서 한 번 더 직접 확인해서
+            // photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 IndexedDB로부터 채워 넣는다.
+            // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
+            // 전인 지금 미리 번호를 매겨둔다.
+            await Promise.all(pageDefects.map(async (d) => {
+                if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
+                    const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+                    const filled = photos.filter(Boolean);
+                    if (filled.length > 0) d.photos = filled;
+                }
+            }));
+            const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
+            const photoLabelByDefect = new Map();
+            photoDefects.forEach((d, i) => photoLabelByDefect.set(d, `사진${i + 1}`));
+
             pageDefects.forEach((d, idx) => {
                 // 템플릿 표에서 구조체구분(구조부재/비구조부재) 두 칸을 하나로 합쳐뒀으므로, 마감재까지
                 // 포함한 실제 구조체 종류(구조체/비구조체/마감재) 문구를 그 한 칸에 그대로 적어 넣는다.
@@ -8657,7 +8673,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     getSurveyCellText('progress', d),
                     getSurveyCellText('leak', d),
                     getSurveyCellText('cause', d),
-                    getSurveyCellText('remark', d)
+                    getSurveyCellText('remark', d, { photoRemark: photoLabelByDefect.get(d) })
                 ];
                 const styleMap = idx === 0 ? styleMaps.first : (idx === pageDefects.length - 1 ? styleMaps.last : styleMaps.normal);
 
@@ -8669,8 +8685,16 @@ document.addEventListener('DOMContentLoaded', () => {
                         const bf = styleMap[addr.getAttribute('colAddr')];
                         if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
                     }
-                    const tNode = tc.getElementsByTagNameNS(HP_NS, 't')[0];
-                    if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
+                    // 템플릿 원본 셀이 "0.2/0.6" + "(3EA)"처럼 문단 2개 이상으로 나뉜 값을 갖고
+                    // 있던 경우, 첫 문단 텍스트만 바꾸면 나머지 문단이 옛날 텍스트로 계속 남는다.
+                    // 첫 문단만 남기고 나머지 문단은 통째로 지운다.
+                    const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
+                    const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
+                    if (paras.length > 0) {
+                        const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
+                        if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
+                        for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
+                    }
                 });
                 targetTbl.appendChild(newRow);
             });
@@ -8680,20 +8704,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // ---- 결함 사진 갤러리 ----
             // 템플릿에는 사진 2장씩 짝지은 표(id=1122472061)가 같은 hp:run 안에 여러 개(원본 예시는 8개)
             // 나란히 들어있다. 이걸 전부 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
+            // (photoDefects/photoLabelByDefect는 상태조사표의 "비고" 칸과 번호를 맞추기 위해 위에서 이미 계산해뒀다)
             const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
             const PHOTO_TABLE_ID = '1122472061';
-            // 사진은 localStorage가 아니라 IndexedDB에 저장되고 앱 시작 시 백그라운드로 채워지는데,
-            // 층 진입 직후 곧바로 내보내면 아직 안 채워졌을 수 있다. 여기서 한 번 더 직접 확인해서
-            // photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 IndexedDB로부터 채워 넣는다.
-            await Promise.all(pageDefects.map(async (d) => {
-                if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
-                    const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
-                    const filled = photos.filter(Boolean);
-                    if (filled.length > 0) d.photos = filled;
-                }
-            }));
-
-            const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
             if (photoDefects.length > 0) {
                 let photoTbl = null;
                 const allTables2 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
@@ -8781,7 +8794,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const manifestAdds = [];
                 let imgCounter = 0;
-                let photoLabelCounter = 0;
 
                 for (let i = 0; i < decoded.length; i += 2) {
                     const slot1 = decoded[i];
@@ -8804,8 +8816,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     zip.file(`BinData/${imgId1}.${slot1.ext}`, slot1.bytes);
                     manifestAdds.push(`<opf:item id="${imgId1}" href="BinData/${imgId1}.${slot1.ext}" media-type="${slot1.mime}" isEmbeded="1"/>`);
                     setPicImage(pics[0], imgId1, slot1.w, slot1.h);
-                    photoLabelCounter++;
-                    capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = `사진${photoLabelCounter}`;
+                    capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot1.d);
                     capTcs[2].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot1.d);
                     descTcs[1].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot1.d);
 
@@ -8817,8 +8828,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     manifestAdds.push(`<opf:item id="${imgId2}" href="BinData/${imgId2}.${useSlot2.ext}" media-type="${useSlot2.mime}" isEmbeded="1"/>`);
                     setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h);
                     if (slot2) {
-                        photoLabelCounter++;
-                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = `사진${photoLabelCounter}`;
+                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot2.d);
                         capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot2.d);
                         descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot2.d);
                     } else {
