@@ -8644,18 +8644,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
             dataRows.forEach(tr => targetTbl.removeChild(tr));
 
-            // 사진은 localStorage가 아니라 IndexedDB에 저장되고 앱 시작 시 백그라운드로 채워지는데,
-            // 층 진입 직후 곧바로 내보내면 아직 안 채워졌을 수 있다. 여기서 한 번 더 직접 확인해서
-            // photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 IndexedDB로부터 채워 넣는다.
-            // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
-            // 전인 지금 미리 번호를 매겨둔다.
+            // 사진은 로컬(IndexedDB)에도, 온라인 동기화 중이면 클라우드(Firestore)에도 있을 수 있는데,
+            // 층 진입 직후 곧바로 내보내면 아직 photos 배열이 안 채워졌을 수 있다. 여기서 한 번 더
+            // 직접 확인해서 photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 채워 넣는다.
+            // (로컬에 없으면 클라우드에서도 찾아본다 — hydrateDefectPhotos와 같은 방식)
+            const companyPhotosCol = (db && window.state.companyId)
+                ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
+                : null;
+            if (!window._photoCache) window._photoCache = {};
             await Promise.all(pageDefects.map(async (d) => {
                 if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
-                    const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+                    const photos = await Promise.all(d.photoIds.map(async pid => {
+                        const local = await idbGet('photos', pid);
+                        if (local) return local;
+                        if (window._photoCache[pid]) return window._photoCache[pid];
+                        if (companyPhotosCol) {
+                            try {
+                                const snap = await companyPhotosCol.doc(pid).get();
+                                const url = snap.exists ? snap.data().dataUrl : null;
+                                if (url) window._photoCache[pid] = url;
+                                return url;
+                            } catch (e) { return null; }
+                        }
+                        return null;
+                    }));
                     const filled = photos.filter(Boolean);
                     if (filled.length > 0) d.photos = filled;
                 }
             }));
+            // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
+            // 전인 지금 미리 번호를 매겨둔다.
             const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
             const photoLabelByDefect = new Map();
             photoDefects.forEach((d, i) => photoLabelByDefect.set(d, `사진${i + 1}`));
