@@ -4035,6 +4035,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 반발경도계(슈미트 해머) 프린터 출력지는 좁은 영수증 용지에 작은 글씨라 원본 사진을 그냥
+    // Tesseract에 넣으면 대비가 낮아 인식률이 많이 떨어진다. 흑백 이진화 + 확대를 먼저 거치면
+    // 이런 영수증류 텍스트 인식률이 크게 좋아진다.
+    function preprocessOcrImage(file) {
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            img.onload = () => {
+                const MIN_WIDTH = 1000;
+                const scale = img.naturalWidth < MIN_WIDTH ? MIN_WIDTH / img.naturalWidth : 1;
+                const canvas = document.createElement('canvas');
+                canvas.width = Math.round(img.naturalWidth * scale);
+                canvas.height = Math.round(img.naturalHeight * scale);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const px = imgData.data;
+                // 그레이스케일 변환 후 임계값으로 흑/백 이진화 (얼룩진 영수증 배경을 지워 글자만 남긴다)
+                let sum = 0;
+                const gray = new Uint8ClampedArray(px.length / 4);
+                for (let i = 0; i < px.length; i += 4) {
+                    const g = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
+                    gray[i / 4] = g;
+                    sum += g;
+                }
+                const avg = sum / gray.length;
+                const threshold = avg * 0.85; // 평균보다 어두운 픽셀만 글자로 취급
+                for (let i = 0; i < px.length; i += 4) {
+                    const v = gray[i / 4] < threshold ? 0 : 255;
+                    px[i] = px[i + 1] = px[i + 2] = v;
+                }
+                ctx.putImageData(imgData, 0, 0);
+                URL.revokeObjectURL(img.src);
+                canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지 전처리에 실패했습니다.')), 'image/png');
+            };
+            img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'));
+            img.src = URL.createObjectURL(file);
+        });
+    }
+
     async function scanRValuesFromImage(file) {
         const statusEl = document.getElementById('rScanStatus');
         if (!file) return;
@@ -4044,9 +4084,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
         try {
-            const { data: { text } } = await Tesseract.recognize(file, 'eng');
-            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
-            const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
+            const preprocessed = await preprocessOcrImage(file).catch(() => file);
+            const worker = await Tesseract.createWorker('eng');
+            // 반발경도계 출력지는 숫자/R/공백만 나오므로 인식 가능한 문자를 좁혀서 오인식을 줄인다.
+            await worker.setParameters({
+                tessedit_char_whitelist: '0123456789R ',
+                tessedit_pageseg_mode: '6' // 한 덩어리의 균일한 텍스트 블록으로 가정 (영수증형 출력지에 적합)
+            });
+            const { data: { text } } = await worker.recognize(preprocessed);
+            await worker.terminate();
+
+            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다.
+            // OCR이 숫자 0/1을 O/l/I로 잘못 읽는 경우가 흔해서 매칭 전에 미리 보정한다.
+            const normalized = text.replace(/[oO](?=\d|\s|$)/g, '0').replace(/[lI](?=\d|\s|$)/g, '1');
+            const matches = [...normalized.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
             const scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
 
             if (scanned.length === 0) {
@@ -8045,6 +8096,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 let sectionNo = 4;
 
+                // 정기안전점검은 상태조사표/사진첩/결함위치도(1~3)까지만 보고서에 넣고, 비파괴조사
+                // 섹션(4~7: 부재실측/강도·탄산화/외벽기울기/부동침하/부재처짐)은 정밀안전점검일 때만 넣는다.
+                if (iType === '정밀안전점검') {
+
                 // --- 4. 📏 부재 실측 결과표 및 측정 위치도 (강도·탄산화와 별도 도면) ---
                 if (measureNdtItems.length > 0) {
                     const measureDrawingUrl = renderNdtFloorPlanCanvasDataUrl(floorCode, '실측');
@@ -8490,6 +8545,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         `;
                     });
                 }
+
+                } // iType === '정밀안전점검'
             });
 
             container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 210mm; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
@@ -8950,6 +9007,205 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error('위치도 삽입 실패(나머지는 계속 진행):', mapErr);
                     window.showToast('위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.', 'warning', 4000);
                 }
+            }
+
+            // ---- 비파괴조사(NDT) 5개 섹션: 콘크리트 강도/탄산화/외벽기울기/부동침하/부재처짐 ----
+            // 정기안전점검이면 이 표들은 통째로 지우고, 정밀안전점검이면 앱에 등록된 실측 데이터로
+            // 채운다. 표 데이터 행 교체 로직(테두리 스타일 3종 판별 → 기존 행 삭제 → clone해서 채우기)은
+            // 위 상태조사표와 완전히 동일한 패턴이라 fillNdtTable로 뽑아 재사용한다. 실패해도 이미
+            // 만들어둔 상태조사표/사진/결함위치도는 살려서 내보내야 하므로 전체를 try/catch로 감싼다.
+            try {
+                const ndtBldg = window.state.currentBuilding || {};
+                const ndtBldgId = ndtBldg.id || window.state.currentBuildingId;
+                const isPreciseInspection = (ndtBldg.inspectionType || '정밀안전점검') === '정밀안전점검';
+                const ndtKey = `${ndtBldgId}_${floorCode}`;
+                const allNdtItemsForHwpx = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
+                const allDispGroupsForHwpx = state.ndtDisplacementGroups ? (state.ndtDisplacementGroups[ndtKey] || []) : [];
+
+                const strengthItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '강도');
+                const carbItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '탄산화');
+                const tiltItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '기울기');
+                const settlementGroupsHwpx = allDispGroupsForHwpx.filter(g => !g.category || g.category === '변위');
+                const memberDispGroupsHwpx = allDispGroupsForHwpx.filter(g => g.category === '부재변위');
+
+                const findTblById = (tblId) => {
+                    const all = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+                    for (let i = 0; i < all.length; i++) {
+                        if (all[i].getAttribute('id') === tblId) return all[i];
+                    }
+                    return null;
+                };
+                // 표를 통째로 지울 때는 표를 담고 있는 hp:run만 문단에서 떼어낸다(문단 자체는 남겨서
+                // 바로 위 제목 문단 구조를 안 건드림 — 제목 글자가 빈 문단 위에 남는 정도는 허용).
+                const removeNdtTableById = (tblId) => {
+                    const tbl = findTblById(tblId);
+                    if (!tbl) return;
+                    const runEl = tbl.parentNode;
+                    if (runEl && runEl.parentNode) runEl.parentNode.removeChild(runEl);
+                };
+
+                // 데이터 행 채우기 (상태조사표의 행 clone 패턴 재사용). headerRowCount개 행은 그대로
+                // 두고 그 다음부터 표 끝까지가 데이터 행이다. rowsValues[i]는 colAddr=1번 칸부터 순서대로
+                // 들어갈 값 배열이다(0번 칸은 세로로 병합된 표 왼쪽 라벨 칸이라 건드리지 않는다).
+                const fillNdtTable = (tbl, headerRowCount, rowsValues) => {
+                    const allTrs = Array.from(tbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === tbl);
+                    const oldDataRows = allTrs.slice(headerRowCount);
+                    if (oldDataRows.length < 1) return;
+                    const borderStyleByColLocal = (row) => {
+                        const map = {};
+                        Array.from(row.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
+                            const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                            if (addr) map[addr.getAttribute('colAddr')] = tc.getAttribute('borderFillIDRef');
+                        });
+                        return map;
+                    };
+                    const firstStyleRow = oldDataRows[0];
+                    const normalStyleRow = oldDataRows.length > 2 ? oldDataRows[1] : oldDataRows[0];
+                    const lastStyleRow = oldDataRows[oldDataRows.length - 1];
+                    const styleMaps = {
+                        first: borderStyleByColLocal(firstStyleRow),
+                        normal: borderStyleByColLocal(normalStyleRow),
+                        last: borderStyleByColLocal(lastStyleRow)
+                    };
+                    oldDataRows.forEach(tr => tbl.removeChild(tr));
+                    rowsValues.forEach((values, idx) => {
+                        const styleMap = idx === 0 ? styleMaps.first : (idx === rowsValues.length - 1 ? styleMaps.last : styleMaps.normal);
+                        const newRow = normalStyleRow.cloneNode(true);
+                        Array.from(newRow.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
+                            const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                            if (!addr) return;
+                            const colAddr = addr.getAttribute('colAddr');
+                            addr.setAttribute('rowAddr', String(headerRowCount + idx));
+                            const bf = styleMap[colAddr];
+                            if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
+                            if (colAddr === '0') return;
+                            const colIdx = parseInt(colAddr, 10) - 1;
+                            const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
+                            const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
+                            if (paras.length > 0 && values[colIdx] !== undefined) {
+                                const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
+                                if (tNode) tNode.textContent = String(values[colIdx]);
+                                for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
+                            }
+                        });
+                        tbl.appendChild(newRow);
+                    });
+                    tbl.setAttribute('rowCnt', String(headerRowCount + rowsValues.length));
+                };
+
+                const insertNdtLocationMap = async (tblId, category) => {
+                    const tbl = findTblById(tblId);
+                    if (!tbl) return;
+                    const mapDataUrl = renderNdtFloorPlanCanvasDataUrl(floorCode, category);
+                    const pic = tbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
+                    if (!mapDataUrl || !pic) { removeNdtTableById(tblId); return; }
+                    const maxW = parseInt(pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
+                    const maxH = parseInt(pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
+                    const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
+                    const size = await loadImageSize(mapDataUrl);
+                    const imgId = `ndtMapAuto${tblId}`;
+                    zip.file(`BinData/${imgId}.${ext}`, bytes);
+                    manifestAdds.push(`<opf:item id="${imgId}" href="BinData/${imgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
+                    setPicImage(pic, imgId, size.w, size.h, maxW, maxH);
+                };
+
+                const STRENGTH_TBL_ID = '2119329126', STRENGTH_HEADER_ROWS = 1;
+                const CARB_TBL_ID = '2119328135', CARB_HEADER_ROWS = 1;
+                const STRENGTH_CARB_MAP_TBL_ID = '2137459495';
+                const TILT_TBL_ID = '1165079546', TILT_HEADER_ROWS = 2;
+                const TILT_MAP_TBL_ID = '1165079510';
+                const DISP_TBL_ID = '1165079547', DISP_HEADER_ROWS = 2;
+                const SETTLEMENT_MAP_TBL_ID = '1165079513';
+                const MEMBER_DISP_MAP_TBL_ID = '1165079516';
+
+                if (!isPreciseInspection) {
+                    [STRENGTH_TBL_ID, CARB_TBL_ID, STRENGTH_CARB_MAP_TBL_ID, TILT_TBL_ID, TILT_MAP_TBL_ID, DISP_TBL_ID, SETTLEMENT_MAP_TBL_ID, MEMBER_DISP_MAP_TBL_ID].forEach(removeNdtTableById);
+                } else {
+                    if (strengthItemsHwpx.length > 0) {
+                        const tbl = findTblById(STRENGTH_TBL_ID);
+                        if (tbl) fillNdtTable(tbl, STRENGTH_HEADER_ROWS, strengthItemsHwpx.map((item, i) => [
+                            item.no || (i + 1),
+                            `${item.location || ''}${item.component || ''}`,
+                            item.designStrength != null ? item.designStrength : '-',
+                            typeof item.strengthFinal === 'number' ? item.strengthFinal.toFixed(1) : (item.strengthFinal || '-'),
+                            item.strengthRatio != null ? `${Math.round(item.strengthRatio)}%` : '-',
+                            item.strengthGrade || '-',
+                            '-'
+                        ]));
+                    } else {
+                        removeNdtTableById(STRENGTH_TBL_ID);
+                    }
+
+                    if (carbItemsHwpx.length > 0) {
+                        const tbl = findTblById(CARB_TBL_ID);
+                        if (tbl) fillNdtTable(tbl, CARB_HEADER_ROWS, carbItemsHwpx.map((item, i) => [
+                            item.no || (i + 1),
+                            `${item.location || ''}${item.component || ''}`,
+                            item.carbDepth != null ? item.carbDepth : '-',
+                            item.carbCover != null ? item.carbCover : '-',
+                            typeof item.carbRemainMm === 'number' ? item.carbRemainMm.toFixed(2) : '-',
+                            typeof item.carbRate === 'number' ? item.carbRate.toFixed(2) : '-',
+                            typeof item.carbLifeYears === 'number' ? Math.round(item.carbLifeYears) : '-',
+                            typeof item.carbRemainingLifeYears === 'number' ? Math.round(item.carbRemainingLifeYears) : '-',
+                            item.carbAgeDays != null ? `약 ${Math.round(item.carbAgeDays / 365)}년` : '-',
+                            '-'
+                        ]));
+                    } else {
+                        removeNdtTableById(CARB_TBL_ID);
+                    }
+
+                    if (strengthItemsHwpx.length > 0 || carbItemsHwpx.length > 0) {
+                        await insertNdtLocationMap(STRENGTH_CARB_MAP_TBL_ID, '일반비파괴');
+                    } else {
+                        removeNdtTableById(STRENGTH_CARB_MAP_TBL_ID);
+                    }
+
+                    if (tiltItemsHwpx.length > 0) {
+                        const tbl = findTblById(TILT_TBL_ID);
+                        if (tbl) fillNdtTable(tbl, TILT_HEADER_ROWS, tiltItemsHwpx.map((item, i) => {
+                            const fmtH = formatHeightValue(item.height);
+                            const hDigits = (fmtH || '').replace(/[^0-9.]/g, '');
+                            const avgDigits = (item.avgValue || '').replace(/[^0-9.-]/g, '');
+                            const h = parseFloat(hDigits) || 3000;
+                            const delta = Math.abs(parseFloat(avgDigits) || 0);
+                            const calc = calcTiltGrade(h, delta);
+                            return [item.no || (i + 1), item.location || '-', fmtH || '-', '-', item.avgValue || '-', item.tiltRatio || calc.tiltRatio, item.grade || calc.grade];
+                        }));
+                        await insertNdtLocationMap(TILT_MAP_TBL_ID, '기울기');
+                    } else {
+                        removeNdtTableById(TILT_TBL_ID);
+                        removeNdtTableById(TILT_MAP_TBL_ID);
+                    }
+
+                    // 결과표는 템플릿에 하나뿐이라 부동침하 그룹 먼저, 이어서 부재처짐 그룹 순으로 한
+                    // 표에 담는다. 위치도는 부동침하용/부재처짐용이 템플릿에 각각 따로 있어서 둘 다 채운다.
+                    const combinedDispGroups = [...settlementGroupsHwpx, ...memberDispGroupsHwpx];
+                    if (combinedDispGroups.length > 0) {
+                        const tbl = findTblById(DISP_TBL_ID);
+                        if (tbl) fillNdtTable(tbl, DISP_HEADER_ROWS, combinedDispGroups.map((group, i) => {
+                            const calc = calcGroupDisplacement(group);
+                            const label = `${group.locationType || '-'}(${group.category === '부재변위' ? '처짐' : '부동침하'})`;
+                            return [i + 1, label, group.measureLength || '-', '-', calc.delta.toFixed(1), calc.tiltRatio, calc.grade];
+                        }));
+                    } else {
+                        removeNdtTableById(DISP_TBL_ID);
+                    }
+
+                    if (settlementGroupsHwpx.length > 0) {
+                        await insertNdtLocationMap(SETTLEMENT_MAP_TBL_ID, '변위');
+                    } else {
+                        removeNdtTableById(SETTLEMENT_MAP_TBL_ID);
+                    }
+
+                    if (memberDispGroupsHwpx.length > 0) {
+                        await insertNdtLocationMap(MEMBER_DISP_MAP_TBL_ID, '부재변위');
+                    } else {
+                        removeNdtTableById(MEMBER_DISP_MAP_TBL_ID);
+                    }
+                }
+            } catch (ndtErr) {
+                console.error('비파괴조사 섹션 삽입 실패(나머지는 계속 진행):', ndtErr);
+                window.showToast('비파괴조사 섹션 삽입 중 오류가 있어 해당 부분은 제외하고 만듭니다: ' + ndtErr.message, 'warning', 5000);
             }
 
             if (manifestAdds.length > 0) {
