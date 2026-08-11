@@ -8586,6 +8586,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.exportHwpxSurveyTable = async function() {
         const floorCode = window.state.currentFloor;
         if (!floorCode) { window.showToast('층을 먼저 선택해주세요.', 'warning'); return; }
+        const getFloorLabel = () => {
+            const bldg = window.state.currentBuilding || {};
+            const f = (bldg.floorsList || []).find(f => f.floorCode === floorCode);
+            return f ? f.floorLabel : floorCode;
+        };
 
         const defects = consolidateDefectGroups(getCurrentFloorDefects());
         if (!defects.length) { window.showToast('현재 층에 등록된 결함이 없습니다.', 'warning'); return; }
@@ -8620,6 +8625,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (allTables[i].getAttribute('id') === TARGET_TABLE_ID) { targetTbl = allTables[i]; break; }
             }
             if (!targetTbl) throw new Error('템플릿에서 상태조사표를 찾지 못했습니다.');
+
+            // 표 바로 위에는 원본 샘플 문서의 "A동" / "1) 지하1층" 같은 고정 텍스트 문단이 그대로
+            // 남아있었다. 표 안의 데이터는 실제 선택한 층으로 바뀌는데 이 제목만 그대로 있으면
+            // "제목은 지하1층인데 내용은 다른 층"처럼 헷갈리므로, 실제 층 이름으로 바꾸고
+            // 층/동 구분이 없는 이 앱 데이터 모델과 안 맞는 "동" 줄은 비워 둔다.
+            {
+                const table49Para = targetTbl.parentNode.parentNode;
+                const floorHeadingPara = table49Para.previousElementSibling;
+                const dongHeadingPara = floorHeadingPara ? floorHeadingPara.previousElementSibling : null;
+                if (floorHeadingPara) {
+                    const t = floorHeadingPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                    if (t) t.textContent = getFloorLabel();
+                }
+                if (dongHeadingPara) {
+                    const t = dongHeadingPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                    if (t) t.textContent = '';
+                }
+            }
 
             const HEADER_ROW_COUNT = 1; // 표 상단 1줄(구분/위치/... 헤더)은 그대로 둔다. 구조체구분은 구조/비구조 하위 2칸을 합쳐 헤더가 1줄로 줄었다
             const allTrs = Array.from(targetTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === targetTbl);
@@ -8917,13 +8940,9 @@ document.addEventListener('DOMContentLoaded', () => {
                         manifestAdds.push(`<opf:item id="${mapImgId}" href="BinData/${mapImgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
                         setPicImage(mapPic, mapImgId, size.w, size.h, mapMaxW, mapMaxH);
 
-                        const floorLabel = (() => {
-                            const f = (bldgForMap.floorsList || []).find(f => f.floorCode === floorCode);
-                            return f ? f.floorLabel : floorCode;
-                        })();
                         const captionTc = locationMapTbl.getElementsByTagNameNS(HP_NS, 'tc')[1];
                         const captionT = captionTc.getElementsByTagNameNS(HP_NS, 't')[0];
-                        if (captionT) captionT.textContent = `${floorLabel} 결함위치도`;
+                        if (captionT) captionT.textContent = `${getFloorLabel()} 결함위치도`;
                     } else {
                         window.showToast('현재 층에 등록된 도면이 없어 위치도는 제외하고 만듭니다.', 'info', 4000);
                     }
