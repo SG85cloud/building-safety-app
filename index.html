@@ -922,7 +922,7 @@
                 <div class="form-row" style="display: flex; gap: 0.8rem;">
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label">📌 측정 관리번호 *</label>
-                        <input type="text" id="ndtNo" class="form-control" value="강도-01" readonly style="font-weight: 800; color: #38bdf8;">
+                        <input type="text" id="ndtNo" class="form-control" value="강도-01" style="font-weight: 800; color: #38bdf8;">
                     </div>
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label">🔬 비파괴 조사 항목 *</label>
@@ -991,17 +991,6 @@
 
                 <!-- Concrete Strength (콘크리트 강도/반발경도) Dedicated Fields Group -->
                 <div id="groupNdtStrengthFields" style="display: none; flex-direction: column; gap: 0.8rem;">
-                    <div class="form-group">
-                        <label class="form-label">📷 R값 측정지 사진 스캔 (사진에서 숫자 자동 인식)</label>
-                        <div style="display:flex; gap:0.5rem;">
-                            <button type="button" id="btnScanRValues" class="btn" style="flex:1; background: linear-gradient(135deg, #0284c7, #0369a1); color:white; font-size:0.85rem;">
-                                <i class="fa-solid fa-camera"></i> 📷 측정지 사진으로 자동 인식
-                            </button>
-                            <input type="file" id="inputScanRValues" accept="image/*" style="display:none;">
-                        </div>
-                        <div id="rScanStatus" style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;"></div>
-                    </div>
-
                     <div class="form-row" style="display:flex; gap:0.8rem;">
                         <div class="form-group" style="flex:1;">
                             <label class="form-label">📐 측정 각도 (타격 방향)</label>
@@ -1019,26 +1008,13 @@
                         </div>
                     </div>
 
-                    <div class="form-group">
-                        <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                            <span>🔢 R값 (반발경도) — 최대 20개, 인식/입력 후 꼭 확인해주세요</span>
-                            <button type="button" id="btnAddRValue" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8;"><i class="fa-solid fa-plus"></i> 추가</button>
-                        </label>
-                        <div id="ndtRValuesList" style="display:flex; flex-wrap:wrap; gap:0.4rem;"></div>
-                    </div>
-
-                    <div style="background: rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.3); border-radius:8px; padding:0.7rem 0.9rem; font-size:0.82rem;">
-                        <div id="ndtStrengthCalcSummary" style="margin-bottom:0.5rem; color:var(--text-muted);">R값을 입력하면 자동으로 계산됩니다.</div>
-                        <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
-                            <thead>
-                                <tr style="text-align:left; color:var(--text-muted); border-bottom:1px solid rgba(2,132,199,0.3);">
-                                    <th style="padding:0.25rem 0.4rem;">추정식</th>
-                                    <th style="padding:0.25rem 0.4rem; text-align:right;">압축강도 (MPa)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ndtStrengthFormulaResults"></tbody>
-                        </table>
-                    </div>
+                    <!-- 위치 슬롯(최대 3개) — 같은 부재라도 면(플렌지/웨브 등)별로 타격 위치와 R값을
+                         따로 기록해야 할 때가 있어서, 위치+R값 묶음을 최대 3개까지 반복할 수 있게 한다.
+                         슬롯별 실제 내용(스캔 버튼/R값 목록/결과 요약)은 JS(renderNdtStrengthSlots)가 채운다. -->
+                    <div id="ndtStrengthSlotsContainer" style="display:flex; flex-direction:column; gap:0.8rem;"></div>
+                    <button type="button" id="btnAddStrengthSlot" class="btn btn-sm btn-outline" style="align-self:flex-start; border-color:#38bdf8; color:#38bdf8;">
+                        <i class="fa-solid fa-plus"></i> 위치 추가 (같은 부재의 다른 면, 최대 3개)
+                    </button>
                 </div>
 
                 <!-- 콘크리트 탄산화(중성화) 전용 필드 그룹 -->
