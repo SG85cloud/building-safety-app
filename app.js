@@ -8875,7 +8875,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- HWPX(한글) 상태조사표 내보내기 (시험 기능: 현재 층, 표 1페이지=최대 15행분만 지원) ---
+    // --- HWPX(한글) 상태조사표 내보내기 (시험 기능: 전체 층, 건수/사진 매수 제한 없음) ---
     // 번들 템플릿(templates/hwpx_survey_template.hwpx)의 상태조사표 표(id=1122472057) 안에 있는
     // 기존 데이터 행을 전부 지우고, 지금 앱에 등록된 현재 층 결함 개수만큼 행을 새로 복제해 채운다.
     // 표 테두리는 "첫 행(위 굵은선)/중간 행(얇은선)/마지막 행(아래 굵은선)" 3가지 스타일을 템플릿 표
@@ -8898,22 +8898,18 @@ document.addEventListener('DOMContentLoaded', () => {
             availableFloors = [window.state.currentFloor];
         }
 
-        const MAX_ROWS_PER_PAGE = 15;
-        const truncatedRowFloors = [];
+        // 미리보기(PDF)처럼 층당 건수 제한 없이 전부 반영한다. 표 행이 많아지면 한글 워드프로세서가
+        // 표를 자동으로 다음 페이지까지 이어 그려주므로(우리가 페이지를 직접 나눠 만들 필요 없음),
+        // 행 수를 페이지 단위로 자르지 않고 결함 개수만큼 그대로 행을 추가한다.
         const floorsData = [];
         availableFloors.forEach(fc => {
             const key = `${bldgId}_${fc}`;
             const rawDefects = window.state.defects[key] || (window.state.currentFloor === fc ? getCurrentFloorDefects() : []);
             const defects = consolidateDefectGroups(rawDefects);
             if (!defects.length) return;
-            const pageDefects = defects.slice(0, MAX_ROWS_PER_PAGE);
-            if (defects.length > MAX_ROWS_PER_PAGE) truncatedRowFloors.push(getFloorLabel(fc));
-            floorsData.push({ floorCode: fc, pageDefects });
+            floorsData.push({ floorCode: fc, pageDefects: defects });
         });
         if (!floorsData.length) { window.showToast('등록된 결함이 없습니다.', 'warning'); return; }
-        if (truncatedRowFloors.length > 0) {
-            window.showToast(`시험 기능은 층별 표 1페이지(최대 ${MAX_ROWS_PER_PAGE}건)까지만 지원합니다. 초과분은 반영되지 않았습니다: ${truncatedRowFloors.join(', ')}`, 'info', 6000);
-        }
 
         window.showLoading('한글(hwpx) 상태조사표를 생성하는 중입니다...');
         try {
@@ -9058,8 +9054,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 : null;
             if (!window._photoCache) window._photoCache = {};
 
-            const truncatedPhotoFloors = [];
-
             for (let slotIdx = 0; slotIdx < floorsData.length; slotIdx++) {
                 const { floorCode, pageDefects } = floorsData[slotIdx];
                 const slot = floorSlots[slotIdx];
@@ -9179,9 +9173,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
                 if (photoDefects.length > 0) { try {
                     const photoTbl = slot.photoTbl;
-                    const MAX_PHOTOS = 10;
-                    const items = photoDefects.slice(0, MAX_PHOTOS);
-                    if (photoDefects.length > MAX_PHOTOS) truncatedPhotoFloors.push(getFloorLabel(floorCode));
+                    // 미리보기(PDF)처럼 장수 제한 없이 사진이 있는 결함 전부를 반영한다(표를 필요한
+                    // 만큼 계속 복제해서 채우므로 장수 자체에는 구조적 제약이 없다).
+                    const items = photoDefects;
 
                     const tplPics = photoTbl.getElementsByTagNameNS(HP_NS, 'pic');
                     const maxW = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
@@ -9297,10 +9291,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error(`${floorCode} 위치도 삽입 실패(나머지는 계속 진행):`, mapErr);
                     window.showToast(`${getFloorLabel(floorCode)} 위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.`, 'warning', 4000);
                 }
-            }
-
-            if (truncatedPhotoFloors.length > 0) {
-                window.showToast(`시험 기능은 층별 사진 최대 10장까지만 지원합니다. 초과분은 반영되지 않았습니다: ${truncatedPhotoFloors.join(', ')}`, 'info', 6000);
             }
 
             // 실제로 채운 블록 다음에 남은 표본 층 블록은 (비파괴조사 섹션 정리와 함께) 뒤에서 지운다.
