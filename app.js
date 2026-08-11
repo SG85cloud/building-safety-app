@@ -518,6 +518,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // (saveStateToLocalStorage는 아주 자주 호출되므로, 안 그러면 같은 이미지를 계속 다시 쓰게 된다)
     const _idbPersistedDrawingKeys = new Set();
     const _idbPersistedPhotoKeys = new Set();
+    // 저장이 아직 끝나지 않은 키(진행 중). 실제 저장이 성공하기 전까지는 "저장됨"으로
+    // 표시하지 않아서, 실패 시 다음 saveStateToLocalStorage 호출 때 재시도되게 한다.
+    const _idbPendingDrawingKeys = new Set();
+    const _idbPendingPhotoKeys = new Set();
+    let _idbSaveFailedNotified = false;
+
+    function notifyIndexedDbSaveFailure() {
+        if (_idbSaveFailedNotified) return;
+        _idbSaveFailedNotified = true;
+        if (typeof window.showToast === 'function') {
+            window.showToast('사진/도면을 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.', 'error', 6000);
+        }
+    }
 
     // 결함 사진은 편집 시 배열 전체가 통째로 교체되는데(같은 인덱스라도 실제 사진이
     // 바뀔 수 있음), "이미 저장했다"는 기록을 그대로 두면 바뀐 사진이 IndexedDB에
@@ -539,9 +552,17 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.entries(drawings).forEach(([floorCode, dataUrl]) => {
                 if (!dataUrl) return;
                 const key = `${b.id}_${floorCode}`;
-                if (_idbPersistedDrawingKeys.has(key)) return;
-                _idbPersistedDrawingKeys.add(key);
-                idbSet('floorDrawings', key, dataUrl);
+                if (_idbPersistedDrawingKeys.has(key) || _idbPendingDrawingKeys.has(key)) return;
+                _idbPendingDrawingKeys.add(key);
+                idbSet('floorDrawings', key, dataUrl).then(ok => {
+                    _idbPendingDrawingKeys.delete(key);
+                    if (ok) {
+                        _idbPersistedDrawingKeys.add(key);
+                        _idbSaveFailedNotified = false;
+                    } else {
+                        notifyIndexedDbSaveFailure();
+                    }
+                });
             });
         });
         Object.values(defectsMap || {}).forEach(arr => {
@@ -550,9 +571,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 d.photos.forEach((url, i) => {
                     if (!url) return;
                     const key = getPhotoDocId(d.id, i);
-                    if (_idbPersistedPhotoKeys.has(key)) return;
-                    _idbPersistedPhotoKeys.add(key);
-                    idbSet('photos', key, url);
+                    if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
+                    _idbPendingPhotoKeys.add(key);
+                    idbSet('photos', key, url).then(ok => {
+                        _idbPendingPhotoKeys.delete(key);
+                        if (ok) {
+                            _idbPersistedPhotoKeys.add(key);
+                            _idbSaveFailedNotified = false;
+                        } else {
+                            notifyIndexedDbSaveFailure();
+                        }
+                    });
                 });
             });
         });
@@ -4105,7 +4134,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const bldg = window.state.currentBuilding;
         if (!bldg) return;
         const current = getEnabledStrengthFormulaNames(bldg);
-        const next = current.includes(formulaName) ? current.filter(n => n !== formulaName) : [...current, formulaName];
+        const isCurrentlyEnabled = current.includes(formulaName);
+        // 마지막 남은 하나까지 끄면 "설정 안 함(=전체 포함)"과 구분이 안 돼 조용히 3개
+        // 전부 되돌아오므로, 최소 1개는 항상 켜져 있도록 막는다.
+        if (isCurrentlyEnabled && current.length <= 1) {
+            if (typeof window.showToast === 'function') {
+                window.showToast('추정식은 최소 1개는 선택되어 있어야 합니다.', 'error', 3000);
+            }
+            recalcAllStrengthSlots();
+            return;
+        }
+        const next = isCurrentlyEnabled ? current.filter(n => n !== formulaName) : [...current, formulaName];
         bldg.enabledStrengthFormulas = next;
         saveStateToLocalStorage();
         recalcAllStrengthSlots();
@@ -7749,6 +7788,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 지하/지상 여부가 다르면 아무리 문자열이 비슷해도(예: "B1F"가 "1F"를 포함) 매칭하지
+    // 않는다. 지하1층 조회에 지상1층 도면이 잘못 걸리는 사고를 막기 위함.
+    function isBasementFloorCode(code) {
+        const c = (code || '').replace(/\s+/g, '').toUpperCase();
+        return c.startsWith('B') || c.includes('지하');
+    }
+
     function getFloorDrawingSrc(bldg, floorCode) {
         if (!bldg || !bldg.floorDrawings) return null;
         const drawings = bldg.floorDrawings;
@@ -7759,13 +7805,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. Dong-to-Floor & Floor-to-Dong Mapping Lookup
         const dongToFloor = { '101동': '1F', '102동': '2F', '103동': '3F', '104동': '4F', '105동': '5F' };
         const floorToDong = { '1F': '101동', '2F': '102동', '3F': '103동', '4F': '104동', '5F': '105동' };
-        
+
         if (dongToFloor[floorCode] && drawings[dongToFloor[floorCode]]) return drawings[dongToFloor[floorCode]];
         if (floorToDong[floorCode] && drawings[floorToDong[floorCode]]) return drawings[floorToDong[floorCode]];
+
+        const floorIsBasement = isBasementFloorCode(floorCode);
 
         // 3. Case-insensitive / clean string match
         const cleanFloor = (floorCode || '').replace(/\s+/g, '').toUpperCase();
         for (const [k, v] of Object.entries(drawings)) {
+            if (isBasementFloorCode(k) !== floorIsBasement) continue;
             const cleanK = k.replace(/\s+/g, '').toUpperCase();
             if (cleanK === cleanFloor || cleanK.includes(cleanFloor) || cleanFloor.includes(cleanK)) {
                 return v;
@@ -7777,6 +7826,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (numMatch) {
             const numStr = numMatch[0];
             for (const [k, v] of Object.entries(drawings)) {
+                if (isBasementFloorCode(k) !== floorIsBasement) continue;
                 if (k.includes(numStr)) return v;
             }
         }
@@ -9415,6 +9465,78 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (ndtErr) {
                 console.error('비파괴조사 섹션 삽입 실패(나머지는 계속 진행):', ndtErr);
                 window.showToast('비파괴조사 섹션 삽입 중 오류가 있어 해당 부분은 제외하고 만듭니다: ' + ndtErr.message, 'warning', 5000);
+            }
+
+            // ---- 표본 템플릿 잔여 내용 정리 ----
+            // 템플릿(hwpx_survey_template.hwpx)은 완성된 표본 보고서 원본이라, 위에서 표 ID로
+            // 찾아 갈아 끼운 것(상태조사표 1개/사진첩/결함위치도/비파괴조사 5개 섹션) 말고는
+            // 표본 데이터가 그대로 남아있다 — 다른 층들의 상태조사표/사진첩/위치도 전체와,
+            // 표본 건물의 "비파괴 장비조사 사진첩"(예: "콘크리트 반발경도 측정" 캡션이 붙은
+            // 표본 사진)이 대표적이다. 이걸 지우지 않으면 실제 결함 사진과 무관한 표본 사진이
+            // 내보낸 문서에 섞여 나온다. 실패해도 이미 만든 상태조사표/사진/위치도는 살려서
+            // 내보내야 하므로 전체를 try/catch로 감싼다.
+            try {
+                const sec = xmlDoc.getElementsByTagName('hs:sec')[0];
+                if (sec && targetTbl) {
+                    const paraText = (p) => Array.from(p.getElementsByTagNameNS(HP_NS, 't')).map(t => t.textContent).join('');
+                    const children = () => Array.from(sec.children).filter(c => c.localName === 'p');
+                    const removeRange = (fromP, toP) => {
+                        const all = children();
+                        const start = all.indexOf(fromP);
+                        const end = toP ? all.indexOf(toP) : all.length;
+                        if (start < 0 || end < 0 || end <= start) return;
+                        for (let i = end - 1; i >= start; i--) sec.removeChild(all[i]);
+                    };
+
+                    // 1) 우리가 실제로 채운 상태조사표(targetTbl) 다음에 나오는 "N) 층명" 표본
+                    //    블록부터 문서 끝까지는 전부 다른(표본) 층들이다. 통째로 삭제한다.
+                    const floorTitleRe = /^\d+\)\s*.+층/;
+                    const statusPara = targetTbl.parentNode.parentNode;
+                    const allParas = children();
+                    const statusIdx = allParas.indexOf(statusPara);
+                    let nextFloorPara = null;
+                    for (let i = statusIdx + 1; i < allParas.length; i++) {
+                        if (floorTitleRe.test(paraText(allParas[i]).trim())) { nextFloorPara = allParas[i]; break; }
+                    }
+                    if (nextFloorPara) removeRange(nextFloorPara, null);
+
+                    // "비파괴 장비조사 사진첩"(표본 NDT 사진, 우리 코드가 다루지 않음) 섹션과
+                    // "비파괴 장비조사 위치도" 섹션의 경계를 먼저 찾아둔다(둘 다 뒤에서 쓴다).
+                    const albumStart = children().find(p => /^비파괴 장비조사 사진첩/.test(paraText(p).trim()));
+                    const surveyHeading = children().find(p => /^주요 상태조사표, 사진 및 위치도/.test(paraText(p).trim()));
+
+                    // 2) "비파괴 장비조사 위치도" 섹션 중 우리가 실제로 채운 지도(강도/탄산화·
+                    //    외벽기울기·부동침하·부재처짐)가 들어있는 문단(및 그 캡션)만 남기고,
+                    //    우리가 안 다루는 항목(부재실측 위치도, 내화피복 측정 위치도 등)의
+                    //    표본 이미지 문단은 지운다. albumStart를 경계로 쓰므로, 이 문단을
+                    //    실제로 지우는 다음 단계보다 먼저 실행해야 한다.
+                    const HANDLED_MAP_TBL_IDS = ['2137459495', '1165079510', '1165079513', '1165079516'];
+                    const mapStart = children().find(p => paraText(p).trim() === '비파괴 장비조사 위치도');
+                    if (mapStart && albumStart) {
+                        const all = children();
+                        const s = all.indexOf(mapStart) + 1;
+                        const e = all.indexOf(albumStart);
+                        if (s >= 0 && e > s) {
+                            const keepSet = new Set();
+                            for (let i = s; i < e; i++) {
+                                const tbls = Array.from(all[i].getElementsByTagNameNS(HP_NS, 'tbl')).map(t => t.getAttribute('id'));
+                                if (tbls.some(id => HANDLED_MAP_TBL_IDS.includes(id))) keepSet.add(i);
+                            }
+                            Array.from(keepSet).forEach(i => {
+                                const prev = i - 1;
+                                if (prev >= s && Array.from(all[prev].getElementsByTagNameNS(HP_NS, 'tbl')).length === 0) keepSet.add(prev);
+                            });
+                            for (let i = e - 1; i >= s; i--) {
+                                if (!keepSet.has(i)) sec.removeChild(all[i]);
+                            }
+                        }
+                    }
+
+                    // 3) "비파괴 장비조사 사진첩" 섹션 전체 삭제 (위 2번보다 반드시 나중에 실행)
+                    if (albumStart) removeRange(albumStart, surveyHeading || null);
+                }
+            } catch (cleanupErr) {
+                console.error('표본 템플릿 잔여 내용 정리 실패(나머지는 유지):', cleanupErr);
             }
 
             if (manifestAdds.length > 0) {
