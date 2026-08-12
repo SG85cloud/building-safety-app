@@ -518,19 +518,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // (saveStateToLocalStorage는 아주 자주 호출되므로, 안 그러면 같은 이미지를 계속 다시 쓰게 된다)
     const _idbPersistedDrawingKeys = new Set();
     const _idbPersistedPhotoKeys = new Set();
-    // 저장이 아직 끝나지 않은 키(진행 중). 실제 저장이 성공하기 전까지는 "저장됨"으로
-    // 표시하지 않아서, 실패 시 다음 saveStateToLocalStorage 호출 때 재시도되게 한다.
-    const _idbPendingDrawingKeys = new Set();
-    const _idbPendingPhotoKeys = new Set();
-    let _idbSaveFailedNotified = false;
-
-    function notifyIndexedDbSaveFailure() {
-        if (_idbSaveFailedNotified) return;
-        _idbSaveFailedNotified = true;
-        if (typeof window.showToast === 'function') {
-            window.showToast('사진/도면을 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.', 'error', 6000);
-        }
-    }
 
     // 결함 사진은 편집 시 배열 전체가 통째로 교체되는데(같은 인덱스라도 실제 사진이
     // 바뀔 수 있음), "이미 저장했다"는 기록을 그대로 두면 바뀐 사진이 IndexedDB에
@@ -552,17 +539,9 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.entries(drawings).forEach(([floorCode, dataUrl]) => {
                 if (!dataUrl) return;
                 const key = `${b.id}_${floorCode}`;
-                if (_idbPersistedDrawingKeys.has(key) || _idbPendingDrawingKeys.has(key)) return;
-                _idbPendingDrawingKeys.add(key);
-                idbSet('floorDrawings', key, dataUrl).then(ok => {
-                    _idbPendingDrawingKeys.delete(key);
-                    if (ok) {
-                        _idbPersistedDrawingKeys.add(key);
-                        _idbSaveFailedNotified = false;
-                    } else {
-                        notifyIndexedDbSaveFailure();
-                    }
-                });
+                if (_idbPersistedDrawingKeys.has(key)) return;
+                _idbPersistedDrawingKeys.add(key);
+                idbSet('floorDrawings', key, dataUrl);
             });
         });
         Object.values(defectsMap || {}).forEach(arr => {
@@ -571,17 +550,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 d.photos.forEach((url, i) => {
                     if (!url) return;
                     const key = getPhotoDocId(d.id, i);
-                    if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
-                    _idbPendingPhotoKeys.add(key);
-                    idbSet('photos', key, url).then(ok => {
-                        _idbPendingPhotoKeys.delete(key);
-                        if (ok) {
-                            _idbPersistedPhotoKeys.add(key);
-                            _idbSaveFailedNotified = false;
-                        } else {
-                            notifyIndexedDbSaveFailure();
-                        }
-                    });
+                    if (_idbPersistedPhotoKeys.has(key)) return;
+                    _idbPersistedPhotoKeys.add(key);
+                    idbSet('photos', key, url);
                 });
             });
         });
@@ -3758,16 +3729,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return { label: 'e', code: 'e' };
     }
 
-    // 건물별로 평균에 포함할 추정식을 고를 수 있게 한다. 아직 한 번도 고르지 않은 건물(설정값
-    // 없음)은 기존 동작 그대로 3개 다 포함한다.
-    function getEnabledStrengthFormulaNames(bldg) {
-        const all = CONCRETE_STRENGTH_FORMULAS.map(f => f.name);
-        const saved = bldg && Array.isArray(bldg.enabledStrengthFormulas) ? bldg.enabledStrengthFormulas : null;
-        if (!saved || saved.length === 0) return all;
-        return all.filter(name => saved.includes(name));
-    }
-
-    function calcConcreteStrength(readings, angleDeg, ageDays, enabledFormulaNames) {
+    function calcConcreteStrength(readings, angleDeg, ageDays) {
         const nums = (readings || []).map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
         if (nums.length === 0) return null;
 
@@ -3782,20 +3744,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const correction = getAngleCorrection(finalAvg, angleDeg);
         const ro = finalAvg + correction;
 
-        const enabledNames = (enabledFormulaNames && enabledFormulaNames.length > 0)
-            ? enabledFormulaNames
-            : CONCRETE_STRENGTH_FORMULAS.map(f => f.name);
         const results = CONCRETE_STRENGTH_FORMULAS.map(f => ({
             name: f.name,
-            value: f.calc(ro),
-            enabled: enabledNames.includes(f.name)
+            value: f.calc(ro)
         }));
 
-        // 최종 강도(FC) = 체크된 추정식 결과 평균 × α(재령보정계수). 하나도 안 골랐으면(실수로
-        // 전부 해제) 평균이 안 나오니 안전하게 3개 전부로 되돌려 계산한다.
-        const includedResults = results.filter(r => r.enabled);
-        const avgSource = includedResults.length > 0 ? includedResults : results;
-        const formulaAvg = avgSource.reduce((a, r) => a + r.value, 0) / avgSource.length;
+        // 최종 강도(FC) = 추정식 결과 평균 × α(재령보정계수). 준공일이 없어 재령을
+        // 못 구하면 α 없이(=1) 평균값을 그대로 최종 강도로 보여준다.
+        const formulaAvg = results.reduce((a, r) => a + r.value, 0) / results.length;
         const alpha = getAgeCorrectionFactor(ageDays);
         const finalStrength = formulaAvg * (alpha !== null ? alpha : 1);
 
@@ -3838,12 +3794,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (carbGrp) carbGrp.style.display = (cat === '탄산화') ? 'flex' : 'none';
         if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화') ? 'none' : 'block';
 
-        // 강도는 위치를 슬롯별로(최대 3개) 따로 입력받으므로, 공용 위치 입력칸은 강도일 때만 숨긴다
-        // (부재 구분 선택은 계속 공용으로 씀).
-        const commonLocationGrp = document.getElementById('ndtLocation')?.closest('.form-group');
-        if (commonLocationGrp) commonLocationGrp.style.display = (cat === '강도') ? 'none' : '';
-        if (cat === '강도') renderNdtStrengthSlots();
-
         if (cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
             if (statusGrp) statusGrp.style.display = 'none';
@@ -3880,140 +3830,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 콘크리트 강도 위치 슬롯 UI (위치+R값 묶음, 최대 3개) ---
-    // 같은 부재라도 플렌지/웨브처럼 면마다 따로 타격해서 R값을 20개씩 따로 찍는 경우가 있어서,
-    // {location, readings} 묶음을 최대 3개까지 반복할 수 있게 한다. 슬롯 1개짜리(기존과 동일한
-    // 흔한 경우)는 그대로 예전처럼 동작한다.
-    let ndtStrengthSlots = [{ location: '', readings: [] }];
-    const MAX_STRENGTH_SLOTS = 3;
-    const MAX_R_VALUES_PER_SLOT = 20;
+    // --- 콘크리트 강도 R값 목록 UI (최대 20개) ---
+    let ndtRValues = [];
 
-    function rValueChipsHtml(slotIdx) {
-        const readings = ndtStrengthSlots[slotIdx].readings;
-        return readings.map((v, i) => `
+    function renderNdtRValuesList() {
+        const container = document.getElementById('ndtRValuesList');
+        if (!container) return;
+        container.innerHTML = ndtRValues.map((v, i) => `
             <span style="display:flex; align-items:center; gap:0.15rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:6px; padding:0.15rem 0.15rem 0.15rem 0.4rem;">
                 <span style="font-size:0.7rem; color:var(--text-muted);">${i + 1}</span>
-                <input type="number" step="1" class="form-control ndt-r-value-input" data-slot="${slotIdx}" data-idx="${i}" value="${v !== null && v !== undefined ? v : ''}" style="width:52px; padding:0.2rem 0.3rem; border:none; background:transparent;">
-                <button type="button" class="ndt-r-value-remove" data-slot="${slotIdx}" data-idx="${i}" title="삭제" style="border:none; background:transparent; color:#ef4444; cursor:pointer; padding:0 0.3rem;">×</button>
+                <input type="number" step="1" class="form-control ndt-r-value-input" data-idx="${i}" value="${v !== null && v !== undefined ? v : ''}" style="width:52px; padding:0.2rem 0.3rem; border:none; background:transparent;">
+                <button type="button" class="ndt-r-value-remove" data-idx="${i}" title="삭제" style="border:none; background:transparent; color:#ef4444; cursor:pointer; padding:0 0.3rem;">×</button>
             </span>
-        `).join('') + (readings.length === 0 ? '<span style="font-size:0.78rem; color:var(--text-muted);">R값을 추가하거나 사진으로 스캔해주세요.</span>' : '');
-    }
+        `).join('') + (ndtRValues.length === 0 ? '<span style="font-size:0.78rem; color:var(--text-muted);">R값을 추가하거나 사진으로 스캔해주세요.</span>' : '');
 
-    function wireRValueChipEvents(slotIdx) {
-        const container = document.getElementById(`ndtRValuesList-${slotIdx}`);
-        if (!container) return;
         container.querySelectorAll('.ndt-r-value-input').forEach(el => {
             el.addEventListener('input', (e) => {
                 const idx = parseInt(e.target.dataset.idx, 10);
-                ndtStrengthSlots[slotIdx].readings[idx] = e.target.value;
-                recalcStrengthSlot(slotIdx);
+                ndtRValues[idx] = e.target.value;
+                recalcNdtStrength();
             });
         });
         container.querySelectorAll('.ndt-r-value-remove').forEach(el => {
             el.addEventListener('click', (e) => {
                 const idx = parseInt(e.currentTarget.dataset.idx, 10);
-                ndtStrengthSlots[slotIdx].readings.splice(idx, 1);
-                container.innerHTML = rValueChipsHtml(slotIdx);
-                wireRValueChipEvents(slotIdx);
-                recalcStrengthSlot(slotIdx);
+                ndtRValues.splice(idx, 1);
+                renderNdtRValuesList();
+                recalcNdtStrength();
             });
         });
     }
 
-    function addNdtRValueToSlot(slotIdx, value) {
-        const slot = ndtStrengthSlots[slotIdx];
-        if (!slot) return;
-        if (slot.readings.length >= MAX_R_VALUES_PER_SLOT) {
-            window.showToast(`R값은 위치당 최대 ${MAX_R_VALUES_PER_SLOT}개까지 입력할 수 있습니다.`, 'warning');
+    function addNdtRValue(value) {
+        if (ndtRValues.length >= 20) {
+            window.showToast('R값은 최대 20개까지 입력할 수 있습니다.', 'warning');
             return;
         }
-        slot.readings.push(value !== undefined ? value : '');
-        const container = document.getElementById(`ndtRValuesList-${slotIdx}`);
-        if (container) { container.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
-    }
-
-    // 위치 슬롯 전체(카드 자체)를 다시 그린다 — 슬롯을 추가/삭제할 때만 호출(입력 중에는 각 칸의
-    // input 이벤트가 데이터만 갱신하고 다시 그리지 않아서 커서가 안 튄다).
-    function renderNdtStrengthSlots() {
-        const container = document.getElementById('ndtStrengthSlotsContainer');
-        const addBtn = document.getElementById('btnAddStrengthSlot');
-        if (!container) return;
-
-        container.innerHTML = ndtStrengthSlots.map((slot, idx) => `
-            <div class="ndt-strength-slot" style="border:1px solid var(--border-color); border-radius:10px; padding:0.8rem; display:flex; flex-direction:column; gap:0.6rem;">
-                <div style="display:flex; gap:0.6rem; align-items:flex-end;">
-                    <div class="form-group" style="flex:1; margin:0;">
-                        <label class="form-label">📍 위치 ${idx + 1}${idx === 0 ? '' : ' (같은 부재의 다른 면)'} *</label>
-                        <input type="text" class="form-control ndt-strength-slot-location" data-slot="${idx}" value="${slot.location || ''}" placeholder="${idx === 0 ? '예: 101동 1F 기둥 C1 하부' : '예: 플렌지 / 웨브'}">
-                    </div>
-                    ${idx > 0 ? `<button type="button" class="btn btn-sm ndt-strength-slot-remove" data-slot="${idx}" title="이 위치 삭제" style="border:1px solid #ef4444; color:#ef4444; background:transparent; height:38px;"><i class="fa-solid fa-trash"></i></button>` : ''}
-                </div>
-
-                <div style="display:flex; gap:0.5rem;">
-                    <button type="button" class="btn ndt-strength-slot-scan" data-slot="${idx}" style="flex:1; background: linear-gradient(135deg, #0284c7, #0369a1); color:white; font-size:0.85rem;">
-                        <i class="fa-solid fa-camera"></i> 📷 측정지 사진으로 자동 인식
-                    </button>
-                    <input type="file" id="ndtStrengthSlotFile-${idx}" accept="image/*" style="display:none;">
-                </div>
-                <div id="rScanStatus-${idx}" style="font-size:0.78rem; color:var(--text-muted);"></div>
-
-                <div class="form-group" style="margin:0;">
-                    <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                        <span>🔢 R값 (반발경도) — 최대 ${MAX_R_VALUES_PER_SLOT}개, 인식/입력 후 꼭 확인해주세요</span>
-                        <button type="button" class="btn btn-sm btn-outline ndt-strength-slot-add-rvalue" data-slot="${idx}" style="border-color:#38bdf8; color:#38bdf8;"><i class="fa-solid fa-plus"></i> 추가</button>
-                    </label>
-                    <div id="ndtRValuesList-${idx}" style="display:flex; flex-wrap:wrap; gap:0.4rem;">${rValueChipsHtml(idx)}</div>
-                </div>
-
-                <div style="background: rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.3); border-radius:8px; padding:0.7rem 0.9rem; font-size:0.82rem;">
-                    <div id="ndtStrengthCalcSummary-${idx}" style="margin-bottom:0.5rem; color:var(--text-muted);">R값을 입력하면 자동으로 계산됩니다.</div>
-                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
-                        <thead>
-                            <tr style="text-align:left; color:var(--text-muted); border-bottom:1px solid rgba(2,132,199,0.3);">
-                                <th style="padding:0.25rem 0.4rem;" title="평균에 포함">포함</th>
-                                <th style="padding:0.25rem 0.4rem;">추정식</th>
-                                <th style="padding:0.25rem 0.4rem; text-align:right;">압축강도 (MPa)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ndtStrengthFormulaResults-${idx}"></tbody>
-                    </table>
-                </div>
-            </div>
-        `).join('');
-
-        container.querySelectorAll('.ndt-strength-slot-location').forEach(el => {
-            el.addEventListener('input', (e) => {
-                ndtStrengthSlots[parseInt(e.target.dataset.slot, 10)].location = e.target.value;
-            });
-        });
-        container.querySelectorAll('.ndt-strength-slot-remove').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const idx = parseInt(e.currentTarget.dataset.slot, 10);
-                ndtStrengthSlots.splice(idx, 1);
-                renderNdtStrengthSlots();
-            });
-        });
-        container.querySelectorAll('.ndt-strength-slot-add-rvalue').forEach(el => {
-            el.addEventListener('click', (e) => addNdtRValueToSlot(parseInt(e.currentTarget.dataset.slot, 10), ''));
-        });
-        container.querySelectorAll('.ndt-strength-slot-scan').forEach(el => {
-            el.addEventListener('click', (e) => {
-                const idx = parseInt(e.currentTarget.dataset.slot, 10);
-                document.getElementById(`ndtStrengthSlotFile-${idx}`)?.click();
-            });
-        });
-        ndtStrengthSlots.forEach((slot, idx) => {
-            const fileEl = document.getElementById(`ndtStrengthSlotFile-${idx}`);
-            if (fileEl) fileEl.addEventListener('change', (e) => {
-                const file = e.target.files && e.target.files[0];
-                if (file) scanRValuesFromImage(file, idx);
-                e.target.value = '';
-            });
-            wireRValueChipEvents(idx);
-            recalcStrengthSlot(idx);
-        });
-
-        if (addBtn) addBtn.style.display = ndtStrengthSlots.length >= MAX_STRENGTH_SLOTS ? 'none' : '';
+        ndtRValues.push(value !== undefined ? value : '');
+        renderNdtRValuesList();
     }
 
     // 준공일(건축물 개요) ~ 점검일 사이 재령일수를 구한다. null이면 계산 불가(준공일 미입력 등).
@@ -4061,27 +3915,21 @@ document.addEventListener('DOMContentLoaded', () => {
         return `📅 재령일수: 준공일(${bldg.completionDate}) ~ 점검일(${bldg.date || '오늘'}) = <b>${days}일</b> → α(재령보정계수) = <b>${alpha !== null ? alpha.toFixed(2) : '-'}</b>`;
     }
 
-    function recalcAllStrengthSlots() {
-        ndtStrengthSlots.forEach((_, idx) => recalcStrengthSlot(idx));
-    }
-
-    function recalcStrengthSlot(slotIdx) {
-        const summaryEl = document.getElementById(`ndtStrengthCalcSummary-${slotIdx}`);
-        const resultsEl = document.getElementById(`ndtStrengthFormulaResults-${slotIdx}`);
+    function recalcNdtStrength() {
+        const summaryEl = document.getElementById('ndtStrengthCalcSummary');
+        const resultsEl = document.getElementById('ndtStrengthFormulaResults');
         const angleEl = document.getElementById('ndtAngle');
         const avgEl = document.getElementById('ndtAvgValue');
         if (!summaryEl || !resultsEl) return;
 
         const angle = angleEl ? parseFloat(angleEl.value) : 0;
         const ageDays = getConcreteAgeInDays();
-        const enabledNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
-        const readings = ndtStrengthSlots[slotIdx] ? ndtStrengthSlots[slotIdx].readings : [];
-        const calc = calcConcreteStrength(readings, angle, ageDays, enabledNames);
+        const calc = calcConcreteStrength(ndtRValues, angle, ageDays);
 
         if (!calc) {
             summaryEl.textContent = 'R값을 입력하면 자동으로 계산됩니다.';
             resultsEl.innerHTML = '';
-            if (avgEl && slotIdx === 0) avgEl.value = '';
+            if (avgEl) avgEl.value = '';
             return;
         }
 
@@ -4090,19 +3938,16 @@ document.addEventListener('DOMContentLoaded', () => {
             `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
         resultsEl.innerHTML = calc.results.map(r => `
             <tr>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:center;">
-                    <input type="checkbox" class="ndt-strength-formula-toggle" data-formula="${r.name}" ${r.enabled ? 'checked' : ''} onchange="window.toggleStrengthFormula('${r.name}')" style="cursor:pointer;">
-                </td>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); ${r.enabled ? '' : 'color:var(--text-muted); text-decoration:line-through;'}">${r.name}</td>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:${r.enabled ? '#0284c7' : 'var(--text-muted)'};">${r.value.toFixed(1)}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${r.name}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:#0284c7;">${r.value.toFixed(1)}</td>
             </tr>
         `).join('') + `
             <tr>
-                <td colspan="2" style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4);">평균 (체크된 식만)</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4);">평균</td>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${calc.formulaAvg.toFixed(1)}</td>
             </tr>
             <tr>
-                <td colspan="2" style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">최종 강도 (평균 × α${calc.alpha !== null ? '=' + calc.alpha.toFixed(2) : '(미적용)'})</td>
+                <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">최종 강도 (평균 × α${calc.alpha !== null ? '=' + calc.alpha.toFixed(2) : '(미적용)'})</td>
                 <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800; color:#16a34a; font-size:0.95rem;">${calc.finalStrength.toFixed(1)}</td>
             </tr>
         `;
@@ -4114,41 +3959,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const grade = getStrengthGrade(ratio);
             resultsEl.innerHTML += `
                 <tr>
-                    <td colspan="2" style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
+                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
                     <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${ratio.toFixed(0)}%</td>
                 </tr>
                 <tr>
-                    <td colspan="2" style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">등급</td>
+                    <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">등급</td>
                     <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800;">${grade.label}</td>
                 </tr>
             `;
         }
 
-        // #ndtAvgValue는 강도 카테고리에선 화면에 안 보이지만(다른 카테고리와 공용 필드), 저장 시
-        // 하위호환용 최상위 값으로 쓰이므로 위치 1(슬롯 0) 결과로만 채워둔다.
-        if (avgEl && slotIdx === 0) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
+        if (avgEl) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
     }
-
-    // 추정식 포함/제외 체크박스 클릭 시 건물 설정에 저장하고 다시 계산한다.
-    window.toggleStrengthFormula = function(formulaName) {
-        const bldg = window.state.currentBuilding;
-        if (!bldg) return;
-        const current = getEnabledStrengthFormulaNames(bldg);
-        const isCurrentlyEnabled = current.includes(formulaName);
-        // 마지막 남은 하나까지 끄면 "설정 안 함(=전체 포함)"과 구분이 안 돼 조용히 3개
-        // 전부 되돌아오므로, 최소 1개는 항상 켜져 있도록 막는다.
-        if (isCurrentlyEnabled && current.length <= 1) {
-            if (typeof window.showToast === 'function') {
-                window.showToast('추정식은 최소 1개는 선택되어 있어야 합니다.', 'error', 3000);
-            }
-            recalcAllStrengthSlots();
-            return;
-        }
-        const next = isCurrentlyEnabled ? current.filter(n => n !== formulaName) : [...current, formulaName];
-        bldg.enabledStrengthFormulas = next;
-        saveStateToLocalStorage();
-        recalcAllStrengthSlots();
-    };
 
     // --- 콘크리트 탄산화(중성화) 계산 엔진 ---
     // 회사 자료(비파괴.pdf)의 공식을 그대로 반영:
@@ -4213,48 +4035,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 반발경도계(슈미트 해머) 프린터 출력지는 좁은 영수증 용지에 작은 글씨라 원본 사진을 그냥
-    // Tesseract에 넣으면 대비가 낮아 인식률이 많이 떨어진다. 흑백 이진화 + 확대를 먼저 거치면
-    // 이런 영수증류 텍스트 인식률이 크게 좋아진다.
-    function preprocessOcrImage(file) {
-        return new Promise((resolve, reject) => {
-            const img = new Image();
-            img.onload = () => {
-                const MIN_WIDTH = 1000;
-                const scale = img.naturalWidth < MIN_WIDTH ? MIN_WIDTH / img.naturalWidth : 1;
-                const canvas = document.createElement('canvas');
-                canvas.width = Math.round(img.naturalWidth * scale);
-                canvas.height = Math.round(img.naturalHeight * scale);
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const px = imgData.data;
-                // 그레이스케일 변환 후 임계값으로 흑/백 이진화 (얼룩진 영수증 배경을 지워 글자만 남긴다)
-                let sum = 0;
-                const gray = new Uint8ClampedArray(px.length / 4);
-                for (let i = 0; i < px.length; i += 4) {
-                    const g = px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114;
-                    gray[i / 4] = g;
-                    sum += g;
-                }
-                const avg = sum / gray.length;
-                const threshold = avg * 0.85; // 평균보다 어두운 픽셀만 글자로 취급
-                for (let i = 0; i < px.length; i += 4) {
-                    const v = gray[i / 4] < threshold ? 0 : 255;
-                    px[i] = px[i + 1] = px[i + 2] = v;
-                }
-                ctx.putImageData(imgData, 0, 0);
-                URL.revokeObjectURL(img.src);
-                canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지 전처리에 실패했습니다.')), 'image/png');
-            };
-            img.onerror = () => reject(new Error('이미지를 불러오지 못했습니다.'));
-            img.src = URL.createObjectURL(file);
-        });
-    }
-
-    async function scanRValuesFromImage(file, slotIdx = 0) {
-        const statusEl = document.getElementById(`rScanStatus-${slotIdx}`);
+    async function scanRValuesFromImage(file) {
+        const statusEl = document.getElementById('rScanStatus');
         if (!file) return;
         if (typeof Tesseract === 'undefined') {
             if (statusEl) statusEl.textContent = 'OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.';
@@ -4262,30 +4044,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
         try {
-            const preprocessed = await preprocessOcrImage(file).catch(() => file);
-            const worker = await Tesseract.createWorker('eng');
-            // 반발경도계 출력지는 숫자/R/공백만 나오므로 인식 가능한 문자를 좁혀서 오인식을 줄인다.
-            await worker.setParameters({
-                tessedit_char_whitelist: '0123456789R ',
-                tessedit_pageseg_mode: '6' // 한 덩어리의 균일한 텍스트 블록으로 가정 (영수증형 출력지에 적합)
-            });
-            const { data: { text } } = await worker.recognize(preprocessed);
-            await worker.terminate();
-
-            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다.
-            // OCR이 숫자 0/1을 O/l/I로 잘못 읽는 경우가 흔해서 매칭 전에 미리 보정한다.
-            const normalized = text.replace(/[oO](?=\d|\s|$)/g, '0').replace(/[lI](?=\d|\s|$)/g, '1');
-            const matches = [...normalized.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
+            const { data: { text } } = await Tesseract.recognize(file, 'eng');
+            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
+            const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
             const scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
 
             if (scanned.length === 0) {
                 if (statusEl) statusEl.textContent = '❌ 숫자를 인식하지 못했습니다. 직접 입력해주세요.';
                 return;
             }
-            ndtStrengthSlots[slotIdx].readings = scanned.slice(0, MAX_R_VALUES_PER_SLOT);
-            const listContainer = document.getElementById(`ndtRValuesList-${slotIdx}`);
-            if (listContainer) { listContainer.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
-            recalcStrengthSlot(slotIdx);
+            ndtRValues = scanned.slice(0, 20);
+            renderNdtRValuesList();
+            recalcNdtStrength();
             if (statusEl) statusEl.textContent = `✅ ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
         } catch (err) {
             console.error('R값 스캔 실패:', err);
@@ -4323,15 +4093,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = existingItem.v3 || '';
             if (avgEl) avgEl.value = existingItem.avgValue || '';
             if (statusEl) statusEl.value = existingItem.status || '양호';
-            // strengthSlots(위치별 묶음)가 있으면 그대로, 없으면(구버전 항목) location/strengthReadings
-            // 하나로 슬롯 1개를 만들어서 예전과 동일하게 보이게 한다.
-            if (existingItem.category === '강도') {
-                ndtStrengthSlots = Array.isArray(existingItem.strengthSlots) && existingItem.strengthSlots.length > 0
-                    ? existingItem.strengthSlots.map(s => ({ location: s.location || '', readings: Array.isArray(s.readings) ? s.readings.slice() : [] }))
-                    : [{ location: existingItem.location || '', readings: Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [] }];
-            } else {
-                ndtStrengthSlots = [{ location: '', readings: [] }];
-            }
+            ndtRValues = Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [];
             const angleElExisting = document.getElementById('ndtAngle');
             if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '0';
             const designStrengthElExisting = document.getElementById('ndtDesignStrength');
@@ -4340,6 +4102,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElExisting) carbDepthElExisting.value = (existingItem.carbDepth !== undefined && existingItem.carbDepth !== null) ? existingItem.carbDepth : '';
             const carbCoverElExisting = document.getElementById('ndtCarbCover');
             if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '40';
+            const rScanStatusExisting = document.getElementById('rScanStatus');
+            if (rScanStatusExisting) rScanStatusExisting.textContent = '';
 
             window._pendingNdtExtra = {
                 targetX: existingItem.targetX !== undefined ? existingItem.targetX : existingItem.x,
@@ -4366,7 +4130,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = '';
             if (avgEl) avgEl.value = '';
             if (statusEl) statusEl.value = '양호';
-            ndtStrengthSlots = [{ location: '', readings: [] }];
+            ndtRValues = [];
             const angleElNew = document.getElementById('ndtAngle');
             if (angleElNew) angleElNew.value = '0';
             const designStrengthElNew = document.getElementById('ndtDesignStrength');
@@ -4375,6 +4139,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElNew) carbDepthElNew.value = '';
             const carbCoverElNew = document.getElementById('ndtCarbCover');
             if (carbCoverElNew) carbCoverElNew.value = '40';
+            const rScanStatusNew = document.getElementById('rScanStatus');
+            if (rScanStatusNew) rScanStatusNew.textContent = '';
 
             window._pendingNdtExtra = extraOpts || {
                 targetX: imgX,
@@ -4385,7 +4151,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.toggleNdtModalFields();
-        renderNdtStrengthSlots();
+        renderNdtRValuesList();
+        recalcNdtStrength();
         recalcNdtCarbonation();
         modal.style.display = 'flex';
         modal.classList.add('open');
@@ -4474,6 +4241,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 window.toggleNdtModalFields();
                 calcNdtAvg();
+                recalcNdtStrength();
                 recalcNdtCarbonation();
             });
         }
@@ -4482,25 +4250,32 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
 
-        // --- 콘크리트 강도 위치 슬롯/각도 UI ---
-        const btnAddStrengthSlot = document.getElementById('btnAddStrengthSlot');
-        if (btnAddStrengthSlot) btnAddStrengthSlot.addEventListener('click', () => {
-            if (ndtStrengthSlots.length >= MAX_STRENGTH_SLOTS) return;
-            ndtStrengthSlots.push({ location: '', readings: [] });
-            renderNdtStrengthSlots();
-        });
+        // --- 콘크리트 강도 R값 스캔/목록/각도 UI ---
+        const btnAddRValue = document.getElementById('btnAddRValue');
+        if (btnAddRValue) btnAddRValue.addEventListener('click', () => addNdtRValue(''));
 
         const ndtAngleEl = document.getElementById('ndtAngle');
-        if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcAllStrengthSlots);
+        if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcNdtStrength);
 
         const ndtDesignStrengthEl = document.getElementById('ndtDesignStrength');
-        if (ndtDesignStrengthEl) ndtDesignStrengthEl.addEventListener('input', recalcAllStrengthSlots);
+        if (ndtDesignStrengthEl) ndtDesignStrengthEl.addEventListener('input', recalcNdtStrength);
 
         const ndtCarbDepthEl = document.getElementById('ndtCarbDepth');
         const ndtCarbCoverEl = document.getElementById('ndtCarbCover');
         [ndtCarbDepthEl, ndtCarbCoverEl].forEach(el => {
             if (el) el.addEventListener('input', recalcNdtCarbonation);
         });
+
+        const btnScanRValues = document.getElementById('btnScanRValues');
+        const inputScanRValues = document.getElementById('inputScanRValues');
+        if (btnScanRValues && inputScanRValues) {
+            btnScanRValues.addEventListener('click', () => inputScanRValues.click());
+            inputScanRValues.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) scanRValuesFromImage(file);
+                e.target.value = '';
+            });
+        }
 
         function closeNdtModal() {
             if (modal) {
@@ -4521,12 +4296,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const noStr = document.getElementById('ndtNo')?.value || 'NDT-01';
                 const cat = document.getElementById('ndtCategory')?.value || '강도';
                 const comp = document.getElementById('ndtComponent')?.value || '기둥';
-                // 강도는 위치를 슬롯별로 입력받으므로(공용 위치칸은 숨겨져 비어있음), 하위호환용
-                // 최상위 location은 슬롯 1(또는 값이 있는 첫 슬롯) 것을 쓴다.
-                const firstStrengthSlot = (cat === '강도')
-                    ? (ndtStrengthSlots.find(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0) || ndtStrengthSlots[0])
-                    : null;
-                const loc = (cat === '강도') ? (firstStrengthSlot?.location || '') : (document.getElementById('ndtLocation')?.value || '');
+                const loc = document.getElementById('ndtLocation')?.value || '';
                 const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
                 const formattedHeight = formatHeightValue(rawHeightStr);
                 const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
@@ -4551,40 +4321,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
 
-                // 콘크리트 강도(반발경도)는 위치 슬롯별로(최대 3개) R값 목록 + 각도보정 + 추정식 3개
-                // 결과를 각각 저장한다. 최상위 strength* 필드들은 하위호환용으로 첫 슬롯 결과만 담는다.
+                // 콘크리트 강도(반발경도)는 R값 목록 + 각도보정 + 추정식 3개 결과를 별도로 저장한다.
                 const strengthAngle = document.getElementById('ndtAngle')?.value;
                 const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
-                const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
+                const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle), strengthAgeDays) : null;
                 const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
-
-                const computeSlotResult = (slot) => {
-                    const calc = calcConcreteStrength(slot.readings, parseFloat(strengthAngle), strengthAgeDays, enabledFormulaNames);
-                    const ratio = (calc && !isNaN(designStrengthVal) && designStrengthVal > 0) ? (calc.finalStrength / designStrengthVal) * 100 : null;
-                    const gradeObj = ratio !== null ? getStrengthGrade(ratio) : null;
-                    return {
-                        location: slot.location || '',
-                        readings: (slot.readings || []).slice(),
-                        results: calc ? calc.results : [],
-                        ro: calc ? calc.ro : null,
-                        ageDays: calc ? calc.ageDays : null,
-                        alpha: calc ? calc.alpha : null,
-                        formulaAvg: calc ? calc.formulaAvg : null,
-                        finalStrength: calc ? calc.finalStrength : null,
-                        ratio,
-                        grade: gradeObj ? gradeObj.code : null
-                    };
-                };
-
-                const strengthSlotResults = (cat === '강도')
-                    ? ndtStrengthSlots
-                        .filter(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0 || (s.location || '').trim() !== '')
-                        .map(computeSlotResult)
-                    : [];
-                // 슬롯을 하나도 안 채웠으면(위치/R값 둘 다 비어있는 슬롯 1개뿐) 빈 배열 대신 최소 1개는
-                // 남겨서(위치 없어도) 완전히 빈 저장이 되지 않게 한다.
-                if (cat === '강도' && strengthSlotResults.length === 0) strengthSlotResults.push(computeSlotResult(ndtStrengthSlots[0] || { location: '', readings: [] }));
-                const firstSlotResult = strengthSlotResults[0] || null;
+                const strengthRatio = (strengthCalc && !isNaN(designStrengthVal) && designStrengthVal > 0)
+                    ? (strengthCalc.finalStrength / designStrengthVal) * 100 : null;
+                const strengthGradeObj = strengthRatio !== null ? getStrengthGrade(strengthRatio) : null;
 
                 const carbDepthVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbDepth')?.value) : NaN;
                 const carbCoverVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbCover')?.value) : NaN;
@@ -4592,23 +4336,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const carbCalc = (cat === '탄산화') ? calcCarbonation(carbDepthVal, carbCoverVal, carbAgeDays !== null ? carbAgeDays / 365 : null) : null;
 
                 const valsArr = (cat === '강도')
-                    ? (firstSlotResult ? firstSlotResult.readings.filter(v => v !== '' && v !== null && v !== undefined) : [])
+                    ? ndtRValues.filter(v => v !== '' && v !== null && v !== undefined)
                     : [v1, v2, v3].filter(x => x.trim() !== '');
                 const valuesText = valsArr.join(', ') || '-';
                 const strengthExtra = (cat === '강도') ? {
-                    strengthSlots: strengthSlotResults,
-                    strengthReadings: firstSlotResult ? firstSlotResult.readings : [],
+                    strengthReadings: ndtRValues.slice(),
                     strengthAngle: parseFloat(strengthAngle) || 0,
-                    strengthResults: firstSlotResult ? firstSlotResult.results : [],
-                    strengthRo: firstSlotResult ? firstSlotResult.ro : null,
-                    strengthAgeDays: firstSlotResult ? firstSlotResult.ageDays : null,
-                    strengthAlpha: firstSlotResult ? firstSlotResult.alpha : null,
-                    strengthFormulaAvg: firstSlotResult ? firstSlotResult.formulaAvg : null,
-                    strengthFinal: firstSlotResult ? firstSlotResult.finalStrength : null,
+                    strengthResults: strengthCalc ? strengthCalc.results : [],
+                    strengthRo: strengthCalc ? strengthCalc.ro : null,
+                    strengthAgeDays: strengthCalc ? strengthCalc.ageDays : null,
+                    strengthAlpha: strengthCalc ? strengthCalc.alpha : null,
+                    strengthFormulaAvg: strengthCalc ? strengthCalc.formulaAvg : null,
+                    strengthFinal: strengthCalc ? strengthCalc.finalStrength : null,
                     designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
-                    strengthRatio: firstSlotResult ? firstSlotResult.ratio : null,
-                    strengthGrade: firstSlotResult ? firstSlotResult.grade : null
-                } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
+                    strengthRatio: strengthRatio,
+                    strengthGrade: strengthGradeObj ? strengthGradeObj.code : null
+                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
 
                 const carbExtra = (cat === '탄산화') ? {
                     carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
@@ -7788,13 +7531,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 지하/지상 여부가 다르면 아무리 문자열이 비슷해도(예: "B1F"가 "1F"를 포함) 매칭하지
-    // 않는다. 지하1층 조회에 지상1층 도면이 잘못 걸리는 사고를 막기 위함.
-    function isBasementFloorCode(code) {
-        const c = (code || '').replace(/\s+/g, '').toUpperCase();
-        return c.startsWith('B') || c.includes('지하');
-    }
-
     function getFloorDrawingSrc(bldg, floorCode) {
         if (!bldg || !bldg.floorDrawings) return null;
         const drawings = bldg.floorDrawings;
@@ -7805,16 +7541,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. Dong-to-Floor & Floor-to-Dong Mapping Lookup
         const dongToFloor = { '101동': '1F', '102동': '2F', '103동': '3F', '104동': '4F', '105동': '5F' };
         const floorToDong = { '1F': '101동', '2F': '102동', '3F': '103동', '4F': '104동', '5F': '105동' };
-
+        
         if (dongToFloor[floorCode] && drawings[dongToFloor[floorCode]]) return drawings[dongToFloor[floorCode]];
         if (floorToDong[floorCode] && drawings[floorToDong[floorCode]]) return drawings[floorToDong[floorCode]];
-
-        const floorIsBasement = isBasementFloorCode(floorCode);
 
         // 3. Case-insensitive / clean string match
         const cleanFloor = (floorCode || '').replace(/\s+/g, '').toUpperCase();
         for (const [k, v] of Object.entries(drawings)) {
-            if (isBasementFloorCode(k) !== floorIsBasement) continue;
             const cleanK = k.replace(/\s+/g, '').toUpperCase();
             if (cleanK === cleanFloor || cleanK.includes(cleanFloor) || cleanFloor.includes(cleanK)) {
                 return v;
@@ -7826,7 +7559,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (numMatch) {
             const numStr = numMatch[0];
             for (const [k, v] of Object.entries(drawings)) {
-                if (isBasementFloorCode(k) !== floorIsBasement) continue;
                 if (k.includes(numStr)) return v;
             }
         }
@@ -8313,10 +8045,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 let sectionNo = 4;
 
-                // 정기안전점검은 상태조사표/사진첩/결함위치도(1~3)까지만 보고서에 넣고, 비파괴조사
-                // 섹션(4~7: 부재실측/강도·탄산화/외벽기울기/부동침하/부재처짐)은 정밀안전점검일 때만 넣는다.
-                if (iType === '정밀안전점검') {
-
                 // --- 4. 📏 부재 실측 결과표 및 측정 위치도 (강도·탄산화와 별도 도면) ---
                 if (measureNdtItems.length > 0) {
                     const measureDrawingUrl = renderNdtFloorPlanCanvasDataUrl(floorCode, '실측');
@@ -8424,31 +8152,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${(() => {
-                                        // 강도 항목은 위치 슬롯이 여러 개(같은 부재의 플렌지/웨브 등)일 수 있어서
-                                        // 슬롯마다 별도 행으로 펼친다. 슬롯 1(기준 위치)은 그대로, 슬롯 2/3은
-                                        // 슬롯 1 위치 뒤에 그 슬롯의 위치(예: "플렌지")를 이어붙인다.
-                                        const rows = [];
-                                        strengthCarbNdtItems.forEach(item => {
-                                            if (item.category === '강도' && Array.isArray(item.strengthSlots) && item.strengthSlots.length > 0) {
-                                                const baseLoc = item.strengthSlots[0].location || item.location || '';
-                                                item.strengthSlots.forEach((slot, slotIdx) => {
-                                                    rows.push({
-                                                        no: item.no,
-                                                        category: item.category,
-                                                        location: (slotIdx === 0 ? baseLoc : `${baseLoc} ${slot.location || ''}`.trim()) || '위치미지정',
-                                                        component: item.component,
-                                                        valuesText: (slot.readings || []).filter(v => v !== '' && v !== null && v !== undefined).join(', ') || '-',
-                                                        avgValue: typeof slot.finalStrength === 'number' ? `${slot.finalStrength.toFixed(1)} MPa` : (item.avgValue || '-'),
-                                                        status: item.status
-                                                    });
-                                                });
-                                            } else {
-                                                rows.push(item);
-                                            }
-                                        });
-                                        if (rows.length === 0) return `<tr><td colspan="7" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>`;
-                                        return rows.map(item => `
+                                    ${strengthCarbNdtItems.length > 0 ? strengthCarbNdtItems.map(item => `
                                         <tr>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.category}</td>
@@ -8458,8 +8162,9 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.status || '양호'}</td>
                                         </tr>
-                                    `).join('');
-                                    })()}
+                                    `).join('') : `
+                                        <tr><td colspan="7" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
+                                    `}
                                 </tbody>
                             </table>
 
@@ -8785,8 +8490,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         `;
                     });
                 }
-
-                } // iType === '정밀안전점검'
             });
 
             container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 210mm; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
@@ -8875,41 +8578,28 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- HWPX(한글) 상태조사표 내보내기 (시험 기능: 전체 층, 건수/사진 매수 제한 없음) ---
+    // --- HWPX(한글) 상태조사표 내보내기 (시험 기능: 현재 층, 표 1페이지=최대 15행분만 지원) ---
     // 번들 템플릿(templates/hwpx_survey_template.hwpx)의 상태조사표 표(id=1122472057) 안에 있는
     // 기존 데이터 행을 전부 지우고, 지금 앱에 등록된 현재 층 결함 개수만큼 행을 새로 복제해 채운다.
     // 표 테두리는 "첫 행(위 굵은선)/중간 행(얇은선)/마지막 행(아래 굵은선)" 3가지 스타일을 템플릿 표
     // 자체에서 읽어와 그대로 재사용한다 (직접 스타일 ID를 하드코딩하지 않음 -> 템플릿이 바뀌어도 대응됨).
     window.exportHwpxSurveyTable = async function() {
-        const bldg = window.state.currentBuilding;
-        const bldgId = (bldg && bldg.id) || window.state.currentBuildingId;
-        if (!bldg || !bldgId) { window.showToast('건축물을 먼저 선택해주세요.', 'warning'); return; }
-
-        const getFloorLabel = (floorCode) => {
+        const floorCode = window.state.currentFloor;
+        if (!floorCode) { window.showToast('층을 먼저 선택해주세요.', 'warning'); return; }
+        const getFloorLabel = () => {
+            const bldg = window.state.currentBuilding || {};
             const f = (bldg.floorsList || []).find(f => f.floorCode === floorCode);
             return f ? f.floorLabel : floorCode;
         };
 
-        // PDF 보고서와 동일하게, 현재 층 하나가 아니라 건물에 등록된 모든 층을 대상으로 한다.
-        let availableFloors = [];
-        if (bldg.floorsList && bldg.floorsList.length > 0) {
-            availableFloors = bldg.floorsList.map(f => f.floorCode);
-        } else if (window.state.currentFloor) {
-            availableFloors = [window.state.currentFloor];
-        }
+        const defects = consolidateDefectGroups(getCurrentFloorDefects());
+        if (!defects.length) { window.showToast('현재 층에 등록된 결함이 없습니다.', 'warning'); return; }
 
-        // 미리보기(PDF)처럼 층당 건수 제한 없이 전부 반영한다. 표 행이 많아지면 한글 워드프로세서가
-        // 표를 자동으로 다음 페이지까지 이어 그려주므로(우리가 페이지를 직접 나눠 만들 필요 없음),
-        // 행 수를 페이지 단위로 자르지 않고 결함 개수만큼 그대로 행을 추가한다.
-        const floorsData = [];
-        availableFloors.forEach(fc => {
-            const key = `${bldgId}_${fc}`;
-            const rawDefects = window.state.defects[key] || (window.state.currentFloor === fc ? getCurrentFloorDefects() : []);
-            const defects = consolidateDefectGroups(rawDefects);
-            if (!defects.length) return;
-            floorsData.push({ floorCode: fc, pageDefects: defects });
-        });
-        if (!floorsData.length) { window.showToast('등록된 결함이 없습니다.', 'warning'); return; }
+        const MAX_ROWS_PER_PAGE = 15;
+        const pageDefects = defects.slice(0, MAX_ROWS_PER_PAGE);
+        if (defects.length > MAX_ROWS_PER_PAGE) {
+            window.showToast(`시험 기능은 표 1페이지(최대 ${MAX_ROWS_PER_PAGE}건)까지만 지원합니다. 총 ${defects.length}건 중 앞 ${MAX_ROWS_PER_PAGE}건만 반영됩니다.`, 'info', 5000);
+        }
 
         window.showLoading('한글(hwpx) 상태조사표를 생성하는 중입니다...');
         try {
@@ -8923,26 +8613,145 @@ document.addEventListener('DOMContentLoaded', () => {
             const zip = await JSZip.loadAsync(await resp.arrayBuffer());
 
             const HP_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
-            const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
             const sectionPath = 'Contents/section1.xml';
             const xmlText = await zip.file(sectionPath).async('string');
             const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
             if (xmlDoc.querySelector('parsererror')) throw new Error('템플릿 section1.xml 파싱에 실패했습니다.');
 
-            const sec = xmlDoc.getElementsByTagName('hs:sec')[0];
-            if (!sec) throw new Error('템플릿 문서 구조(hs:sec)를 찾지 못했습니다.');
-            const paraText = (p) => Array.from(p.getElementsByTagNameNS(HP_NS, 't')).map(t => t.textContent).join('');
-            const secChildren = () => Array.from(sec.children).filter(c => c.localName === 'p');
-            const removeParaRange = (fromP, toP) => {
-                const all = secChildren();
-                const start = all.indexOf(fromP);
-                const end = toP ? all.indexOf(toP) : all.length;
-                if (start < 0 || end < 0 || end <= start) return;
-                for (let i = end - 1; i >= start; i--) sec.removeChild(all[i]);
+            const TARGET_TABLE_ID = '1122472057';
+            let targetTbl = null;
+            const allTables = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+            for (let i = 0; i < allTables.length; i++) {
+                if (allTables[i].getAttribute('id') === TARGET_TABLE_ID) { targetTbl = allTables[i]; break; }
+            }
+            if (!targetTbl) throw new Error('템플릿에서 상태조사표를 찾지 못했습니다.');
+
+            // 표 바로 위에는 원본 샘플 문서의 "A동" / "1) 지하1층" 같은 고정 텍스트 문단이 그대로
+            // 남아있었다. 표 안의 데이터는 실제 선택한 층으로 바뀌는데 이 제목만 그대로 있으면
+            // "제목은 지하1층인데 내용은 다른 층"처럼 헷갈리므로, 실제 층 이름으로 바꾸고
+            // 층/동 구분이 없는 이 앱 데이터 모델과 안 맞는 "동" 줄은 비워 둔다.
+            {
+                const table49Para = targetTbl.parentNode.parentNode;
+                const floorHeadingPara = table49Para.previousElementSibling;
+                const dongHeadingPara = floorHeadingPara ? floorHeadingPara.previousElementSibling : null;
+                if (floorHeadingPara) {
+                    const t = floorHeadingPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                    if (t) t.textContent = getFloorLabel();
+                }
+                if (dongHeadingPara) {
+                    const t = dongHeadingPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                    if (t) t.textContent = '';
+                }
+            }
+
+            const HEADER_ROW_COUNT = 1; // 표 상단 1줄(구분/위치/... 헤더)은 그대로 둔다. 구조체구분은 구조/비구조 하위 2칸을 합쳐 헤더가 1줄로 줄었다
+            const allTrs = Array.from(targetTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === targetTbl);
+            const dataRows = allTrs.slice(HEADER_ROW_COUNT);
+            if (dataRows.length < 3) throw new Error('템플릿 표의 첫/중간/마지막 행 테두리 스타일을 판별할 수 없습니다.');
+
+            const borderStyleByCol = (row) => {
+                const map = {};
+                Array.from(row.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
+                    const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                    if (addr) map[addr.getAttribute('colAddr')] = tc.getAttribute('borderFillIDRef');
+                });
+                return map;
+            };
+            const firstStyleRow = dataRows[0];
+            const normalStyleRow = dataRows[1];
+            const styleMaps = {
+                first: borderStyleByCol(firstStyleRow),
+                normal: borderStyleByCol(normalStyleRow),
+                last: borderStyleByCol(dataRows[dataRows.length - 1])
             };
 
-            // 사진/위치도 이미지 삽입에 공용으로 쓰는 헬퍼들 (한 곳에서만 관리해 여러 층에서
-            // 다르게 어긋나지 않게 한다).
+            dataRows.forEach(tr => targetTbl.removeChild(tr));
+
+            // 사진은 로컬(IndexedDB)에도, 온라인 동기화 중이면 클라우드(Firestore)에도 있을 수 있는데,
+            // 층 진입 직후 곧바로 내보내면 아직 photos 배열이 안 채워졌을 수 있다. 여기서 한 번 더
+            // 직접 확인해서 photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 채워 넣는다.
+            // (로컬에 없으면 클라우드에서도 찾아본다 — hydrateDefectPhotos와 같은 방식)
+            const companyPhotosCol = (db && window.state.companyId)
+                ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
+                : null;
+            if (!window._photoCache) window._photoCache = {};
+            await Promise.all(pageDefects.map(async (d) => {
+                if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
+                    const photos = await Promise.all(d.photoIds.map(async pid => {
+                        const local = await idbGet('photos', pid);
+                        if (local) return local;
+                        if (window._photoCache[pid]) return window._photoCache[pid];
+                        if (companyPhotosCol) {
+                            try {
+                                const snap = await companyPhotosCol.doc(pid).get();
+                                const url = snap.exists ? snap.data().dataUrl : null;
+                                if (url) window._photoCache[pid] = url;
+                                return url;
+                            } catch (e) { return null; }
+                        }
+                        return null;
+                    }));
+                    const filled = photos.filter(Boolean);
+                    if (filled.length > 0) d.photos = filled;
+                }
+            }));
+            // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
+            // 전인 지금 미리 번호를 매겨둔다.
+            const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
+            const photoLabelByDefect = new Map();
+            photoDefects.forEach((d, i) => photoLabelByDefect.set(d, `사진${i + 1}`));
+
+            pageDefects.forEach((d, idx) => {
+                // 템플릿 표에서 구조체구분(구조부재/비구조부재) 두 칸을 하나로 합쳐뒀으므로, 마감재까지
+                // 포함한 실제 구조체 종류(구조체/비구조체/마감재) 문구를 그 한 칸에 그대로 적어 넣는다.
+                const values = [
+                    getSurveyCellText('no', d),
+                    getSurveyCellText('location', d),
+                    getSurveyCellText('component', d),
+                    getSurveyCellText('defectType', d),
+                    getSurveyCellText('size', d),
+                    getSurveyCellText('category', d),
+                    getSurveyCellText('progress', d),
+                    getSurveyCellText('leak', d),
+                    getSurveyCellText('cause', d),
+                    getSurveyCellText('remark', d, { photoRemark: photoLabelByDefect.get(d) })
+                ];
+                const styleMap = idx === 0 ? styleMaps.first : (idx === pageDefects.length - 1 ? styleMaps.last : styleMaps.normal);
+
+                const newRow = normalStyleRow.cloneNode(true);
+                Array.from(newRow.getElementsByTagNameNS(HP_NS, 'tc')).forEach((tc, colIdx) => {
+                    const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
+                    if (addr) {
+                        addr.setAttribute('rowAddr', String(HEADER_ROW_COUNT + idx));
+                        const bf = styleMap[addr.getAttribute('colAddr')];
+                        if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
+                    }
+                    // 템플릿 원본 셀이 "0.2/0.6" + "(3EA)"처럼 문단 2개 이상으로 나뉜 값을 갖고
+                    // 있던 경우, 첫 문단 텍스트만 바꾸면 나머지 문단이 옛날 텍스트로 계속 남는다.
+                    // 첫 문단만 남기고 나머지 문단은 통째로 지운다.
+                    const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
+                    const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
+                    if (paras.length > 0) {
+                        const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
+                        if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
+                        for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
+                    }
+                });
+                targetTbl.appendChild(newRow);
+            });
+
+            targetTbl.setAttribute('rowCnt', String(HEADER_ROW_COUNT + pageDefects.length));
+
+            // ---- 결함 사진 갤러리 ----
+            // 템플릿에는 사진 2장씩 짝지은 표(id=1122472061)가 같은 hp:run 안에 여러 개(원본 예시는 8개)
+            // 나란히 들어있다. 이걸 전부 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
+            // (photoDefects/photoLabelByDefect는 상태조사표의 "비고" 칸과 번호를 맞추기 위해 위에서 이미 계산해뒀다)
+            const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
+            const PHOTO_TABLE_ID = '1122472061';
+
+            // 사진/위치도 이미지 삽입에 공용으로 쓰는 헬퍼들 (한 곳에서만 관리해 두 군데가 다르게
+            // 어긋나지 않게 한다). dataUrlToBytes/loadImageSize/manifestAdds/zip에 새 파일 추가는
+            // 사진 갤러리와 위치도 양쪽에서 그대로 재사용한다.
             const dataUrlToBytes = (dataUrl) => {
                 const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
                 if (!m) throw new Error('이미지 데이터 형식을 인식할 수 없습니다.');
@@ -9001,254 +8810,104 @@ document.addEventListener('DOMContentLoaded', () => {
             // 사진 갤러리와 위치도가 새로 추가하는 이미지의 매니페스트 항목을 여기에 같이 모았다가
             // 마지막에 한 번만 content.hpf에 반영한다.
             const manifestAdds = [];
-            // 여러 층에 걸쳐 이미지/표를 새로 만들 때 id가 서로 겹치지 않도록 함수 전체에서 카운터를 공유한다.
-            let imgCounter = 0;
-            let photoTblCounter = 0;
 
-            // ---- 템플릿에 이미 만들어져 있는 "N) 층명" 블록(상태조사표+사진첩+위치도)을 전부 찾는다 ----
-            // 템플릿은 완성된 표본 보고서라 이런 블록이 표본 건물의 층 수만큼 이미 존재한다. 그중
-            // 필요한 만큼만 실제 데이터로 채우고 나머지는 뒤에서 지운다. 표 ID를 하드코딩하는 대신
-            // 구조(제목 문단 → 상태조사표 → "사진1위치..."로 시작하는 사진첩 → pic 1개짜리 위치도)로
-            // 찾아서, 표본 문서가 조금 바뀌어도 잘 깨지지 않게 한다.
-            const floorTitleRe = /^\d+\)\s*.+층/;
-            const discoverFloorSlots = () => {
-                const ps = secChildren();
-                const starts = [];
-                ps.forEach((p, i) => { if (floorTitleRe.test(paraText(p).trim())) starts.push(i); });
-                const slots = [];
-                for (let idx = 0; idx < starts.length; idx++) {
-                    const s = starts[idx];
-                    const e = idx + 1 < starts.length ? starts[idx + 1] : ps.length;
-                    let statusTbl = null, photoTbl = null, locationMapTbl = null;
-                    for (let i = s + 1; i < e; i++) {
-                        const txt = paraText(ps[i]).trim();
-                        const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
-                        if (tbls.length === 0) continue;
-                        if (!photoTbl && /^사진1/.test(txt)) { photoTbl = tbls[0]; continue; }
-                        if (!statusTbl && !photoTbl) statusTbl = tbls[0];
-                    }
-                    for (let i = e - 1; i > s; i--) {
-                        const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
-                        if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
-                    }
-                    if (statusTbl && photoTbl && locationMapTbl) {
-                        slots.push({ titlePara: ps[s], statusTbl, photoTbl, locationMapTbl });
-                    }
+            if (photoDefects.length > 0) { try {
+                let photoTbl = null;
+                const allTables2 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+                for (let i = 0; i < allTables2.length; i++) {
+                    if (allTables2[i].getAttribute('id') === PHOTO_TABLE_ID) { photoTbl = allTables2[i]; break; }
                 }
-                return slots;
-            };
-            const floorSlots = discoverFloorSlots();
-            if (!floorSlots.length) throw new Error('템플릿에서 상태조사표 블록을 찾지 못했습니다.');
+                if (!photoTbl) throw new Error('템플릿에서 사진첩 표를 찾지 못했습니다.');
 
-            if (floorsData.length > floorSlots.length) {
-                window.showToast(`시험 기능은 최대 ${floorSlots.length}개 층까지만 지원합니다. 앞 ${floorSlots.length}개 층만 반영됩니다.`, 'info', 6000);
-                floorsData.length = floorSlots.length;
+                const MAX_PHOTOS = 10;
+                const items = photoDefects.slice(0, MAX_PHOTOS);
+                if (photoDefects.length > MAX_PHOTOS) {
+                    window.showToast(`시험 기능은 사진 최대 ${MAX_PHOTOS}장까지만 지원합니다.`, 'info', 4000);
+                }
+
+                const tplPics = photoTbl.getElementsByTagNameNS(HP_NS, 'pic');
+                const maxW = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
+                const maxH = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
+
+                // 사진 디코딩(비동기)은 미리 다 끝내둔다
+                const decoded = [];
+                for (const d of items) {
+                    const { bytes, mime, ext } = dataUrlToBytes(d.photos[0]);
+                    const size = await loadImageSize(d.photos[0]);
+                    decoded.push({ d, bytes, mime, ext, w: size.w, h: size.h });
+                }
+
+                const photoRun = photoTbl.parentNode; // 사진첩 표 여러 개가 같은 hp:run 안에 나란히 들어있다
+                const existingPhotoTables = Array.from(photoRun.children).filter(c => c.localName === 'tbl');
+                const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
+                existingPhotoTables.forEach(t => photoRun.removeChild(t));
+
+                let imgCounter = 0;
+
+                for (let i = 0; i < decoded.length; i += 2) {
+                    const slot1 = decoded[i];
+                    const slot2 = decoded[i + 1] || null;
+
+                    const newTbl = photoTbl.cloneNode(true);
+                    newTbl.setAttribute('id', String(9500000 + i));
+                    const pics = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'pic'));
+                    pics.forEach((p, idx) => {
+                        p.setAttribute('id', String(9600000 + i * 2 + idx));
+                        p.setAttribute('instid', String(9700000 + i * 2 + idx));
+                    });
+
+                    const trs2 = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === newTbl);
+                    const capTcs = trs2[1].getElementsByTagNameNS(HP_NS, 'tc');
+                    const descTcs = trs2[2].getElementsByTagNameNS(HP_NS, 'tc');
+
+                    imgCounter++;
+                    const imgId1 = `photoAuto${imgCounter}`;
+                    zip.file(`BinData/${imgId1}.${slot1.ext}`, slot1.bytes);
+                    manifestAdds.push(`<opf:item id="${imgId1}" href="BinData/${imgId1}.${slot1.ext}" media-type="${slot1.mime}" isEmbeded="1"/>`);
+                    setPicImage(pics[0], imgId1, slot1.w, slot1.h, maxW, maxH);
+                    capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot1.d);
+                    capTcs[2].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot1.d);
+                    descTcs[1].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot1.d);
+
+                    // 짝이 없는 마지막 홀수 장은 오른쪽 칸에 같은 사진을 다시 앉혀 빈 칸으로 남지 않게 한다
+                    const useSlot2 = slot2 || slot1;
+                    imgCounter++;
+                    const imgId2 = `photoAuto${imgCounter}`;
+                    zip.file(`BinData/${imgId2}.${useSlot2.ext}`, useSlot2.bytes);
+                    manifestAdds.push(`<opf:item id="${imgId2}" href="BinData/${imgId2}.${useSlot2.ext}" media-type="${useSlot2.mime}" isEmbeded="1"/>`);
+                    setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h, maxW, maxH);
+                    if (slot2) {
+                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot2.d);
+                        capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot2.d);
+                        descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot2.d);
+                    } else {
+                        capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                        capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                        descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
+                    }
+
+                    if (trailingNode) photoRun.insertBefore(newTbl, trailingNode);
+                    else photoRun.appendChild(newTbl);
+                }
+            } catch (photoErr) {
+                console.error('사진 갤러리 삽입 실패(나머지는 계속 진행):', photoErr);
+                window.showToast('사진 삽입 중 오류가 있어 사진은 제외하고 만듭니다: ' + photoErr.message, 'warning', 5000);
+            } }
+
+            // ---- 결함위치도 ----
+            // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다. 원본 템플릿의
+            // 이 표(id=1122472099)는 CAD에서 내보낸 WMF(벡터) 그림이 들어있던 자리인데, 우리 도면은
+            // 캔버스로 그린 PNG라 사진 삽입과 동일한 방식(비율 계산 포함)으로 이미지만 갈아 끼운다.
+            const LOCATION_MAP_TABLE_ID = '1122472099';
+            let locationMapTbl = null;
+            const allTables3 = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
+            for (let i = 0; i < allTables3.length; i++) {
+                if (allTables3[i].getAttribute('id') === LOCATION_MAP_TABLE_ID) { locationMapTbl = allTables3[i]; break; }
             }
-
-            // 사진은 로컬(IndexedDB)에도, 온라인 동기화 중이면 클라우드(Firestore)에도 있을 수 있는데,
-            // 층 진입 직후 곧바로 내보내면 아직 photos 배열이 안 채워졌을 수 있다. 여기서 한 번 더
-            // 직접 확인해서 photoIds는 있는데 photos가 비어있는 결함은 그 자리에서 채워 넣는다.
-            // (로컬에 없으면 클라우드에서도 찾아본다 — hydrateDefectPhotos와 같은 방식)
-            const companyPhotosCol = (db && window.state.companyId)
-                ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
-                : null;
-            if (!window._photoCache) window._photoCache = {};
-
-            for (let slotIdx = 0; slotIdx < floorsData.length; slotIdx++) {
-                const { floorCode, pageDefects } = floorsData[slotIdx];
-                const slot = floorSlots[slotIdx];
-
-                // 표 바로 위에는 원본 표본 문서의 "1) 지하1층" 같은 고정 텍스트 문단이 그대로
-                // 남아있었다. 실제 층 이름으로 바꾼다. 맨 첫 블록 바로 위에만 있는 "A동" 같은 동
-                // 구분 줄은(층/동 구분이 없는 이 앱 데이터 모델과 안 맞으므로) 비워 둔다.
-                {
-                    const t = slot.titlePara.getElementsByTagNameNS(HP_NS, 't')[0];
-                    if (t) t.textContent = getFloorLabel(floorCode);
-                    if (slotIdx === 0) {
-                        const dongPara = slot.titlePara.previousElementSibling;
-                        if (dongPara && dongPara.localName === 'p') {
-                            const dt = dongPara.getElementsByTagNameNS(HP_NS, 't')[0];
-                            if (dt) dt.textContent = '';
-                        }
-                    }
-                }
-
-                // ---- 상태조사표 ----
-                const targetTbl = slot.statusTbl;
-                const HEADER_ROW_COUNT = 1; // 표 상단 1줄(구분/위치/... 헤더)은 그대로 둔다. 구조체구분은 구조/비구조 하위 2칸을 합쳐 헤더가 1줄로 줄었다
-                const allTrs = Array.from(targetTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === targetTbl);
-                const dataRows = allTrs.slice(HEADER_ROW_COUNT);
-                if (dataRows.length < 3) {
-                    console.error(`${floorCode}: 템플릿 표의 첫/중간/마지막 행 테두리 스타일을 판별할 수 없어 이 층은 건너뜁니다.`);
-                    continue;
-                }
-
-                const borderStyleByCol = (row) => {
-                    const map = {};
-                    Array.from(row.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
-                        const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
-                        if (addr) map[addr.getAttribute('colAddr')] = tc.getAttribute('borderFillIDRef');
-                    });
-                    return map;
-                };
-                const firstStyleRow = dataRows[0];
-                const normalStyleRow = dataRows[1];
-                const styleMaps = {
-                    first: borderStyleByCol(firstStyleRow),
-                    normal: borderStyleByCol(normalStyleRow),
-                    last: borderStyleByCol(dataRows[dataRows.length - 1])
-                };
-
-                dataRows.forEach(tr => targetTbl.removeChild(tr));
-
-                await Promise.all(pageDefects.map(async (d) => {
-                    if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
-                        const photos = await Promise.all(d.photoIds.map(async pid => {
-                            const local = await idbGet('photos', pid);
-                            if (local) return local;
-                            if (window._photoCache[pid]) return window._photoCache[pid];
-                            if (companyPhotosCol) {
-                                try {
-                                    const snap = await companyPhotosCol.doc(pid).get();
-                                    const url = snap.exists ? snap.data().dataUrl : null;
-                                    if (url) window._photoCache[pid] = url;
-                                    return url;
-                                } catch (e) { return null; }
-                            }
-                            return null;
-                        }));
-                        const filled = photos.filter(Boolean);
-                        if (filled.length > 0) d.photos = filled;
-                    }
-                }));
-                // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
-                // 전인 지금 미리 번호를 매겨둔다.
-                const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
-                const photoLabelByDefect = new Map();
-                photoDefects.forEach((d, i) => photoLabelByDefect.set(d, `사진${i + 1}`));
-
-                pageDefects.forEach((d, idx) => {
-                    // 템플릿 표에서 구조체구분(구조부재/비구조부재) 두 칸을 하나로 합쳐뒀으므로, 마감재까지
-                    // 포함한 실제 구조체 종류(구조체/비구조체/마감재) 문구를 그 한 칸에 그대로 적어 넣는다.
-                    const values = [
-                        getSurveyCellText('no', d),
-                        getSurveyCellText('location', d, { floorCode }),
-                        getSurveyCellText('component', d),
-                        getSurveyCellText('defectType', d),
-                        getSurveyCellText('size', d),
-                        getSurveyCellText('category', d),
-                        getSurveyCellText('progress', d),
-                        getSurveyCellText('leak', d),
-                        getSurveyCellText('cause', d),
-                        getSurveyCellText('remark', d, { photoRemark: photoLabelByDefect.get(d) })
-                    ];
-                    const styleMap = idx === 0 ? styleMaps.first : (idx === pageDefects.length - 1 ? styleMaps.last : styleMaps.normal);
-
-                    const newRow = normalStyleRow.cloneNode(true);
-                    Array.from(newRow.getElementsByTagNameNS(HP_NS, 'tc')).forEach((tc, colIdx) => {
-                        const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
-                        if (addr) {
-                            addr.setAttribute('rowAddr', String(HEADER_ROW_COUNT + idx));
-                            const bf = styleMap[addr.getAttribute('colAddr')];
-                            if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
-                        }
-                        // 템플릿 원본 셀이 "0.2/0.6" + "(3EA)"처럼 문단 2개 이상으로 나뉜 값을 갖고
-                        // 있던 경우, 첫 문단 텍스트만 바꾸면 나머지 문단이 옛날 텍스트로 계속 남는다.
-                        // 첫 문단만 남기고 나머지 문단은 통째로 지운다.
-                        const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
-                        const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
-                        if (paras.length > 0) {
-                            const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
-                            if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
-                            for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
-                        }
-                    });
-                    targetTbl.appendChild(newRow);
-                });
-
-                targetTbl.setAttribute('rowCnt', String(HEADER_ROW_COUNT + pageDefects.length));
-
-                // ---- 결함 사진 갤러리 ----
-                // 템플릿에는 사진 2장씩 짝지은 표가 같은 hp:run 안에 여러 개 나란히 들어있다. 이걸 전부
-                // 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
-                if (photoDefects.length > 0) { try {
-                    const photoTbl = slot.photoTbl;
-                    // 미리보기(PDF)처럼 장수 제한 없이 사진이 있는 결함 전부를 반영한다(표를 필요한
-                    // 만큼 계속 복제해서 채우므로 장수 자체에는 구조적 제약이 없다).
-                    const items = photoDefects;
-
-                    const tplPics = photoTbl.getElementsByTagNameNS(HP_NS, 'pic');
-                    const maxW = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
-                    const maxH = parseInt(tplPics[0].getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
-
-                    // 사진 디코딩(비동기)은 미리 다 끝내둔다
-                    const decoded = [];
-                    for (const d of items) {
-                        const { bytes, mime, ext } = dataUrlToBytes(d.photos[0]);
-                        const size = await loadImageSize(d.photos[0]);
-                        decoded.push({ d, bytes, mime, ext, w: size.w, h: size.h });
-                    }
-
-                    const photoRun = photoTbl.parentNode; // 사진첩 표 여러 개가 같은 hp:run 안에 나란히 들어있다
-                    const existingPhotoTables = Array.from(photoRun.children).filter(c => c.localName === 'tbl');
-                    const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
-                    existingPhotoTables.forEach(t => photoRun.removeChild(t));
-
-                    for (let i = 0; i < decoded.length; i += 2) {
-                        const slot1 = decoded[i];
-                        const slot2 = decoded[i + 1] || null;
-
-                        photoTblCounter++;
-                        const newTbl = photoTbl.cloneNode(true);
-                        newTbl.setAttribute('id', String(9500000 + photoTblCounter));
-                        const pics = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'pic'));
-                        pics.forEach((p, pIdx) => {
-                            p.setAttribute('id', String(9600000 + photoTblCounter * 2 + pIdx));
-                            p.setAttribute('instid', String(9700000 + photoTblCounter * 2 + pIdx));
-                        });
-
-                        const trs2 = Array.from(newTbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === newTbl);
-                        const capTcs = trs2[1].getElementsByTagNameNS(HP_NS, 'tc');
-                        const descTcs = trs2[2].getElementsByTagNameNS(HP_NS, 'tc');
-
-                        imgCounter++;
-                        const imgId1 = `photoAuto${imgCounter}`;
-                        zip.file(`BinData/${imgId1}.${slot1.ext}`, slot1.bytes);
-                        manifestAdds.push(`<opf:item id="${imgId1}" href="BinData/${imgId1}.${slot1.ext}" media-type="${slot1.mime}" isEmbeded="1"/>`);
-                        setPicImage(pics[0], imgId1, slot1.w, slot1.h, maxW, maxH);
-                        capTcs[0].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot1.d);
-                        capTcs[2].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot1.d, { floorCode });
-                        descTcs[1].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot1.d);
-
-                        // 짝이 없는 마지막 홀수 장은 오른쪽 칸에 같은 사진을 다시 앉혀 빈 칸으로 남지 않게 한다
-                        const useSlot2 = slot2 || slot1;
-                        imgCounter++;
-                        const imgId2 = `photoAuto${imgCounter}`;
-                        zip.file(`BinData/${imgId2}.${useSlot2.ext}`, useSlot2.bytes);
-                        manifestAdds.push(`<opf:item id="${imgId2}" href="BinData/${imgId2}.${useSlot2.ext}" media-type="${useSlot2.mime}" isEmbeded="1"/>`);
-                        setPicImage(pics[1], imgId2, useSlot2.w, useSlot2.h, maxW, maxH);
-                        if (slot2) {
-                            capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = photoLabelByDefect.get(slot2.d);
-                            capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('location', slot2.d, { floorCode });
-                            descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = getSurveyCellText('defectType', slot2.d);
-                        } else {
-                            capTcs[4].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
-                            capTcs[6].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
-                            descTcs[3].getElementsByTagNameNS(HP_NS, 't')[0].textContent = '';
-                        }
-
-                        if (trailingNode) photoRun.insertBefore(newTbl, trailingNode);
-                        else photoRun.appendChild(newTbl);
-                    }
-                } catch (photoErr) {
-                    console.error(`${floorCode} 사진 갤러리 삽입 실패(나머지는 계속 진행):`, photoErr);
-                    window.showToast(`${getFloorLabel(floorCode)} 사진 삽입 중 오류가 있어 사진은 제외하고 만듭니다.`, 'warning', 5000);
-                } }
-
-                // ---- 결함위치도 ----
-                // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다.
+            if (locationMapTbl) {
+                // 위치도 렌더링이 실패해도(도면 로딩 오류 등) 이미 다 만들어둔 상태조사표/사진 갤러리는
+                // 살려서 내보내야 하므로, 여기서 실패해도 전체를 중단시키지 않는다.
                 try {
-                    const locationMapTbl = slot.locationMapTbl;
                     const bldgForMap = window.state.currentBuilding || {};
 
                     // getFloorDrawingSrc()는 정확한 층 코드로 도면을 못 찾으면 "층 코드에 포함된
@@ -9276,295 +8935,21 @@ document.addEventListener('DOMContentLoaded', () => {
                         const mapMaxH = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
                         const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
                         const size = await loadImageSize(mapDataUrl);
-                        const mapImgId = `locationMapAuto${slotIdx + 1}`;
+                        const mapImgId = 'locationMapAuto1';
                         zip.file(`BinData/${mapImgId}.${ext}`, bytes);
                         manifestAdds.push(`<opf:item id="${mapImgId}" href="BinData/${mapImgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
                         setPicImage(mapPic, mapImgId, size.w, size.h, mapMaxW, mapMaxH);
 
                         const captionTc = locationMapTbl.getElementsByTagNameNS(HP_NS, 'tc')[1];
                         const captionT = captionTc.getElementsByTagNameNS(HP_NS, 't')[0];
-                        if (captionT) captionT.textContent = `${getFloorLabel(floorCode)} 결함위치도`;
+                        if (captionT) captionT.textContent = `${getFloorLabel()} 결함위치도`;
                     } else {
-                        window.showToast(`${getFloorLabel(floorCode)}에 등록된 도면이 없어 위치도는 제외하고 만듭니다.`, 'info', 4000);
+                        window.showToast('현재 층에 등록된 도면이 없어 위치도는 제외하고 만듭니다.', 'info', 4000);
                     }
                 } catch (mapErr) {
-                    console.error(`${floorCode} 위치도 삽입 실패(나머지는 계속 진행):`, mapErr);
-                    window.showToast(`${getFloorLabel(floorCode)} 위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.`, 'warning', 4000);
+                    console.error('위치도 삽입 실패(나머지는 계속 진행):', mapErr);
+                    window.showToast('위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.', 'warning', 4000);
                 }
-            }
-
-            // 실제로 채운 블록 다음에 남은 표본 층 블록은 (비파괴조사 섹션 정리와 함께) 뒤에서 지운다.
-            const unusedFloorSlotStart = floorSlots.length > floorsData.length ? floorSlots[floorsData.length].titlePara : null;
-
-            // 비파괴조사(NDT) 섹션은 아직 여러 층을 지원하지 않아 지금 화면에 보고 있는 층 기준으로만 채운다.
-            const floorCode = window.state.currentFloor || floorsData[0].floorCode;
-
-            // ---- 비파괴조사(NDT) 5개 섹션: 콘크리트 강도/탄산화/외벽기울기/부동침하/부재처짐 ----
-            // 정기안전점검이면 이 표들은 통째로 지우고, 정밀안전점검이면 앱에 등록된 실측 데이터로
-            // 채운다. 표 데이터 행 교체 로직(테두리 스타일 3종 판별 → 기존 행 삭제 → clone해서 채우기)은
-            // 위 상태조사표와 완전히 동일한 패턴이라 fillNdtTable로 뽑아 재사용한다. 실패해도 이미
-            // 만들어둔 상태조사표/사진/결함위치도는 살려서 내보내야 하므로 전체를 try/catch로 감싼다.
-            try {
-                const ndtBldg = window.state.currentBuilding || {};
-                const ndtBldgId = ndtBldg.id || window.state.currentBuildingId;
-                const isPreciseInspection = (ndtBldg.inspectionType || '정밀안전점검') === '정밀안전점검';
-                const ndtKey = `${ndtBldgId}_${floorCode}`;
-                const allNdtItemsForHwpx = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
-                const allDispGroupsForHwpx = state.ndtDisplacementGroups ? (state.ndtDisplacementGroups[ndtKey] || []) : [];
-
-                const strengthItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '강도');
-                const carbItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '탄산화');
-                const tiltItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '기울기');
-                const settlementGroupsHwpx = allDispGroupsForHwpx.filter(g => !g.category || g.category === '변위');
-                const memberDispGroupsHwpx = allDispGroupsForHwpx.filter(g => g.category === '부재변위');
-
-                const findTblById = (tblId) => {
-                    const all = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
-                    for (let i = 0; i < all.length; i++) {
-                        if (all[i].getAttribute('id') === tblId) return all[i];
-                    }
-                    return null;
-                };
-                // 표를 통째로 지울 때는 표를 담고 있는 hp:run만 문단에서 떼어낸다(문단 자체는 남겨서
-                // 바로 위 제목 문단 구조를 안 건드림 — 제목 글자가 빈 문단 위에 남는 정도는 허용).
-                const removeNdtTableById = (tblId) => {
-                    const tbl = findTblById(tblId);
-                    if (!tbl) return;
-                    const runEl = tbl.parentNode;
-                    if (runEl && runEl.parentNode) runEl.parentNode.removeChild(runEl);
-                };
-
-                // 데이터 행 채우기 (상태조사표의 행 clone 패턴 재사용). headerRowCount개 행은 그대로
-                // 두고 그 다음부터 표 끝까지가 데이터 행이다. rowsValues[i]는 colAddr=1번 칸부터 순서대로
-                // 들어갈 값 배열이다(0번 칸은 세로로 병합된 표 왼쪽 라벨 칸이라 건드리지 않는다).
-                const fillNdtTable = (tbl, headerRowCount, rowsValues) => {
-                    const allTrs = Array.from(tbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === tbl);
-                    const oldDataRows = allTrs.slice(headerRowCount);
-                    if (oldDataRows.length < 1) return;
-                    const borderStyleByColLocal = (row) => {
-                        const map = {};
-                        Array.from(row.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
-                            const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
-                            if (addr) map[addr.getAttribute('colAddr')] = tc.getAttribute('borderFillIDRef');
-                        });
-                        return map;
-                    };
-                    const firstStyleRow = oldDataRows[0];
-                    const normalStyleRow = oldDataRows.length > 2 ? oldDataRows[1] : oldDataRows[0];
-                    const lastStyleRow = oldDataRows[oldDataRows.length - 1];
-                    const styleMaps = {
-                        first: borderStyleByColLocal(firstStyleRow),
-                        normal: borderStyleByColLocal(normalStyleRow),
-                        last: borderStyleByColLocal(lastStyleRow)
-                    };
-                    oldDataRows.forEach(tr => tbl.removeChild(tr));
-                    rowsValues.forEach((values, idx) => {
-                        const styleMap = idx === 0 ? styleMaps.first : (idx === rowsValues.length - 1 ? styleMaps.last : styleMaps.normal);
-                        const newRow = normalStyleRow.cloneNode(true);
-                        Array.from(newRow.getElementsByTagNameNS(HP_NS, 'tc')).forEach(tc => {
-                            const addr = tc.getElementsByTagNameNS(HP_NS, 'cellAddr')[0];
-                            if (!addr) return;
-                            const colAddr = addr.getAttribute('colAddr');
-                            addr.setAttribute('rowAddr', String(headerRowCount + idx));
-                            const bf = styleMap[colAddr];
-                            if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
-                            if (colAddr === '0') return;
-                            const colIdx = parseInt(colAddr, 10) - 1;
-                            const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
-                            const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
-                            if (paras.length > 0 && values[colIdx] !== undefined) {
-                                const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
-                                if (tNode) tNode.textContent = String(values[colIdx]);
-                                for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
-                            }
-                        });
-                        tbl.appendChild(newRow);
-                    });
-                    tbl.setAttribute('rowCnt', String(headerRowCount + rowsValues.length));
-                };
-
-                const insertNdtLocationMap = async (tblId, category) => {
-                    const tbl = findTblById(tblId);
-                    if (!tbl) return;
-                    const mapDataUrl = renderNdtFloorPlanCanvasDataUrl(floorCode, category);
-                    const pic = tbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
-                    if (!mapDataUrl || !pic) { removeNdtTableById(tblId); return; }
-                    const maxW = parseInt(pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
-                    const maxH = parseInt(pic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
-                    const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
-                    const size = await loadImageSize(mapDataUrl);
-                    const imgId = `ndtMapAuto${tblId}`;
-                    zip.file(`BinData/${imgId}.${ext}`, bytes);
-                    manifestAdds.push(`<opf:item id="${imgId}" href="BinData/${imgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
-                    setPicImage(pic, imgId, size.w, size.h, maxW, maxH);
-                };
-
-                const STRENGTH_TBL_ID = '2119329126', STRENGTH_HEADER_ROWS = 1;
-                const CARB_TBL_ID = '2119328135', CARB_HEADER_ROWS = 1;
-                const STRENGTH_CARB_MAP_TBL_ID = '2137459495';
-                const TILT_TBL_ID = '1165079546', TILT_HEADER_ROWS = 2;
-                const TILT_MAP_TBL_ID = '1165079510';
-                const DISP_TBL_ID = '1165079547', DISP_HEADER_ROWS = 2;
-                const SETTLEMENT_MAP_TBL_ID = '1165079513';
-                const MEMBER_DISP_MAP_TBL_ID = '1165079516';
-
-                if (!isPreciseInspection) {
-                    [STRENGTH_TBL_ID, CARB_TBL_ID, STRENGTH_CARB_MAP_TBL_ID, TILT_TBL_ID, TILT_MAP_TBL_ID, DISP_TBL_ID, SETTLEMENT_MAP_TBL_ID, MEMBER_DISP_MAP_TBL_ID].forEach(removeNdtTableById);
-                } else {
-                    // 강도 항목은 위치 슬롯(같은 부재의 플렌지/웨브 등)이 여러 개일 수 있어서 슬롯마다
-                    // 별도 행으로 펼친다. 슬롯이 없는 구버전 항목은 항목 자체를 1행짜리 슬롯처럼 다룬다.
-                    const strengthRowsHwpx = [];
-                    strengthItemsHwpx.forEach(item => {
-                        const slots = (Array.isArray(item.strengthSlots) && item.strengthSlots.length > 0)
-                            ? item.strengthSlots
-                            : [{ location: item.location, designStrength: item.designStrength, finalStrength: item.strengthFinal, ratio: item.strengthRatio, grade: item.strengthGrade }];
-                        const baseLoc = slots[0].location || item.location || '';
-                        slots.forEach((slot, slotIdx) => {
-                            strengthRowsHwpx.push({
-                                no: item.no,
-                                location: (slotIdx === 0 ? baseLoc : `${baseLoc} ${slot.location || ''}`.trim()) + (item.component || ''),
-                                designStrength: slot.designStrength != null ? slot.designStrength : item.designStrength,
-                                finalStrength: slot.finalStrength,
-                                ratio: slot.ratio,
-                                grade: slot.grade
-                            });
-                        });
-                    });
-                    if (strengthRowsHwpx.length > 0) {
-                        const tbl = findTblById(STRENGTH_TBL_ID);
-                        if (tbl) fillNdtTable(tbl, STRENGTH_HEADER_ROWS, strengthRowsHwpx.map((row, i) => [
-                            row.no || (i + 1),
-                            row.location,
-                            row.designStrength != null ? row.designStrength : '-',
-                            typeof row.finalStrength === 'number' ? row.finalStrength.toFixed(1) : (row.finalStrength || '-'),
-                            row.ratio != null ? `${Math.round(row.ratio)}%` : '-',
-                            row.grade || '-',
-                            '-'
-                        ]));
-                    } else {
-                        removeNdtTableById(STRENGTH_TBL_ID);
-                    }
-
-                    if (carbItemsHwpx.length > 0) {
-                        const tbl = findTblById(CARB_TBL_ID);
-                        if (tbl) fillNdtTable(tbl, CARB_HEADER_ROWS, carbItemsHwpx.map((item, i) => [
-                            item.no || (i + 1),
-                            `${item.location || ''}${item.component || ''}`,
-                            item.carbDepth != null ? item.carbDepth : '-',
-                            item.carbCover != null ? item.carbCover : '-',
-                            typeof item.carbRemainMm === 'number' ? item.carbRemainMm.toFixed(2) : '-',
-                            typeof item.carbRate === 'number' ? item.carbRate.toFixed(2) : '-',
-                            typeof item.carbLifeYears === 'number' ? Math.round(item.carbLifeYears) : '-',
-                            typeof item.carbRemainingLifeYears === 'number' ? Math.round(item.carbRemainingLifeYears) : '-',
-                            item.carbAgeDays != null ? `약 ${Math.round(item.carbAgeDays / 365)}년` : '-',
-                            '-'
-                        ]));
-                    } else {
-                        removeNdtTableById(CARB_TBL_ID);
-                    }
-
-                    if (strengthItemsHwpx.length > 0 || carbItemsHwpx.length > 0) {
-                        await insertNdtLocationMap(STRENGTH_CARB_MAP_TBL_ID, '일반비파괴');
-                    } else {
-                        removeNdtTableById(STRENGTH_CARB_MAP_TBL_ID);
-                    }
-
-                    if (tiltItemsHwpx.length > 0) {
-                        const tbl = findTblById(TILT_TBL_ID);
-                        if (tbl) fillNdtTable(tbl, TILT_HEADER_ROWS, tiltItemsHwpx.map((item, i) => {
-                            const fmtH = formatHeightValue(item.height);
-                            const hDigits = (fmtH || '').replace(/[^0-9.]/g, '');
-                            const avgDigits = (item.avgValue || '').replace(/[^0-9.-]/g, '');
-                            const h = parseFloat(hDigits) || 3000;
-                            const delta = Math.abs(parseFloat(avgDigits) || 0);
-                            const calc = calcTiltGrade(h, delta);
-                            return [item.no || (i + 1), item.location || '-', fmtH || '-', '-', item.avgValue || '-', item.tiltRatio || calc.tiltRatio, item.grade || calc.grade];
-                        }));
-                        await insertNdtLocationMap(TILT_MAP_TBL_ID, '기울기');
-                    } else {
-                        removeNdtTableById(TILT_TBL_ID);
-                        removeNdtTableById(TILT_MAP_TBL_ID);
-                    }
-
-                    // 결과표는 템플릿에 하나뿐이라 부동침하 그룹 먼저, 이어서 부재처짐 그룹 순으로 한
-                    // 표에 담는다. 위치도는 부동침하용/부재처짐용이 템플릿에 각각 따로 있어서 둘 다 채운다.
-                    const combinedDispGroups = [...settlementGroupsHwpx, ...memberDispGroupsHwpx];
-                    if (combinedDispGroups.length > 0) {
-                        const tbl = findTblById(DISP_TBL_ID);
-                        if (tbl) fillNdtTable(tbl, DISP_HEADER_ROWS, combinedDispGroups.map((group, i) => {
-                            const calc = calcGroupDisplacement(group);
-                            const label = `${group.locationType || '-'}(${group.category === '부재변위' ? '처짐' : '부동침하'})`;
-                            return [i + 1, label, group.measureLength || '-', '-', calc.delta.toFixed(1), calc.tiltRatio, calc.grade];
-                        }));
-                    } else {
-                        removeNdtTableById(DISP_TBL_ID);
-                    }
-
-                    if (settlementGroupsHwpx.length > 0) {
-                        await insertNdtLocationMap(SETTLEMENT_MAP_TBL_ID, '변위');
-                    } else {
-                        removeNdtTableById(SETTLEMENT_MAP_TBL_ID);
-                    }
-
-                    if (memberDispGroupsHwpx.length > 0) {
-                        await insertNdtLocationMap(MEMBER_DISP_MAP_TBL_ID, '부재변위');
-                    } else {
-                        removeNdtTableById(MEMBER_DISP_MAP_TBL_ID);
-                    }
-                }
-            } catch (ndtErr) {
-                console.error('비파괴조사 섹션 삽입 실패(나머지는 계속 진행):', ndtErr);
-                window.showToast('비파괴조사 섹션 삽입 중 오류가 있어 해당 부분은 제외하고 만듭니다: ' + ndtErr.message, 'warning', 5000);
-            }
-
-            // ---- 표본 템플릿 잔여 내용 정리 ----
-            // 템플릿(hwpx_survey_template.hwpx)은 완성된 표본 보고서 원본이라, 위에서 표 ID로
-            // 찾아 갈아 끼운 것(상태조사표 1개/사진첩/결함위치도/비파괴조사 5개 섹션) 말고는
-            // 표본 데이터가 그대로 남아있다 — 다른 층들의 상태조사표/사진첩/위치도 전체와,
-            // 표본 건물의 "비파괴 장비조사 사진첩"(예: "콘크리트 반발경도 측정" 캡션이 붙은
-            // 표본 사진)이 대표적이다. 이걸 지우지 않으면 실제 결함 사진과 무관한 표본 사진이
-            // 내보낸 문서에 섞여 나온다. 실패해도 이미 만든 상태조사표/사진/위치도는 살려서
-            // 내보내야 하므로 전체를 try/catch로 감싼다.
-            try {
-                // 1) 실제로 채운 층 블록들 다음에 남은 표본 층 블록(있다면)은 통째로 삭제한다.
-                if (unusedFloorSlotStart) removeParaRange(unusedFloorSlotStart, null);
-
-                // "비파괴 장비조사 사진첩"(표본 NDT 사진, 우리 코드가 다루지 않음) 섹션과
-                // "비파괴 장비조사 위치도" 섹션의 경계를 먼저 찾아둔다(둘 다 뒤에서 쓴다).
-                const albumStart = secChildren().find(p => /^비파괴 장비조사 사진첩/.test(paraText(p).trim()));
-                const surveyHeading = secChildren().find(p => /^주요 상태조사표, 사진 및 위치도/.test(paraText(p).trim()));
-
-                // 2) "비파괴 장비조사 위치도" 섹션 중 우리가 실제로 채운 지도(강도/탄산화·
-                //    외벽기울기·부동침하·부재처짐)가 들어있는 문단(및 그 캡션)만 남기고,
-                //    우리가 안 다루는 항목(부재실측 위치도, 내화피복 측정 위치도 등)의
-                //    표본 이미지 문단은 지운다. albumStart를 경계로 쓰므로, 이 문단을
-                //    실제로 지우는 다음 단계보다 먼저 실행해야 한다.
-                const HANDLED_MAP_TBL_IDS = ['2137459495', '1165079510', '1165079513', '1165079516'];
-                const mapStart = secChildren().find(p => paraText(p).trim() === '비파괴 장비조사 위치도');
-                if (mapStart && albumStart) {
-                    const all = secChildren();
-                    const s = all.indexOf(mapStart) + 1;
-                    const e = all.indexOf(albumStart);
-                    if (s >= 0 && e > s) {
-                        const keepSet = new Set();
-                        for (let i = s; i < e; i++) {
-                            const tbls = Array.from(all[i].getElementsByTagNameNS(HP_NS, 'tbl')).map(t => t.getAttribute('id'));
-                            if (tbls.some(id => HANDLED_MAP_TBL_IDS.includes(id))) keepSet.add(i);
-                        }
-                        Array.from(keepSet).forEach(i => {
-                            const prev = i - 1;
-                            if (prev >= s && Array.from(all[prev].getElementsByTagNameNS(HP_NS, 'tbl')).length === 0) keepSet.add(prev);
-                        });
-                        for (let i = e - 1; i >= s; i--) {
-                            if (!keepSet.has(i)) sec.removeChild(all[i]);
-                        }
-                    }
-                }
-
-                // 3) "비파괴 장비조사 사진첩" 섹션 전체 삭제 (위 2번보다 반드시 나중에 실행)
-                if (albumStart) removeParaRange(albumStart, surveyHeading || null);
-            } catch (cleanupErr) {
-                console.error('표본 템플릿 잔여 내용 정리 실패(나머지는 유지):', cleanupErr);
             }
 
             if (manifestAdds.length > 0) {
@@ -9593,9 +8978,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', mimeType: 'application/hwp+zip' });
 
+            const bldg = window.state.currentBuilding || { name: '건축물' };
             const bldgName = (bldg.name || '건축물').replace(/^🏢\s*/, '').replace(/[^a-zA-Z0-9가-힣_-]/g, '_');
             const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-            const filename = `${bldgName}_상태조사표_전체층_${dateStr}.hwpx`;
+            const filename = `${bldgName}_${floorCode}_상태조사표_${dateStr}.hwpx`;
 
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -9606,8 +8992,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
 
-            const totalDefectCount = floorsData.reduce((sum, f) => sum + f.pageDefects.length, 0);
-            window.showToast(`hwpx 파일을 생성했습니다 (${floorsData.length}개 층, 총 ${totalDefectCount}건 반영).`, 'success', 4000);
+            window.showToast(`hwpx 파일을 생성했습니다 (${pageDefects.length}건 반영).`, 'success', 4000);
         } catch (err) {
             console.error('HWPX export error:', err);
             window.showToast('hwpx 생성 중 오류가 발생했습니다: ' + err.message, 'error', 5000);
