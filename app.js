@@ -7814,6 +7814,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 상태조사표 페이지(.report-page-block[data-role="survey-page"])는 처음에 "한 페이지당
+    // SURVEY_ROWS_PER_PAGE개"로 고정 배치해서 만든다(빈 페이지 없이 빠르게 초안을 만들기 위함).
+    // 하지만 조사내용/원인추정 같은 칸이 길어서 줄바꿈이 많이 되는 결함이 섞여 있으면, 고정
+    // 개수로는 실제 페이지 높이(295mm, 여백 포함)를 넘어서 꼬릿말이 밀려나거나 표가 페이지
+    // 밑으로 잘려 나가는 문제가 있었다. 개수를 미리 정하는 대신, 실제로 그려진 다음 각 페이지의
+    // 실측 높이(scrollHeight)가 페이지 박스 높이(clientHeight, overflow:hidden으로 잘리는 기준)를
+    // 넘는지 직접 재서, 넘치면 그 페이지의 마지막 행부터 하나씩 다음 페이지로 자연스럽게 넘긴다.
+    // 넘겨받을 다음 페이지가 같은 층의 상태조사표 페이지가 아니면(마지막 페이지였거나 다음이 다른
+    // 층/다른 섹션이면) 지금 페이지를 복제해서 빈 표로 만든 새 페이지를 그 사이에 끼워 넣는다.
+    function rebalanceOverflowingSurveyPages(root) {
+        const pages = Array.from(root.querySelectorAll('[data-role="survey-page"]'));
+        let guard = 0;
+        let changed = true;
+        while (changed && guard < 5000) {
+            changed = false;
+            guard++;
+            for (let i = 0; i < pages.length; i++) {
+                const page = pages[i];
+                if (page.scrollHeight <= page.clientHeight + 1) continue;
+                const tbody = page.querySelector('table tbody');
+                if (!tbody) continue;
+                const rows = Array.from(tbody.children).filter(tr => tr.tagName === 'TR');
+                if (rows.length <= 1) continue; // 행이 1개뿐이면(예: "결함 없음" 안내행) 더 줄일 수 없다
+                let nextPage = pages[i + 1];
+                const sameFloorNextSurveyPage = nextPage && nextPage.dataset.role === 'survey-page' && nextPage.dataset.floor === page.dataset.floor;
+                if (!sameFloorNextSurveyPage) {
+                    nextPage = page.cloneNode(true);
+                    const nextTbody = nextPage.querySelector('table tbody');
+                    Array.from(nextTbody.children).forEach(tr => nextTbody.removeChild(tr));
+                    page.parentNode.insertBefore(nextPage, page.nextSibling);
+                    pages.splice(i + 1, 0, nextPage);
+                }
+                const nextTbody = nextPage.querySelector('table tbody');
+                const lastRow = rows[rows.length - 1];
+                tbody.removeChild(lastRow);
+                nextTbody.insertBefore(lastRow, nextTbody.firstChild || null);
+                changed = true;
+            }
+        }
+    }
+
     // --- REPORT PREVIEW MODAL (Instant Modal Open & Pure White Paper Theme) ---
     window.openReportPreviewModalFunc = async function() {
         try {
@@ -7902,7 +7943,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 surveyPages.forEach((sDefects, sPageIdx) => {
                     reportPagesHtml += `
-                        <div class="report-page-block" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
+                        <div class="report-page-block" data-role="survey-page" data-floor="${floorCode}" style="background:#ffffff; color:#0f172a; padding: 10mm 14mm 10mm 14mm; margin-bottom: 2rem; font-family: sans-serif; font-size:0.9rem; border-radius:4px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); page-break-after: always; break-after: page; page-break-inside: avoid !important; break-inside: avoid !important; box-sizing: border-box; width: 210mm; height: 295mm; max-height: 295mm; overflow: hidden; display: flex; flex-direction: column; position: relative;">
                             <div style="text-align:center; border-bottom: 1px solid #cbd5e1; padding-bottom: 0.3rem; margin-bottom: 0.6rem;">
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
@@ -7969,7 +8010,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             ${pagePhotos.length > 0 ? `
-                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.4rem; flex: 1; align-content: space-between;">
+                                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.5rem; margin-bottom: 0.4rem; flex: 1; align-content: start;">
                                     ${pagePhotos.map(p => `
                                         <div style="border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fafafa; box-sizing: border-box;">
                                             <div style="position: relative; width: 100%; padding-bottom: 75%; background: #e2e8f0; overflow: hidden;">
@@ -8499,6 +8540,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             container.innerHTML = `<div id="printableReportArea" style="width:100%; max-width: 210mm; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">${reportPagesHtml}</div>`;
+
+            // 실측 높이를 재려면 실제로 한 번 화면에 그려져야 하므로(레이아웃 계산 이후), 다음
+            // 페인트 프레임까지 기다렸다가 넘치는 페이지를 자연스럽게 다음 페이지로 흘려보낸다.
+            await new Promise(resolve => requestAnimationFrame(() => {
+                try { rebalanceOverflowingSurveyPages(container); } catch (rebalanceErr) { console.error('상태조사표 페이지 재배치 실패:', rebalanceErr); }
+                resolve();
+            }));
         } catch (err) {
             console.error('Error in openReportPreviewModalFunc:', err);
             const modal = document.getElementById('reportPreviewModal');
@@ -8775,14 +8823,21 @@ document.addEventListener('DOMContentLoaded', () => {
                             // 지우면 안 되는데(사진 갤러리처럼 표 여러 개가 같은 hp:run 안에 나란히
                             // 들어있는 경우가 있어서, run을 지우면 그 안에 같이 있던 정상 표까지
                             // 같이 사라진다 — 실제로 이 버그로 정상 표까지 날아간 적 있었음), 그래서
-                            // tbl 엘리먼트 자체만 그 부모에서 떼어낸다.
+                            // tbl 엘리먼트 자체만 그 부모에서 떼어낸다. 그 문단에 남는 표가 하나도
+                            // 없게 되면(옛 포맷 표만 혼자 문단을 차지하고 있던 경우) 문단 자체를
+                            // 통째로 지운다 — 안 지우면 그 문단이 갖고 있던 pageBreak="1" 속성이
+                            // 빈 문단인 채로 그대로 남아서, 표 다음에 빈 페이지가 하나 끼어 들어가는
+                            // 문제가 있었다.
+                            let keptAnyInPara = false;
                             tbls.forEach(tbl => {
                                 if (isCurrentStatusTable(tbl)) {
                                     statusTbls.push(tbl);
+                                    keptAnyInPara = true;
                                 } else if (tbl.parentNode) {
                                     tbl.parentNode.removeChild(tbl);
                                 }
                             });
+                            if (!keptAnyInPara && ps[i].parentNode) ps[i].parentNode.removeChild(ps[i]);
                         }
                     }
                     for (let i = e - 1; i > s; i--) {
@@ -9041,9 +9096,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // ---- 결함 사진 갤러리 ----
                 // 템플릿에는 사진 2장씩 짝지은 표가 같은 hp:run 안에 여러 개 나란히 들어있다. 이걸 전부
-                // 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다.
-                if (photoDefects.length > 0) { try {
+                // 지우고, 사진이 있는 결함 개수만큼 이 표를 복제해 다시 채운다. 이 표본 표 제거는 사진이
+                // 있을 때만 하면 안 된다 — 사진을 한 장도 안 찍은 층은 photoDefects.length가 0이라 이
+                // 블록 자체가 통째로 안 돌아서, 표본 건물의 원래 사진이 그대로 남아 나오는 문제가
+                // 있었다(우리 결함 사진이 아니라 템플릿 표본 사진이 나옴). 그래서 표본 표 제거는 사진
+                // 개수와 무관하게 항상 먼저 하고, 새 표로 채우는 부분만 사진이 있을 때로 한정한다.
+                try {
                     const photoTbl = slot.photoTbl;
+                    const photoRun = photoTbl.parentNode; // 사진첩 표 여러 개가 같은 hp:run 안에 나란히 들어있다
+                    const existingPhotoTables = Array.from(photoRun.children).filter(c => c.localName === 'tbl');
+                    const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
+                    existingPhotoTables.forEach(t => photoRun.removeChild(t));
+
+                    if (photoDefects.length > 0) {
                     // 찍은 사진은 장수 제한 없이 전부 반영한다(표를 필요한 만큼 계속 복제해서
                     // 채우므로 장수 자체에는 구조적 제약이 없다).
                     const items = photoDefects;
@@ -9059,11 +9124,6 @@ document.addEventListener('DOMContentLoaded', () => {
                         const size = await loadImageSize(d.photos[0]);
                         decoded.push({ d, bytes, mime, ext, w: size.w, h: size.h });
                     }
-
-                    const photoRun = photoTbl.parentNode; // 사진첩 표 여러 개가 같은 hp:run 안에 나란히 들어있다
-                    const existingPhotoTables = Array.from(photoRun.children).filter(c => c.localName === 'tbl');
-                    const trailingNode = Array.from(photoRun.children).find(c => c.localName === 't') || null;
-                    existingPhotoTables.forEach(t => photoRun.removeChild(t));
 
                     for (let i = 0; i < decoded.length; i += 2) {
                         const slot1 = decoded[i];
@@ -9111,10 +9171,11 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (trailingNode) photoRun.insertBefore(newTbl, trailingNode);
                         else photoRun.appendChild(newTbl);
                     }
+                    }
                 } catch (photoErr) {
                     console.error(`${floorCode} 사진 갤러리 삽입 실패(나머지는 계속 진행):`, photoErr);
                     window.showToast(`${getFloorLabel(floorCode)} 사진 삽입 중 오류가 있어 사진은 제외하고 만듭니다.`, 'warning', 5000);
-                } }
+                }
 
                 // ---- 결함위치도 ----
                 // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다.
@@ -9143,8 +9204,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     })()) : null;
                     if (mapDataUrl) {
                         const mapPic = locationMapTbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
-                        const mapMaxW = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('width'), 10);
-                        const mapMaxH = parseInt(mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0].getAttribute('height'), 10);
+                        // 기존에는 표본 그림 자체의 curSz(표본 도면 비율에 맞춰 이미 안쪽으로 줄어들어
+                        // 있던 크기)를 그대로 "박스"로 썼다. 그 표본 그림이 이 칸(cell)보다 작게
+                        // 앉혀져 있던 경우, 우리 도면도 그 작은 박스 안에서만 맞춰져서 칸 여백이
+                        // 실제보다 훨씬 크게 남았다. 칸 자체의 실제 여유 공간(셀 크기 - 안쪽 여백)을
+                        // 박스로 써서 도면이 칸을 최대한 꽉 채우도록 한다(비율은 그대로 유지, 잘리지
+                        // 않게 안쪽에 맞추는 것만 동일).
+                        let mapCell = mapPic.parentNode;
+                        while (mapCell && mapCell.localName !== 'tc') mapCell = mapCell.parentNode;
+                        const cellSz = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellSz')[0];
+                        const cellMargin = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellMargin')[0];
+                        const picCurSz = mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0];
+                        let mapMaxW = parseInt(picCurSz.getAttribute('width'), 10);
+                        let mapMaxH = parseInt(picCurSz.getAttribute('height'), 10);
+                        if (cellSz) {
+                            const marginL = cellMargin ? parseInt(cellMargin.getAttribute('left'), 10) : 0;
+                            const marginR = cellMargin ? parseInt(cellMargin.getAttribute('right'), 10) : 0;
+                            const marginT = cellMargin ? parseInt(cellMargin.getAttribute('top'), 10) : 0;
+                            const marginB = cellMargin ? parseInt(cellMargin.getAttribute('bottom'), 10) : 0;
+                            mapMaxW = parseInt(cellSz.getAttribute('width'), 10) - marginL - marginR;
+                            mapMaxH = parseInt(cellSz.getAttribute('height'), 10) - marginT - marginB;
+                        }
                         const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
                         const size = await loadImageSize(mapDataUrl);
                         const mapImgId = `locationMapAuto${slotIdx + 1}`;
