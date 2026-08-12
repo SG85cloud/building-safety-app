@@ -20,6 +20,7 @@ if (!window.state) {
         styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
         styleShapes: null, // 카테고리별 사용자 지정 박스 모양/채우기/번호형식 (미지정 시 DEFAULT_STYLE_SHAPES 사용)
         surveyColumns: null, // 상태조사표 컬럼 순서/이름 커스터마이징 (미지정 시 DEFAULT_SURVEY_COLUMNS 사용)
+        surveyColumnsGrade3: null, // 제3종시설물용 상태조사표 컬럼 커스터마이징 (미지정 시 GRADE3_SURVEY_COLUMNS 사용)
         defectSizeMode: 'combined', // 'combined' | 'split' - 결함크기(균열폭/균열길이) 표시 방식
         bgImage: null,
         canvas: null,
@@ -597,6 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleSizes: window.state.styleSizes || null,
                 styleShapes: window.state.styleShapes || null,
                 surveyColumns: window.state.surveyColumns || null,
+                surveyColumnsGrade3: window.state.surveyColumnsGrade3 || null,
                 defectSizeMode: window.state.defectSizeMode || 'combined',
                 tipShape: window.state.tipShape || 'arrow'
             };
@@ -694,6 +696,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.surveyColumns) {
                     window.state.surveyColumns = parsed.surveyColumns;
+                }
+                if (parsed.surveyColumnsGrade3) {
+                    window.state.surveyColumnsGrade3 = parsed.surveyColumnsGrade3;
                 }
                 if (parsed.defectSizeMode) {
                     window.state.defectSizeMode = parsed.defectSizeMode;
@@ -7152,8 +7157,49 @@ document.addEventListener('DOMContentLoaded', () => {
         { key: 'remark', label: '비고' }
     ];
 
+    // 제3종시설물 상태조사표 컬럼(실제 3종 점검보고서 서식 기준) — 부재종류/조사내용/결함크기를
+    // "점검내용" 한 칸으로 합치고, 구조체 여부 하나로 구조/비구조 구분을 대신한다.
+    const GRADE3_SURVEY_COLUMNS = [
+        { key: 'no', label: '번호' },
+        { key: 'floorGroup', label: '구분' },
+        { key: 'category', label: '구조체 여부' },
+        { key: 'inspectionContent', label: '점검내용' },
+        { key: 'cause', label: '발생원인' },
+        { key: 'remark', label: '비고' }
+    ];
+
+    function isGrade3Building(bldg) {
+        bldg = bldg || state.currentBuilding;
+        return !!bldg && bldg.facilityGrade === '제3종시설물';
+    }
+
+    // 3종 상태조사표 번호(예: B1-1, 1-3, R-2)용 층코드→접두사 매핑.
+    // 범례: B{n}F→B{n}(지하n층), {n}F→{n}(지상n층), ROOF→R(옥상/옥탑), EXT/EXT_*→A(부대시설·외부)
+    function getGrade3FloorPrefix(floorCode) {
+        const c = String(floorCode || '').toUpperCase().trim();
+        const bMatch = c.match(/^B(\d+)F$/);
+        if (bMatch) return `B${bMatch[1]}`;
+        const fMatch = c.match(/^(\d+)F$/);
+        if (fMatch) return fMatch[1];
+        if (c === 'ROOF') return 'R';
+        if (c.startsWith('EXT')) return 'A';
+        return floorCode || '';
+    }
+
+    // 3종 상태조사표 "구분" 칸에 쓸 층 표시명 — 등록된 floorsList의 라벨을 우선 쓰고,
+    // hwpx 내보내기와 동일하게 코드 접미사((B1F) 등)와 숫자 앞 띄어쓰기를 정리한다.
+    function getGrade3FloorDisplayLabel(floorCode, bldg) {
+        bldg = bldg || state.currentBuilding;
+        const f = bldg && (bldg.floorsList || []).find(fl => fl.floorCode === floorCode);
+        const raw = f ? f.floorLabel : (typeof window.getFloorLabelFromCode === 'function' ? window.getFloorLabelFromCode(floorCode) : floorCode);
+        return stripFloorCodeSuffix(raw).replace(/\s+(?=\d)/g, '');
+    }
+
     function getActiveSurveyColumns() {
-        const cols = (state.surveyColumns && state.surveyColumns.length) ? state.surveyColumns : DEFAULT_SURVEY_COLUMNS;
+        const grade3 = isGrade3Building();
+        const stateCols = grade3 ? state.surveyColumnsGrade3 : state.surveyColumns;
+        const defaults = grade3 ? GRADE3_SURVEY_COLUMNS : DEFAULT_SURVEY_COLUMNS;
+        const cols = (stateCols && stateCols.length) ? stateCols : defaults;
         const mode = state.defectSizeMode || 'combined';
         return cols.filter(c => {
             if (mode === 'combined' && (c.key === 'crackWidth' || c.key === 'crackLength')) return false;
@@ -7168,7 +7214,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCrack = d.defectType === '균열';
         const isGood = d.defectType === '상태양호';
         switch (colKey) {
-            case 'no': return (d.no || '').replace(/^NO\.?\s*/i, '');
+            case 'no': return ctx.gradeNo || (d.no || '').replace(/^NO\.?\s*/i, '');
+            case 'floorGroup': return ctx.floorDisplayLabel || ctx.floorCode || state.currentFloor || '';
+            case 'inspectionContent': {
+                const parts = [getSurveyCellText('component', d, ctx), getSurveyCellText('defectType', d, ctx), getSurveyCellText('size', d, ctx)]
+                    .map(s => (s || '').trim())
+                    .filter(s => s && s !== '-');
+                return parts.join(' ') || '-';
+            }
             case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
             case 'component': return d.component || '기둥';
             case 'defectType': return d.defectType || '';
@@ -7283,6 +7336,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
             const photoRemark = labels.length > 0 ? labels.join(' ') : '-';
             const ctx = { floorCode: state.currentFloor, photoRemark };
+            if (isGrade3Building()) {
+                ctx.gradeNo = `${getGrade3FloorPrefix(state.currentFloor)}-${dIdx + 1}`;
+                ctx.floorDisplayLabel = getGrade3FloorDisplayLabel(state.currentFloor);
+            }
             const isGroup = d._groupMemberIds && d._groupMemberIds.length > 1;
             const deleteAction = isGroup ? `window.deleteDefectGroup('${d.groupId}')` : `deleteDefectById('${d.id}')`;
 
@@ -7298,11 +7355,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 상태조사표 컬럼 설정 모달 ---
+    // 종별(1,2종/3종)에 따라 서로 다른 state 슬롯(surveyColumns/surveyColumnsGrade3)을 쓴다 —
+    // 전역 컬럼 커스터마이징이 두 서식 사이에서 뒤섞이지 않도록 분리.
     function ensureSurveyColumnsInitialized() {
-        if (!state.surveyColumns || !state.surveyColumns.length) {
-            state.surveyColumns = DEFAULT_SURVEY_COLUMNS.map(c => ({ key: c.key, label: c.label }));
+        const grade3 = isGrade3Building();
+        const stateKey = grade3 ? 'surveyColumnsGrade3' : 'surveyColumns';
+        const defaults = grade3 ? GRADE3_SURVEY_COLUMNS : DEFAULT_SURVEY_COLUMNS;
+        if (!state[stateKey] || !state[stateKey].length) {
+            state[stateKey] = defaults.map(c => ({ key: c.key, label: c.label }));
         }
-        return state.surveyColumns;
+        return state[stateKey];
     }
 
     function renderSurveyColumnModalList() {
@@ -7317,7 +7379,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const columns = getActiveSurveyColumns();
         const defaultLabelByKey = {};
-        DEFAULT_SURVEY_COLUMNS.forEach(c => { defaultLabelByKey[c.key] = c.label; });
+        (isGrade3Building() ? GRADE3_SURVEY_COLUMNS : DEFAULT_SURVEY_COLUMNS).forEach(c => { defaultLabelByKey[c.key] = c.label; });
 
         listEl.innerHTML = columns.map((c, idx) => `
             <div class="style-cat-card" style="display:flex; align-items:center; gap:0.5rem;">
@@ -7387,7 +7449,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function resetSurveyColumns() {
-        state.surveyColumns = null;
+        if (isGrade3Building()) state.surveyColumnsGrade3 = null;
+        else state.surveyColumns = null;
         renderSurveyColumnModalList();
         renderSurveyTable();
         saveStateToLocalStorage();
@@ -7966,6 +8029,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                         const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
                                         const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                                         const cellCtx = { floorCode, photoRemark: pRemark };
+                                        if (isGrade3Building(bldg)) {
+                                            cellCtx.gradeNo = `${getGrade3FloorPrefix(floorCode)}-${sPageIdx * SURVEY_ROWS_PER_PAGE + dSubIdx + 1}`;
+                                            cellCtx.floorDisplayLabel = floorDisplayLabel;
+                                        }
                                         return `
                                             <tr>
                                                 ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
@@ -8677,9 +8744,14 @@ document.addEventListener('DOMContentLoaded', () => {
             // 슬롯이 얽혀있어 완전히 지우기가 어려워서(제목만 빈 채로 남는 문제 있었음), 애초에
             // 한글에서 해당 섹션을 다 들어낸 별도 템플릿 파일을 만들어 분리했다.
             const isPreciseInspectionForTemplate = (bldg.inspectionType || '정밀안전점검') === '정밀안전점검';
-            const templatePath = isPreciseInspectionForTemplate
-                ? './templates/hwpx_survey_template.hwpx'
-                : './templates/hwpx_survey_template_regular.hwpx';
+            const isGrade3 = bldg.facilityGrade === '제3종시설물';
+            // 3종시설물은 표 구성 자체가 다른 전용 서식(번호/구분/구조체 여부/점검내용/발생원인/비고
+            // 6컬럼, 위치도 없음)이라 정기/정밀 구분 없이 이 템플릿 하나로 처리한다.
+            const templatePath = isGrade3
+                ? './templates/hwpx_survey_template_grade3.hwpx'
+                : (isPreciseInspectionForTemplate
+                    ? './templates/hwpx_survey_template.hwpx'
+                    : './templates/hwpx_survey_template_regular.hwpx');
 
             // 템플릿 파일은 버전 쿼리스트링이 없어서, 브라우저 캐시에 옛 버전이 남아있으면 그걸 계속
             // 쓰는 문제가 있었다(실제로 표/사진이 예전 버전 그대로 나온 원인). 매번 네트워크에서
@@ -8788,6 +8860,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 있어서, 헤더 행의 정확히 3번째 칸(colAddr=2)이 "부재종류"인지만 본다 — 지금 포맷은 항상
             // 이 칸이 "부재종류"이고, 옛 포맷은 이 칸이 "조사내용"이라 확실히 구분된다. 안 맞으면 우리
             // 표가 아니라 옛 폐기물로 보고 아예 지운다.
+            // 3종시설물 표는 헤더 구성이 아예 달라(3번째 칸이 '부재종류'가 아니라 '구조체 여부') 판별
+            // 기준 문구만 바꿔서 같은 로직을 재사용한다.
+            const expectedHeaderCol2Text = isGrade3 ? '구조체 여부' : '부재종류';
             const isCurrentStatusTable = (tbl) => {
                 const firstRow = tbl.getElementsByTagNameNS(HP_NS, 'tr')[0];
                 if (!firstRow) return false;
@@ -8797,7 +8872,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 if (!tc) return false;
                 const headerText = Array.from(tc.getElementsByTagNameNS(HP_NS, 't')).map(t => t.textContent).join('').trim();
-                return headerText === '부재종류';
+                return headerText === expectedHeaderCol2Text;
             };
             const discoverFloorSlots = () => {
                 const ps = secChildren();
@@ -8842,11 +8917,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (!keptAnyInPara && ps[i].parentNode) ps[i].parentNode.removeChild(ps[i]);
                         }
                     }
-                    for (let i = e - 1; i > s; i--) {
-                        const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
-                        if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
+                    // 3종시설물 템플릿에는 위치도 자체가 없으므로 위치도 탐색/요건을 건너뛴다.
+                    if (!isGrade3) {
+                        for (let i = e - 1; i > s; i--) {
+                            const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
+                            if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
+                        }
                     }
-                    if (statusTbls.length > 0 && photoTbl && locationMapTbl) {
+                    if (statusTbls.length > 0 && photoTbl && (isGrade3 || locationMapTbl)) {
                         slots.push({ titlePara: ps[s], statusTbls, photoTbl, locationMapTbl });
                     }
                 }
@@ -8874,7 +8952,9 @@ document.addEventListener('DOMContentLoaded', () => {
             // 너비를 맞바꿔 재배분한다(합계를 유지해 표 전체 너비는 그대로). "틀" 블록에만 적용하면
             // 되는데, 아래 for문에서 이 블록을 그대로 cloneNode(true)로 복제하므로 나머지 층들도
             // 자동으로 같은 너비를 갖게 된다.
-            {
+            // 3종시설물 표는 colAddr=3/4가 "조사내용"/"결함크기"가 아니라 "점검내용"/"발생원인"이라
+            // 이 폭 조정(1,2종 전용 피드백 반영)은 의미가 달라져 건너뛴다.
+            if (!isGrade3) {
                 const WIDTH_SHIFT = 2000; // 조사내용(colAddr=3)에서 결함크기(colAddr=4)로 옮길 폭(HWPUNIT)
                 floorSlots[0].statusTbls.forEach(statusTbl => {
                     Array.from(statusTbl.getElementsByTagNameNS(HP_NS, 'tr')).forEach(tr => {
@@ -9056,18 +9136,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     // 템플릿 표에서 구조체구분(구조부재/비구조부재) 두 칸을 하나로 합쳐뒀으므로, 마감재까지
                     // 포함한 실제 구조체 종류(구조체/비구조체/마감재) 문구를 그 한 칸에 그대로 적어 넣는다.
-                    const values = [
-                        getSurveyCellText('no', d),
-                        getSurveyCellText('location', d, { floorCode }),
-                        getSurveyCellText('component', d),
-                        getSurveyCellText('defectType', d),
-                        getSurveyCellText('size', d),
-                        getSurveyCellText('category', d),
-                        getSurveyCellText('progress', d),
-                        getSurveyCellText('leak', d),
-                        getSurveyCellText('cause', d),
-                        getSurveyCellText('remark', d, { photoRemark: photoLabelByDefect.get(d) })
-                    ];
+                    const rowCtx = { floorCode, photoRemark: photoLabelByDefect.get(d) };
+                    const values = isGrade3
+                        ? (() => {
+                            rowCtx.gradeNo = `${getGrade3FloorPrefix(floorCode)}-${idx + 1}`;
+                            rowCtx.floorDisplayLabel = getFloorLabel(floorCode);
+                            return [
+                                getSurveyCellText('no', d, rowCtx),
+                                getSurveyCellText('floorGroup', d, rowCtx),
+                                getSurveyCellText('category', d, rowCtx),
+                                getSurveyCellText('inspectionContent', d, rowCtx),
+                                getSurveyCellText('cause', d, rowCtx),
+                                getSurveyCellText('remark', d, rowCtx)
+                            ];
+                        })()
+                        : [
+                            getSurveyCellText('no', d),
+                            getSurveyCellText('location', d, { floorCode }),
+                            getSurveyCellText('component', d),
+                            getSurveyCellText('defectType', d),
+                            getSurveyCellText('size', d),
+                            getSurveyCellText('category', d),
+                            getSurveyCellText('progress', d),
+                            getSurveyCellText('leak', d),
+                            getSurveyCellText('cause', d),
+                            getSurveyCellText('remark', d, { photoRemark: photoLabelByDefect.get(d) })
+                        ];
                     const styleMap = localIdx === 0 ? styleMaps.first : (isLastOnPage ? styleMaps.last : styleMaps.normal);
 
                     const newRow = normalStyleRow.cloneNode(true);
@@ -9181,7 +9275,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // ---- 결함위치도 ----
                 // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다.
-                try {
+                // 3종시설물 템플릿에는 위치도 자체가 없으므로(slot.locationMapTbl === null) 건너뛴다.
+                try { if (!isGrade3) {
                     const locationMapTbl = slot.locationMapTbl;
                     const bldgForMap = window.state.currentBuilding || {};
 
@@ -9240,7 +9335,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     } else {
                         window.showToast(`${getFloorLabel(floorCode)}에 등록된 도면이 없어 위치도는 제외하고 만듭니다.`, 'info', 4000);
                     }
-                } catch (mapErr) {
+                } } catch (mapErr) {
                     console.error(`${floorCode} 위치도 삽입 실패(나머지는 계속 진행):`, mapErr);
                     window.showToast(`${getFloorLabel(floorCode)} 위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.`, 'warning', 4000);
                 }
@@ -9258,7 +9353,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // (테두리 스타일 3종 판별 → 기존 행 삭제 → clone해서 채우기)은 위 상태조사표와 완전히
             // 동일한 패턴이라 fillNdtTable로 뽑아 재사용한다. 실패해도 이미 만들어둔 상태조사표/사진/
             // 결함위치도는 살려서 내보내야 하므로 전체를 try/catch로 감싼다.
-            try { if (isPreciseInspectionForTemplate) {
+            try { if (isPreciseInspectionForTemplate && !isGrade3) {
                 const ndtBldg = window.state.currentBuilding || {};
                 const ndtBldgId = ndtBldg.id || window.state.currentBuildingId;
                 const ndtKey = `${ndtBldgId}_${floorCode}`;
@@ -10272,6 +10367,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const labels = memberIds.flatMap(mid => defectPhotoLabels[mid] || []);
                 const pRemark = labels.length > 0 ? labels.join(' ') : '-';
                 const cellCtx = { floorCode, photoRemark: pRemark };
+                if (isGrade3Building(bldg)) {
+                    cellCtx.gradeNo = `${getGrade3FloorPrefix(floorCode)}-${dIdx + 1}`;
+                    cellCtx.floorDisplayLabel = getGrade3FloorDisplayLabel(floorCode, bldg);
+                }
                 tableHtml += `
                     <tr>
                         ${activeColumns.map(c => `<td style="${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
