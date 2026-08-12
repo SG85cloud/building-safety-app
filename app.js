@@ -7176,13 +7176,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3종 상태조사표 번호(예: B1-1, 1-3, R-2)용 층코드→접두사 매핑.
     // 범례: B{n}F→B{n}(지하n층), {n}F→{n}(지상n층), ROOF→R(옥상/옥탑), EXT/EXT_*→A(부대시설·외부)
     function getGrade3FloorPrefix(floorCode) {
-        const c = String(floorCode || '').toUpperCase().trim();
+        const raw = String(floorCode || '');
+        const c = raw.toUpperCase().trim();
+        // 옥상층/옥탑층은 floorCode 값 자체가 "ROOF" 같은 고정 코드가 아니라 "옥상층"/"옥탑층"처럼
+        // 층 이름을 직접 입력해서 등록되는 경우가 많아, 코드 매칭보다 원문 포함 여부를 먼저 본다.
+        if (raw.includes('옥탑') || c.includes('PH')) return 'RT';
+        if (raw.includes('옥상') || c === 'ROOF') return 'R';
         const bMatch = c.match(/^B(\d+)F$/);
         if (bMatch) return `B${bMatch[1]}`;
         const fMatch = c.match(/^(\d+)F$/);
         if (fMatch) return fMatch[1];
-        if (c === 'ROOF') return 'R';
-        if (c.startsWith('EXT')) return 'A';
+        if (c.startsWith('EXT') || raw.includes('외부') || raw.includes('부대')) return 'A';
         return floorCode || '';
     }
 
@@ -8746,9 +8750,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const isPreciseInspectionForTemplate = (bldg.inspectionType || '정밀안전점검') === '정밀안전점검';
             const isGrade3 = bldg.facilityGrade === '제3종시설물';
             // 3종시설물은 표 구성 자체가 다른 전용 서식(번호/구분/구조체 여부/점검내용/발생원인/비고
-            // 6컬럼, 위치도 없음)이라 정기/정밀 구분 없이 이 템플릿 하나로 처리한다.
+            // 6컬럼, 위치도 없음)을 쓰되, 비파괴 장비조사 섹션 유무는 1,2종과 똑같이 정밀/정기 여부로
+            // 결정한다(정밀에 체크된 경우에만 비파괴장비조사 포함).
             const templatePath = isGrade3
-                ? './templates/hwpx_survey_template_grade3.hwpx'
+                ? (isPreciseInspectionForTemplate
+                    ? './templates/hwpx_survey_template_grade3.hwpx'
+                    : './templates/hwpx_survey_template_grade3_regular.hwpx')
                 : (isPreciseInspectionForTemplate
                     ? './templates/hwpx_survey_template.hwpx'
                     : './templates/hwpx_survey_template_regular.hwpx');
@@ -8917,13 +8924,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             if (!keptAnyInPara && ps[i].parentNode) ps[i].parentNode.removeChild(ps[i]);
                         }
                     }
-                    // 3종시설물 템플릿에는 위치도 자체가 없으므로 위치도 탐색/요건을 건너뛴다.
-                    if (!isGrade3) {
-                        for (let i = e - 1; i > s; i--) {
-                            const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
-                            if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
-                        }
+                    for (let i = e - 1; i > s; i--) {
+                        const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
+                        if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
                     }
+                    // 3종시설물은 위치도를 층 블록에서 미리 떼어내 별도로 마지막에 몰아서 넣으므로,
+                    // 층 블록 자체에는 위치도가 없어도(locationMapTbl === null) 유효한 슬롯으로 본다.
                     if (statusTbls.length > 0 && photoTbl && (isGrade3 || locationMapTbl)) {
                         slots.push({ titlePara: ps[s], statusTbls, photoTbl, locationMapTbl });
                     }
@@ -8987,6 +8993,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 });
             };
+            // 3종시설물은 위치도를 층별 표 옆이 아니라 모든 층 상태조사표/사진첩이 끝난 뒤에 몰아서
+            // 마지막에 넣는다. "틀" 블록(title~문서 끝)을 통째로 복제하면 위치도까지 층마다 끼어
+            // 들어가버리므로, 위치도 문단을 먼저 떼어내 따로 보관해두고 "틀"에서 제외한다 — 실제
+            // 위치도 삽입은 아래 본 루프가 전부 끝난 뒤 별도로 한다.
+            let grade3LocMapStampPara = null;
+            if (isGrade3 && floorSlots[0].locationMapTbl) {
+                let node = floorSlots[0].locationMapTbl.parentNode;
+                while (node && node.localName !== 'p') node = node.parentNode;
+                grade3LocMapStampPara = node;
+                if (grade3LocMapStampPara && grade3LocMapStampPara.parentNode) {
+                    grade3LocMapStampPara.parentNode.removeChild(grade3LocMapStampPara);
+                }
+            }
             const stampChildren = secChildren();
             const stampParas = stampChildren.slice(stampChildren.indexOf(floorSlots[0].titlePara));
             for (let c = 1; c < floorsData.length; c++) {
@@ -9008,6 +9027,74 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
                 : null;
             if (!window._photoCache) window._photoCache = {};
+
+            // 도면에 결함 핀이 찍힌 위치도 이미지를 만들어 locationMapTbl 한 칸에 채워 넣는다. 1,2종은
+            // 층 블록 안에서(아래 본 루프에서) 바로 호출하고, 3종은 모든 층 처리가 끝난 뒤 별도로 몰아서
+            // 호출한다(fillLocationMapForFloor 자체는 어느 쪽이든 동일).
+            const fillLocationMapForFloor = async (locationMapTbl, floorCode, imgSeq) => {
+                try {
+                    const bldgForMap = window.state.currentBuilding || {};
+
+                    // getFloorDrawingSrc()는 정확한 층 코드로 도면을 못 찾으면 "층 코드에 포함된
+                    // 숫자가 비슷한 다른 층 도면"까지 갖다 쓰는 폴백이 있어(예: 지하1층 "B1F"가
+                    // 지상1층 "1F" 도면과 섞여버림), 위치도만큼은 그 폴백을 타지 않도록 정확히
+                    // 일치하는 도면이 있는지 직접 먼저 확인한다. 못 찾으면 그냥 위치도를 뺀다.
+                    if (!bldgForMap.floorDrawings) bldgForMap.floorDrawings = {};
+                    if (!bldgForMap.floorDrawings[floorCode]) {
+                        const idbDrawing = await idbGet('floorDrawings', `${bldgForMap.id}_${floorCode}`);
+                        if (idbDrawing) bldgForMap.floorDrawings[floorCode] = idbDrawing;
+                    }
+                    const hasExactDrawing = !!bldgForMap.floorDrawings[floorCode];
+
+                    // 예전에(버그가 있던 상태로) 이미 한 번 잘못된 층 도면이 캐시됐을 수 있으니
+                    // 이번엔 무조건 새로 그리도록 캐시를 지운다.
+                    if (window.state.floorImageCache) delete window.state.floorImageCache[`${bldgForMap.id}_${floorCode}`];
+
+                    const mapDataUrl = hasExactDrawing ? (await (async () => {
+                        await preloadFloorDrawings(bldgForMap);
+                        return renderFloorPlanCanvasDataUrl(floorCode);
+                    })()) : null;
+                    if (mapDataUrl) {
+                        const mapPic = locationMapTbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
+                        // 기존에는 표본 그림 자체의 curSz(표본 도면 비율에 맞춰 이미 안쪽으로 줄어들어
+                        // 있던 크기)를 그대로 "박스"로 썼다. 그 표본 그림이 이 칸(cell)보다 작게
+                        // 앉혀져 있던 경우, 우리 도면도 그 작은 박스 안에서만 맞춰져서 칸 여백이
+                        // 실제보다 훨씬 크게 남았다. 칸 자체의 실제 여유 공간(셀 크기 - 안쪽 여백)을
+                        // 박스로 써서 도면이 칸을 최대한 꽉 채우도록 한다(비율은 그대로 유지, 잘리지
+                        // 않게 안쪽에 맞추는 것만 동일).
+                        let mapCell = mapPic.parentNode;
+                        while (mapCell && mapCell.localName !== 'tc') mapCell = mapCell.parentNode;
+                        const cellSz = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellSz')[0];
+                        const cellMargin = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellMargin')[0];
+                        const picCurSz = mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0];
+                        let mapMaxW = parseInt(picCurSz.getAttribute('width'), 10);
+                        let mapMaxH = parseInt(picCurSz.getAttribute('height'), 10);
+                        if (cellSz) {
+                            const marginL = cellMargin ? parseInt(cellMargin.getAttribute('left'), 10) : 0;
+                            const marginR = cellMargin ? parseInt(cellMargin.getAttribute('right'), 10) : 0;
+                            const marginT = cellMargin ? parseInt(cellMargin.getAttribute('top'), 10) : 0;
+                            const marginB = cellMargin ? parseInt(cellMargin.getAttribute('bottom'), 10) : 0;
+                            mapMaxW = parseInt(cellSz.getAttribute('width'), 10) - marginL - marginR;
+                            mapMaxH = parseInt(cellSz.getAttribute('height'), 10) - marginT - marginB;
+                        }
+                        const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
+                        const size = await loadImageSize(mapDataUrl);
+                        const mapImgId = `locationMapAuto${imgSeq}`;
+                        zip.file(`BinData/${mapImgId}.${ext}`, bytes);
+                        manifestAdds.push(`<opf:item id="${mapImgId}" href="BinData/${mapImgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
+                        setPicImage(mapPic, mapImgId, size.w, size.h, mapMaxW, mapMaxH);
+
+                        const captionTc = locationMapTbl.getElementsByTagNameNS(HP_NS, 'tc')[1];
+                        const captionT = captionTc.getElementsByTagNameNS(HP_NS, 't')[0];
+                        if (captionT) captionT.textContent = `${getFloorLabel(floorCode)} 결함위치도`;
+                    } else {
+                        window.showToast(`${getFloorLabel(floorCode)}에 등록된 도면이 없어 위치도는 제외하고 만듭니다.`, 'info', 4000);
+                    }
+                } catch (mapErr) {
+                    console.error(`${floorCode} 위치도 삽입 실패(나머지는 계속 진행):`, mapErr);
+                    window.showToast(`${getFloorLabel(floorCode)} 위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.`, 'warning', 4000);
+                }
+            };
 
             for (let slotIdx = 0; slotIdx < floorsData.length; slotIdx++) {
                 const { floorCode, pageDefects } = floorsData[slotIdx];
@@ -9274,70 +9361,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 // ---- 결함위치도 ----
-                // 도면에 결함 핀이 찍힌 이미지는 PDF 보고서와 동일한 렌더링 함수로 만든다.
-                // 3종시설물 템플릿에는 위치도 자체가 없으므로(slot.locationMapTbl === null) 건너뛴다.
-                try { if (!isGrade3) {
-                    const locationMapTbl = slot.locationMapTbl;
-                    const bldgForMap = window.state.currentBuilding || {};
-
-                    // getFloorDrawingSrc()는 정확한 층 코드로 도면을 못 찾으면 "층 코드에 포함된
-                    // 숫자가 비슷한 다른 층 도면"까지 갖다 쓰는 폴백이 있어(예: 지하1층 "B1F"가
-                    // 지상1층 "1F" 도면과 섞여버림), 위치도만큼은 그 폴백을 타지 않도록 정확히
-                    // 일치하는 도면이 있는지 직접 먼저 확인한다. 못 찾으면 그냥 위치도를 뺀다.
-                    if (!bldgForMap.floorDrawings) bldgForMap.floorDrawings = {};
-                    if (!bldgForMap.floorDrawings[floorCode]) {
-                        const idbDrawing = await idbGet('floorDrawings', `${bldgForMap.id}_${floorCode}`);
-                        if (idbDrawing) bldgForMap.floorDrawings[floorCode] = idbDrawing;
-                    }
-                    const hasExactDrawing = !!bldgForMap.floorDrawings[floorCode];
-
-                    // 예전에(버그가 있던 상태로) 이미 한 번 잘못된 층 도면이 캐시됐을 수 있으니
-                    // 이번엔 무조건 새로 그리도록 캐시를 지운다.
-                    if (window.state.floorImageCache) delete window.state.floorImageCache[`${bldgForMap.id}_${floorCode}`];
-
-                    const mapDataUrl = hasExactDrawing ? (await (async () => {
-                        await preloadFloorDrawings(bldgForMap);
-                        return renderFloorPlanCanvasDataUrl(floorCode);
-                    })()) : null;
-                    if (mapDataUrl) {
-                        const mapPic = locationMapTbl.getElementsByTagNameNS(HP_NS, 'pic')[0];
-                        // 기존에는 표본 그림 자체의 curSz(표본 도면 비율에 맞춰 이미 안쪽으로 줄어들어
-                        // 있던 크기)를 그대로 "박스"로 썼다. 그 표본 그림이 이 칸(cell)보다 작게
-                        // 앉혀져 있던 경우, 우리 도면도 그 작은 박스 안에서만 맞춰져서 칸 여백이
-                        // 실제보다 훨씬 크게 남았다. 칸 자체의 실제 여유 공간(셀 크기 - 안쪽 여백)을
-                        // 박스로 써서 도면이 칸을 최대한 꽉 채우도록 한다(비율은 그대로 유지, 잘리지
-                        // 않게 안쪽에 맞추는 것만 동일).
-                        let mapCell = mapPic.parentNode;
-                        while (mapCell && mapCell.localName !== 'tc') mapCell = mapCell.parentNode;
-                        const cellSz = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellSz')[0];
-                        const cellMargin = mapCell && mapCell.getElementsByTagNameNS(HP_NS, 'cellMargin')[0];
-                        const picCurSz = mapPic.getElementsByTagNameNS(HP_NS, 'curSz')[0];
-                        let mapMaxW = parseInt(picCurSz.getAttribute('width'), 10);
-                        let mapMaxH = parseInt(picCurSz.getAttribute('height'), 10);
-                        if (cellSz) {
-                            const marginL = cellMargin ? parseInt(cellMargin.getAttribute('left'), 10) : 0;
-                            const marginR = cellMargin ? parseInt(cellMargin.getAttribute('right'), 10) : 0;
-                            const marginT = cellMargin ? parseInt(cellMargin.getAttribute('top'), 10) : 0;
-                            const marginB = cellMargin ? parseInt(cellMargin.getAttribute('bottom'), 10) : 0;
-                            mapMaxW = parseInt(cellSz.getAttribute('width'), 10) - marginL - marginR;
-                            mapMaxH = parseInt(cellSz.getAttribute('height'), 10) - marginT - marginB;
-                        }
-                        const { bytes, mime, ext } = dataUrlToBytes(mapDataUrl);
-                        const size = await loadImageSize(mapDataUrl);
-                        const mapImgId = `locationMapAuto${slotIdx + 1}`;
-                        zip.file(`BinData/${mapImgId}.${ext}`, bytes);
-                        manifestAdds.push(`<opf:item id="${mapImgId}" href="BinData/${mapImgId}.${ext}" media-type="${mime}" isEmbeded="1"/>`);
-                        setPicImage(mapPic, mapImgId, size.w, size.h, mapMaxW, mapMaxH);
-
-                        const captionTc = locationMapTbl.getElementsByTagNameNS(HP_NS, 'tc')[1];
-                        const captionT = captionTc.getElementsByTagNameNS(HP_NS, 't')[0];
-                        if (captionT) captionT.textContent = `${getFloorLabel(floorCode)} 결함위치도`;
-                    } else {
-                        window.showToast(`${getFloorLabel(floorCode)}에 등록된 도면이 없어 위치도는 제외하고 만듭니다.`, 'info', 4000);
-                    }
-                } } catch (mapErr) {
-                    console.error(`${floorCode} 위치도 삽입 실패(나머지는 계속 진행):`, mapErr);
-                    window.showToast(`${getFloorLabel(floorCode)} 위치도 삽입 중 오류가 있어 위치도는 제외하고 만듭니다.`, 'warning', 4000);
+                // 3종시설물은 위치도를 층 블록에서 바로 넣지 않고, 모든 층 처리가 끝난 뒤 별도로
+                // 몰아서 넣는다(아래 본 루프 밖의 grade3LocMapStampPara 처리 참고).
+                if (!isGrade3) {
+                    await fillLocationMapForFloor(slot.locationMapTbl, floorCode, slotIdx + 1);
                 }
             }
 
@@ -9353,7 +9380,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // (테두리 스타일 3종 판별 → 기존 행 삭제 → clone해서 채우기)은 위 상태조사표와 완전히
             // 동일한 패턴이라 fillNdtTable로 뽑아 재사용한다. 실패해도 이미 만들어둔 상태조사표/사진/
             // 결함위치도는 살려서 내보내야 하므로 전체를 try/catch로 감싼다.
-            try { if (isPreciseInspectionForTemplate && !isGrade3) {
+            try { if (isPreciseInspectionForTemplate) {
                 const ndtBldg = window.state.currentBuilding || {};
                 const ndtBldgId = ndtBldg.id || window.state.currentBuildingId;
                 const ndtKey = `${ndtBldgId}_${floorCode}`;
@@ -9591,6 +9618,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (albumStart) removeParaRange(albumStart, surveyHeading || null);
             } catch (cleanupErr) {
                 console.error('표본 템플릿 잔여 내용 정리 실패(나머지는 유지):', cleanupErr);
+            }
+
+            // ---- 3종시설물 위치도 일괄 삽입 ----
+            // 모든 층의 상태조사표/사진첩이 다 채워지고 표본 잔여 정리까지 끝난 뒤, 떼어뒀던 위치도
+            // "틀" 문단을 층 수만큼 복제해 문서 맨 뒤에 순서대로 붙이고 채운다.
+            if (isGrade3 && grade3LocMapStampPara) {
+                for (let i = 0; i < floorsData.length; i++) {
+                    const { floorCode } = floorsData[i];
+                    const clonedPara = grade3LocMapStampPara.cloneNode(true);
+                    reassignClonedIds([clonedPara]);
+                    sec.appendChild(clonedPara);
+                    const locationMapTbl = clonedPara.getElementsByTagNameNS(HP_NS, 'tbl')[0];
+                    await fillLocationMapForFloor(locationMapTbl, floorCode, i + 1);
+                }
             }
 
             if (manifestAdds.length > 0) {
