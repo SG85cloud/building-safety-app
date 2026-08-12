@@ -21,6 +21,7 @@ if (!window.state) {
         styleShapes: null, // 카테고리별 사용자 지정 박스 모양/채우기/번호형식 (미지정 시 DEFAULT_STYLE_SHAPES 사용)
         surveyColumns: null, // 상태조사표 컬럼 순서/이름 커스터마이징 (미지정 시 DEFAULT_SURVEY_COLUMNS 사용)
         surveyColumnsGrade3: null, // 제3종시설물용 상태조사표 컬럼 커스터마이징 (미지정 시 GRADE3_SURVEY_COLUMNS 사용)
+        locationMapLegend: null, // 결함위치도 범례 항목 커스터마이징 (미지정 시 스타일 설정 색상 기반 기본 범례 사용)
         defectSizeMode: 'combined', // 'combined' | 'split' - 결함크기(균열폭/균열길이) 표시 방식
         bgImage: null,
         canvas: null,
@@ -599,6 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleShapes: window.state.styleShapes || null,
                 surveyColumns: window.state.surveyColumns || null,
                 surveyColumnsGrade3: window.state.surveyColumnsGrade3 || null,
+                locationMapLegend: window.state.locationMapLegend || null,
                 defectSizeMode: window.state.defectSizeMode || 'combined',
                 tipShape: window.state.tipShape || 'arrow'
             };
@@ -699,6 +701,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.surveyColumnsGrade3) {
                     window.state.surveyColumnsGrade3 = parsed.surveyColumnsGrade3;
+                }
+                if (parsed.locationMapLegend) {
+                    window.state.locationMapLegend = parsed.locationMapLegend;
                 }
                 if (parsed.defectSizeMode) {
                     window.state.defectSizeMode = parsed.defectSizeMode;
@@ -2161,6 +2166,7 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructuralGood: '#22c55e',    // 결함위치도 - 구조체 상태양호
         defectNonStructuralGood: '#22c55e', // 결함위치도 - 비구조체 상태양호
         defectFinishGood: '#22c55e',        // 결함위치도 - 마감재 상태양호
+        priorityManage: '#16a34a',      // 결함위치도 - 중점관리 대상 배지
         ndtMeasure: '#0284c7',          // 부재 실측
         ndtStrength: '#ef4444',         // 강도
         ndtCarbonation: '#eab308',      // 탄산화
@@ -5167,6 +5173,30 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.restore();
             }
 
+            // 중점관리 대상(◆)은 중요 결함(⭐)과 반대쪽(좌상단)에 다른 색으로 표시 — 결함위치도(도면)에서만.
+            if (defect.isPriorityManage && !forReport) {
+                const diaX = -w / 2;
+                const diaY = -h / 2;
+                const priorityColor = getStyleColor('priorityManage');
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.4)';
+                ctx.shadowBlur = 3;
+                ctx.beginPath();
+                ctx.arc(diaX, diaY, 8 * scale, 0, Math.PI * 2);
+                ctx.fillStyle = priorityColor;
+                ctx.strokeStyle = darkenHexColor(priorityColor, 0.25);
+                ctx.lineWidth = 1.5;
+                ctx.fill();
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#ffffff';
+                ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('◆', diaX, diaY + 0.5);
+                ctx.restore();
+            }
+
             ctx.restore();
         }
     }
@@ -5313,6 +5343,30 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('★', starX, starY + 0.5);
+            ctx.restore();
+        }
+
+        // 중점관리 대상(◆)은 중요 결함(⭐)과 반대쪽(좌상단)에 다른 색으로 표시.
+        if (defect.isPriorityManage) {
+            const diaX = -w / 2;
+            const diaY = -h / 2;
+            const priorityColor = getStyleColor('priorityManage');
+            ctx.save();
+            ctx.shadowColor = 'rgba(0,0,0,0.4)';
+            ctx.shadowBlur = 3;
+            ctx.beginPath();
+            ctx.arc(diaX, diaY, 8 * scale, 0, Math.PI * 2);
+            ctx.fillStyle = priorityColor;
+            ctx.strokeStyle = darkenHexColor(priorityColor, 0.25);
+            ctx.lineWidth = 1.5;
+            ctx.fill();
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('◆', diaX, diaY + 0.5);
             ctx.restore();
         }
 
@@ -5764,6 +5818,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ['styleColorDefectStructuralGood', 'defectStructuralGood'],
         ['styleColorDefectNonStructuralGood', 'defectNonStructuralGood'],
         ['styleColorDefectFinishGood', 'defectFinishGood'],
+        ['styleColorPriorityManage', 'priorityManage'],
         ['styleColorNdtMeasure', 'ndtMeasure'],
         ['styleColorNdtStrength', 'ndtStrength'],
         ['styleColorNdtCarbonation', 'ndtCarbonation'],
@@ -6500,6 +6555,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const leakCheckEl = document.getElementById('defectLeakCheck');
         const carriedOverEl = document.getElementById('defectCarriedOver');
         const bookmarkEl = document.getElementById('defectBookmark');
+        const priorityManageEl = document.getElementById('defectPriorityManage');
 
         if (existingPin) {
             if (pinIdEl) pinIdEl.value = existingPin.id;
@@ -6520,6 +6576,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (progCheckEl) progCheckEl.checked = !!existingPin.isProgress;
             if (leakCheckEl) leakCheckEl.checked = !!existingPin.isLeak;
             if (bookmarkEl) bookmarkEl.checked = !!existingPin.isBookmark;
+            if (priorityManageEl) priorityManageEl.checked = !!existingPin.isPriorityManage;
 
             window._pendingPhotos = existingPin.photos || [];
             if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
@@ -6554,6 +6611,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (progCheckEl) progCheckEl.checked = false;
             if (leakCheckEl) leakCheckEl.checked = false;
             if (bookmarkEl) bookmarkEl.checked = false;
+            if (priorityManageEl) priorityManageEl.checked = false;
             window._pendingPhotos = [];
 
             if (areaRect) {
@@ -6875,6 +6933,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
         const isBookmark = document.getElementById('defectBookmark')?.checked || false;
+        const isPriorityManage = document.getElementById('defectPriorityManage')?.checked || false;
         const photosVal = window._pendingPhotos || [];
         const dTypeVal = document.getElementById('defectType')?.value || '균열';
         const isCrackType = dTypeVal === '균열';
@@ -6900,6 +6959,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].isLeak = isLeak;
                 state.defects[key][idx].isCarriedOver = isCarriedOver;
                 state.defects[key][idx].isBookmark = isBookmark;
+                state.defects[key][idx].isPriorityManage = isPriorityManage;
                 invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
@@ -6924,6 +6984,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isLeak: isLeak,
                 isCarriedOver: isCarriedOver,
                 isBookmark: isBookmark,
+                isPriorityManage: isPriorityManage,
                 surveyRound: getCurrentSurveyRoundKey(),
                 photos: photosVal,
                 inspectorName: window.state.userName || '',
@@ -7154,6 +7215,7 @@ document.addEventListener('DOMContentLoaded', () => {
         { key: 'progress', label: '진행여부' },
         { key: 'leak', label: '누수여부' },
         { key: 'cause', label: '결함원인추정' },
+        { key: 'priorityManage', label: '중점관리' },
         { key: 'remark', label: '비고' }
     ];
 
@@ -7251,6 +7313,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'progress': return d.isProgress ? '진행중' : '-';
             case 'leak': return d.isLeak ? '누수중' : '-';
             case 'cause': return isGood ? '-' : (d.cause || '건조수축');
+            case 'priorityManage': return d.isPriorityManage ? '중점관리' : '-';
             case 'remark': return ctx.photoRemark || '-';
             default: return '';
         }
@@ -7269,6 +7332,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
             case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};">${text}</span>`;
             case 'cause': return `<span style="font-weight:700; color:#334155;">🔍 ${text}</span>`;
+            case 'priorityManage': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#94a3b8'};">${text}</span>`;
             case 'remark': return `<span style="font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};">${text}</span>`;
             default: return text;
         }
@@ -7286,6 +7350,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};`;
             case 'leak': return `font-weight:800; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};`;
             case 'cause': return 'font-weight:700;';
+            case 'priorityManage': return `font-weight:800; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#94a3b8'};`;
             case 'remark': return `font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};`;
             default: return '';
         }
@@ -7694,6 +7759,165 @@ document.addEventListener('DOMContentLoaded', () => {
         await Promise.all(promises);
     }
 
+    // 결함위치도 범례 기본값 — 사용자가 아직 범례를 커스터마이징하지 않았으면 스타일 설정 색상을
+    // 그대로 따라간다(스타일 설정에서 색을 바꾸면 범례도 같이 바뀜). 한 번이라도 범례 설정 모달에서
+    // 추가/수정하면 그 시점 값이 state.locationMapLegend에 고정 저장되어 이 함수 대신 그걸 쓴다.
+    function getDefaultLocationMapLegend() {
+        return [
+            { label: '구조체 결함', color: getStyleColor('defectStructural') },
+            { label: '비구조체 결함', color: getStyleColor('defectNonStructural') },
+            { label: '마감재 결함', color: getStyleColor('defectFinish') },
+            { label: '상태양호', color: getStyleColor('defectStructuralGood') },
+            { label: '중요 결함', color: '#facc15', mark: '★' },
+            { label: '중점관리', color: getStyleColor('priorityManage'), mark: '◆' }
+        ];
+    }
+
+    function getActiveLocationMapLegend() {
+        return (state.locationMapLegend && state.locationMapLegend.length) ? state.locationMapLegend : getDefaultLocationMapLegend();
+    }
+
+    function ensureLocationMapLegendInitialized() {
+        if (!state.locationMapLegend || !state.locationMapLegend.length) {
+            state.locationMapLegend = getDefaultLocationMapLegend();
+        }
+        return state.locationMapLegend;
+    }
+
+    // --- 위치도 범례 설정 모달 ---
+    function renderLocationMapLegendModalList() {
+        const listEl = document.getElementById('locationMapLegendListBody');
+        if (!listEl) return;
+        const items = ensureLocationMapLegendInitialized();
+        listEl.innerHTML = items.map((item, idx) => `
+            <div class="style-cat-card" style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="color" value="${item.color}" onchange="window.recolorLocationMapLegendItem(${idx}, this.value)">
+                <input type="text" class="form-control" value="${item.label}" style="flex:1;" onchange="window.renameLocationMapLegendItem(${idx}, this.value)">
+                <button type="button" class="btn btn-sm btn-danger-outline" onclick="window.removeLocationMapLegendItem(${idx})"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `).join('');
+    }
+
+    window.openLocationMapLegendModal = function() {
+        ensureLocationMapLegendInitialized();
+        renderLocationMapLegendModalList();
+        const modal = document.getElementById('locationMapLegendModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    };
+
+    function closeLocationMapLegendModal() {
+        const modal = document.getElementById('locationMapLegendModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    window.recolorLocationMapLegendItem = function(idx, color) {
+        const items = ensureLocationMapLegendInitialized();
+        if (items[idx]) items[idx].color = color;
+        saveStateToLocalStorage();
+        if (typeof drawCanvas === 'function') drawCanvas();
+    };
+
+    window.renameLocationMapLegendItem = function(idx, label) {
+        const items = ensureLocationMapLegendInitialized();
+        const trimmed = (label || '').trim();
+        if (!trimmed) { renderLocationMapLegendModalList(); return; }
+        if (items[idx]) items[idx].label = trimmed;
+        saveStateToLocalStorage();
+    };
+
+    window.removeLocationMapLegendItem = function(idx) {
+        const items = ensureLocationMapLegendInitialized();
+        items.splice(idx, 1);
+        renderLocationMapLegendModalList();
+        saveStateToLocalStorage();
+        if (typeof drawCanvas === 'function') drawCanvas();
+    };
+
+    function setupLocationMapLegendModalEvents() {
+        const btnOpen = document.getElementById('btnOpenLocationMapLegendModal');
+        if (btnOpen) btnOpen.addEventListener('click', window.openLocationMapLegendModal);
+
+        const btnClose1 = document.getElementById('btnCloseLocationMapLegendModal');
+        if (btnClose1) btnClose1.addEventListener('click', closeLocationMapLegendModal);
+        const btnClose2 = document.getElementById('btnCloseLocationMapLegendModal2');
+        if (btnClose2) btnClose2.addEventListener('click', closeLocationMapLegendModal);
+
+        const btnAdd = document.getElementById('btnAddLocationMapLegendItem');
+        if (btnAdd) btnAdd.addEventListener('click', () => {
+            const items = ensureLocationMapLegendInitialized();
+            items.push({ label: '새 항목', color: '#64748b' });
+            renderLocationMapLegendModalList();
+            saveStateToLocalStorage();
+        });
+
+        const btnReset = document.getElementById('btnResetLocationMapLegend');
+        if (btnReset) btnReset.addEventListener('click', () => {
+            if (!confirm('범례를 기본값으로 초기화하시겠습니까?')) return;
+            state.locationMapLegend = null;
+            renderLocationMapLegendModalList();
+            saveStateToLocalStorage();
+            if (typeof drawCanvas === 'function') drawCanvas();
+        });
+    }
+
+    // 결함위치도 캔버스 한 켠(좌하단)에 색상 범례를 그린다.
+    function drawLocationMapLegend(ctx, cw, ch) {
+        const items = getActiveLocationMapLegend();
+        if (!items.length) return;
+
+        const rowH = 22;
+        const boxW = 168;
+        const boxPad = 12;
+        const boxH = boxPad * 2 + items.length * rowH;
+        const boxX = 16;
+        const boxY = ch - boxH - 16;
+
+        ctx.save();
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.strokeStyle = '#1e293b';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+        else ctx.rect(boxX, boxY, boxW, boxH);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.font = 'bold 12px sans-serif';
+        ctx.fillStyle = '#0f172a';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('범례', boxX + boxPad, boxY + boxPad - 2);
+
+        items.forEach((item, i) => {
+            const rowY = boxY + boxPad + 14 + i * rowH;
+            const swatchX = boxX + boxPad + 6;
+            ctx.beginPath();
+            ctx.arc(swatchX, rowY, 6, 0, Math.PI * 2);
+            ctx.fillStyle = item.color;
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            ctx.fill();
+            ctx.stroke();
+            if (item.mark) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 8px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(item.mark, swatchX, rowY + 0.5);
+                ctx.textAlign = 'left';
+                ctx.font = 'bold 12px sans-serif';
+            }
+            ctx.fillStyle = '#1e293b';
+            ctx.fillText(item.label, swatchX + 14, rowY);
+        });
+        ctx.restore();
+    }
+
     function renderFloorPlanCanvasDataUrl(floorCode) {
         try {
             const bldg = window.state.currentBuilding || {};
@@ -7753,6 +7977,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         renderDefectsGrouped(ctx, defects, drawPinSafe);
                     }
                     ctx.restore();
+
+                    drawLocationMapLegend(ctx, cw, ch);
 
                     return canvas.toDataURL('image/png');
                 };
@@ -11734,6 +11960,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupNdtDisplacementModalEvents === 'function') setupNdtDisplacementModalEvents();
         if (typeof setupStyleColorModalEvents === 'function') setupStyleColorModalEvents();
         if (typeof setupSurveyColumnModalEvents === 'function') setupSurveyColumnModalEvents();
+        if (typeof setupLocationMapLegendModalEvents === 'function') setupLocationMapLegendModalEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         showLoginOverlay();
     }

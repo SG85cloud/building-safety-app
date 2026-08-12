@@ -219,6 +219,7 @@
                         <!-- Category Style Settings (색상 + 크기) -->
                         <div class="filter-group">
                             <button type="button" id="btnOpenStyleColorModal" class="chip"><i class="fa-solid fa-palette"></i> 스타일 설정</button>
+                            <button type="button" id="btnOpenLocationMapLegendModal" class="chip"><i class="fa-solid fa-list"></i> 위치도 범례 설정</button>
                         </div>
 
                         <!-- Target Tip Shape Selector -->
@@ -616,6 +617,11 @@
                             <input type="checkbox" id="defectBookmark"> ⭐ 중요 결함으로 지정 (보고서 우선 강조)
                         </label>
                     </div>
+                    <div class="form-group" style="margin-bottom: 0; margin-top: 0.5rem;">
+                        <label class="checkbox-chip" style="border-color: #16a34a; color: #16a34a;">
+                            <input type="checkbox" id="defectPriorityManage"> 🟢 중점관리 대상으로 지정
+                        </label>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -747,6 +753,12 @@
                         <select id="styleNumFmtDefectFinishGood"><option value="no">NO.01</option><option value="plain">01</option></select>
                     </div>
                 </div>
+                <div class="style-cat-card">
+                    <div class="style-color-row">
+                        <span>🟢 중점관리 배지</span>
+                        <input type="color" id="styleColorPriorityManage">
+                    </div>
+                </div>
 
                 <div class="style-color-section-title">비파괴 장비 조사</div>
                 <div class="style-cat-card">
@@ -843,6 +855,25 @@
             <div class="modal-footer" style="justify-content: space-between;">
                 <button type="button" id="btnResetStyleColors" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
                 <button type="button" id="btnCloseStyleColorModal2" class="btn btn-primary">닫기</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: 결함위치도 범례 항목 추가/수정/삭제 -->
+    <div class="modal-overlay" id="locationMapLegendModal">
+        <div class="modal-card" style="max-width: 420px; width: 92%;">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-list"></i> 위치도 범례 설정</h3>
+                <button type="button" class="modal-close" id="btnCloseLocationMapLegendModal">&times;</button>
+            </div>
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.6rem;">결함위치도(도면) 좌하단에 표시되는 범례입니다. 색상/문구를 수정하거나 항목을 추가·삭제할 수 있습니다.</p>
+                <div id="locationMapLegendListBody"></div>
+                <button type="button" id="btnAddLocationMapLegendItem" class="btn btn-outline btn-sm" style="margin-top: 0.6rem; width: 100%;"><i class="fa-solid fa-plus"></i> 항목 추가</button>
+            </div>
+            <div class="modal-footer" style="justify-content: space-between;">
+                <button type="button" id="btnResetLocationMapLegend" class="btn btn-outline"><i class="fa-solid fa-rotate-left"></i> 기본값으로 초기화</button>
+                <button type="button" id="btnCloseLocationMapLegendModal2" class="btn btn-primary">닫기</button>
             </div>
         </div>
     </div>
@@ -1690,7 +1721,7 @@
     </div>
 
     <!-- Application Script -->
-    <script src="app.js?v=20260812_1640"></script>
+    <script src="app.js?v=20260812_1740"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
