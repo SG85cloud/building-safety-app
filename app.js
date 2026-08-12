@@ -8758,7 +8758,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     const s = starts[idx];
                     const e = idx + 1 < starts.length ? starts[idx + 1] : ps.length;
                     const statusTbls = [];
-                    const staleParas = [];
                     let photoTbl = null, locationMapTbl = null;
                     for (let i = s + 1; i < e; i++) {
                         const txt = paraText(ps[i]).trim();
@@ -8766,11 +8765,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (tbls.length === 0) continue;
                         if (!photoTbl && /^사진1/.test(txt)) { photoTbl = tbls[0]; continue; }
                         if (!photoTbl) {
-                            if (isCurrentStatusTable(tbls[0])) statusTbls.push(tbls[0]);
-                            else staleParas.push(ps[i]);
+                            // 한 문단 안에 표가 여러 개 겹쳐 들어있는 경우가 있다(옛 포맷을 새 포맷으로
+                            // 바꿀 때 지우지 않고 그 옆/위에 새로 붙여넣은 흔적으로 보임). 예전에는
+                            // tbls[0]만 보고 판단해서, 같은 문단의 두 번째/세 번째 표(대개 옛 포맷 잔여
+                            // 표)는 아예 검사조차 안 되고 영구히 남아 있었다 — 그 결과 층마다 옛 표가
+                            // 그대로 복제되어 "16~45번" 같은 표본 잔여 표가 문서 곳곳에 반복해서 끼어
+                            // 나오는 문제가 있었다. 문단 안의 표를 전부 하나씩 검사해서, 새 포맷이면
+                            // statusTbls에 담고 옛 포맷이면 그 표만 지운다. 표를 담은 hp:run을 통째로
+                            // 지우면 안 되는데(사진 갤러리처럼 표 여러 개가 같은 hp:run 안에 나란히
+                            // 들어있는 경우가 있어서, run을 지우면 그 안에 같이 있던 정상 표까지
+                            // 같이 사라진다 — 실제로 이 버그로 정상 표까지 날아간 적 있었음), 그래서
+                            // tbl 엘리먼트 자체만 그 부모에서 떼어낸다.
+                            tbls.forEach(tbl => {
+                                if (isCurrentStatusTable(tbl)) {
+                                    statusTbls.push(tbl);
+                                } else if (tbl.parentNode) {
+                                    tbl.parentNode.removeChild(tbl);
+                                }
+                            });
                         }
                     }
-                    staleParas.forEach(p => { if (p.parentNode) p.parentNode.removeChild(p); });
                     for (let i = e - 1; i > s; i--) {
                         const tbls = Array.from(ps[i].getElementsByTagNameNS(HP_NS, 'tbl'));
                         if (tbls.length === 1 && tbls[0].getElementsByTagNameNS(HP_NS, 'pic').length === 1) { locationMapTbl = tbls[0]; break; }
@@ -8781,16 +8795,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 return slots;
             };
-            let floorSlots = discoverFloorSlots();
-            if (!floorSlots.length) throw new Error('템플릿에서 상태조사표 블록을 찾지 못했습니다.');
-
             // 표본 블록이 여러 개 남아있어도(예: 아직 안 줄인 옛 템플릿) 첫 번째만 "틀"로 쓰고 나머지는
             // 지운다 — 이 시점부터 문서 끝까지가 그 "틀" 블록 하나만 남는다(층 블록이 문서의 마지막
-            // 섹션이라 안전하게 지울 수 있다).
-            if (floorSlots.length > 1) {
-                removeParaRange(floorSlots[1].titlePara, null);
-                floorSlots = discoverFloorSlots();
+            // 섹션이라 안전하게 지울 수 있다). discoverFloorSlots()가 인식한 "유효한" 슬롯 개수
+            // (floorSlots.length)만 보고 판단하면, 두 번째 이후 블록이 옛 포맷 표라 isCurrentStatusTable을
+            // 통과 못해 slot 자체가 무효 처리되는 경우(그 표만 stale로 지워지고 사진첩/위치도는 남음) 이
+            // "여러 개 남음"을 놓쳐서 정리가 아예 안 되고, 그 뒤의 옛 표본 블록들이 통째로 "틀"에 딸려
+            // 들어가 실제 층 수만큼 복제되는 사고가 있었다(내보낸 문서에 표본 사진/표가 몇 배로 불어나
+            // 뒤섞여 나오고, 정작 뒤쪽 실제 층의 상태조사표는 밀려서 안 채워짐). 그래서 슬롯 유효성과
+            // 무관하게, "N) 층명" 형식 문단이 원문에 몇 개 있었는지(rawFloorTitleParas)부터 먼저 보고
+            // 두 번째 문단부터는 무조건 지운다.
+            const rawFloorTitleParas = secChildren().filter(p => floorTitleRe.test(paraText(p).trim()));
+            if (rawFloorTitleParas.length > 1) {
+                removeParaRange(rawFloorTitleParas[1], null);
             }
+            let floorSlots = discoverFloorSlots();
+            if (!floorSlots.length) throw new Error('템플릿에서 상태조사표 블록을 찾지 못했습니다.');
 
             // "조사내용" 칸이 너무 넓고 "결함크기" 칸은 좁다는 피드백에 따라, 상태조사표의 모든 행
             // (헤더+데이터 템플릿 행, 표본이 이미 여러 페이지였다면 그 페이지 전부)에서 두 칸의
