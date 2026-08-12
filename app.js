@@ -8643,7 +8643,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const getFloorLabel = (floorCode) => {
             const f = (bldg.floorsList || []).find(f => f.floorCode === floorCode);
-            return f ? f.floorLabel : floorCode;
+            // "지하 1층"처럼 "지하/지상"과 숫자 사이에 띄어쓰기가 들어간 라벨을 표본 문서와 같은
+            // "지하1층" 붙여쓰기 형식으로 맞춘다.
+            return stripFloorCodeSuffix(f ? f.floorLabel : floorCode).replace(/\s+(?=\d)/g, '');
         };
 
         // PDF 보고서와 동일하게, 현재 층 하나가 아니라 건물에 등록된 모든 층을 대상으로 한다.
@@ -8932,11 +8934,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const slot = floorSlots[slotIdx];
 
                 // 표 바로 위에는 원본 표본 문서의 "1) 지하1층" 같은 고정 텍스트 문단이 그대로
-                // 남아있었다. 실제 층 이름으로 바꾼다. 맨 첫 블록 바로 위에만 있는 "A동" 같은 동
-                // 구분 줄은(층/동 구분이 없는 이 앱 데이터 모델과 안 맞으므로) 비워 둔다.
+                // 남아있었다. 실제 층 이름으로 바꾸되, 표본 문서와 같은 "N) 층명" 형식을 유지하도록
+                // 건물에 등록된 층 순서를 그대로 번호로 붙인다(1)부터 slotIdx+1).
                 {
                     const t = slot.titlePara.getElementsByTagNameNS(HP_NS, 't')[0];
-                    if (t) t.textContent = getFloorLabel(floorCode);
+                    if (t) t.textContent = `${slotIdx + 1}) ${getFloorLabel(floorCode)}`;
                     if (slotIdx === 0) {
                         const dongPara = slot.titlePara.previousElementSibling;
                         if (dongPara && dongPara.localName === 'p') {
