@@ -2174,7 +2174,12 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructuralGood: '#22c55e',    // 결함위치도 - 구조체 상태양호
         defectNonStructuralGood: '#22c55e', // 결함위치도 - 비구조체 상태양호
         defectFinishGood: '#22c55e',        // 결함위치도 - 마감재 상태양호
-        priorityManage: '#16a34a',      // 결함위치도 - 중점관리 대상 배지
+        defectBad: '#ef4444',           // 결함위치도(1,2종) - 결함(카테고리 무관)
+        defectGood: '#3b82f6',          // 결함위치도(1,2종) - 상태양호
+        defectNewGrade3: '#3b82f6',     // 결함위치도(3종) - 신규결함
+        defectExistingGrade3: '#ef4444', // 결함위치도(3종) - 기존결함(전회차)
+        defectGoodGrade3: '#000000',    // 결함위치도(3종) - 상태양호
+        priorityManage: '#16a34a',      // 결함위치도 - 중점관리 대상 배지/핀 색상(3종은 핀 본색으로도 사용)
         ndtMeasure: '#0284c7',          // 부재 실측
         ndtStrength: '#ef4444',         // 강도
         ndtCarbonation: '#eab308',      // 탄산화
@@ -2195,8 +2200,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return isGood ? 'defectStructuralGood' : 'defectStructural';
     }
 
-    function getDefectColor(category, defectType) {
-        return getStyleColor(getDefectStyleKey(category, defectType));
+    // 결함 핀 색상 — 카테고리(구조체/비구조체/마감재)가 아니라 등급·상태 기준.
+    // 1,2종: 결함(전체)=빨강, 상태양호=파랑 (카테고리 구분 없음)
+    // 3종: 중점관리(최우선)=녹색, 상태양호=검정, 기존결함(전회차)=빨강, 신규결함=파랑
+    function getDefectColor(defect) {
+        const isGood = defect.defectType === '상태양호';
+        if (isGrade3Building()) {
+            if (defect.isPriorityManage) return getStyleColor('priorityManage');
+            if (isGood) return getStyleColor('defectGoodGrade3');
+            return isPreviousRoundDefect(defect) ? getStyleColor('defectExistingGrade3') : getStyleColor('defectNewGrade3');
+        }
+        return isGood ? getStyleColor('defectGood') : getStyleColor('defectBad');
     }
 
     // --- 카테고리별 핀/화살표 크기 커스터마이징 ---
@@ -5112,7 +5126,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(forReport)는 구분 없이 그대로 둠
         const isPrevRoundDefect = !forReport && isPreviousRoundDefect(defect);
         const roundLineMul = isPrevRoundDefect ? 1.6 : 1.0;
-        const mainColor = getDefectColor(defect.category, defect.defectType);
+        const mainColor = getDefectColor(defect);
         const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
 
         ctx.save();
@@ -5250,7 +5264,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Category Theme Color: 사용자 지정 색상(styleColors) 우선, 없으면 기본값
         const defectStyleKey = getDefectStyleKey(defect.category, defect.defectType);
-        const mainColor = getDefectColor(defect.category, defect.defectType);
+        const mainColor = getDefectColor(defect);
         const shapeCfg = getStyleShape(defectStyleKey);
 
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(drawPinSafe)는 구분 없이 그대로 둠
@@ -7705,7 +7719,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const boxY = defect.y || 100;
 
             const safeStyleKey = getDefectStyleKey(defect.category, defect.defectType);
-            const color = getDefectColor(defect.category, defect.defectType);
+            const color = getDefectColor(defect);
             const safeShapeCfg = getStyleShape(safeStyleKey);
             // 스타일 설정(핀/화살표 크기)이 화면과 동일하게 보고서에도 반영되도록 — 기존엔 여기가 고정 크기였음
             const safeDefectSize = getStyleSize(safeStyleKey);
@@ -7865,11 +7879,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // 그대로 따라간다(스타일 설정에서 색을 바꾸면 범례도 같이 바뀜). 한 번이라도 범례 설정 모달에서
     // 추가/수정하면 그 시점 값이 state.locationMapLegend에 고정 저장되어 이 함수 대신 그걸 쓴다.
     function getDefaultLocationMapLegend() {
+        // 핀 색상이 카테고리가 아니라 등급·상태 기준으로 바뀌었으므로(getDefectColor 참고),
+        // 기본 범례도 실제 핀 색상과 맞도록 등급별로 다르게 구성한다.
+        if (isGrade3Building()) {
+            return [
+                { label: '상태양호', color: getStyleColor('defectGoodGrade3') },
+                { label: '기존결함', color: getStyleColor('defectExistingGrade3') },
+                { label: '신규결함', color: getStyleColor('defectNewGrade3') },
+                { label: '중점관리', color: getStyleColor('priorityManage'), mark: '◆' }
+            ];
+        }
         return [
-            { label: '구조체 결함', color: getStyleColor('defectStructural') },
-            { label: '비구조체 결함', color: getStyleColor('defectNonStructural') },
-            { label: '마감재 결함', color: getStyleColor('defectFinish') },
-            { label: '상태양호', color: getStyleColor('defectStructuralGood') },
+            { label: '결함', color: getStyleColor('defectBad') },
+            { label: '상태양호', color: getStyleColor('defectGood') },
             { label: '중요 결함', color: '#facc15', mark: '★' },
             { label: '중점관리', color: getStyleColor('priorityManage'), mark: '◆' }
         ];
