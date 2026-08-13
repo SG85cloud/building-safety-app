@@ -4899,6 +4899,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.state.bookmarkOnlyFilter) {
             list = list.filter(d => !!d.isBookmark);
         }
+        if (window.state.priorityManageOnlyFilter) {
+            list = list.filter(d => !!d.isPriorityManage);
+        }
+        const catFilter = window.state.categoryFilter;
+        if (catFilter) {
+            list = list.filter(d => {
+                const cat = d.category || '구조체';
+                if (cat === '비구조체') return catFilter.nonStructural !== false;
+                if (cat === '마감재') return catFilter.finishing !== false;
+                // 구조체: 부재 종류로 기둥·벽체 / 보·슬래브 두 그룹으로 세분화.
+                // 계단·기타처럼 두 그룹 어디에도 안 맞는 부재는 둘 중 하나라도 켜져 있으면 표시.
+                const comp = d.component || '';
+                if (['기둥', '벽체'].includes(comp)) return catFilter.columnWall !== false;
+                if (['큰보', '작은보', '슬래브'].includes(comp)) return catFilter.beamSlab !== false;
+                return catFilter.columnWall !== false || catFilter.beamSlab !== false;
+            });
+        }
         const filter = window.state.damageTypeFilter || 'ALL';
         if (filter === 'ALL') return list;
         return list.filter(d => {
@@ -10361,6 +10378,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (filterOnlyBookmarkEl) {
         filterOnlyBookmarkEl.addEventListener('change', (e) => {
             window.state.bookmarkOnlyFilter = e.target.checked;
+            if (typeof drawCanvas === 'function') drawCanvas();
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        });
+    }
+
+    // --- 2-2. 부재 분류(기둥·벽체/보·슬래브/비구조체/마감재) 필터 ---
+    window.state.categoryFilter = { columnWall: true, beamSlab: true, nonStructural: true, finishing: true };
+    const catFilterMap = [
+        ['filterCatColumnWall', 'columnWall'],
+        ['filterCatBeamSlab', 'beamSlab'],
+        ['filterCatNonStructural', 'nonStructural'],
+        ['filterCatFinishing', 'finishing']
+    ];
+    catFilterMap.forEach(([elId, stateKey]) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        el.addEventListener('change', (e) => {
+            window.state.categoryFilter[stateKey] = e.target.checked;
+            if (typeof drawCanvas === 'function') drawCanvas();
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        });
+    });
+
+    // --- 2-3. ◆ 중점관리만 보기 필터 ---
+    const filterOnlyPriorityManageEl = document.getElementById('filterOnlyPriorityManage');
+    if (filterOnlyPriorityManageEl) {
+        filterOnlyPriorityManageEl.addEventListener('change', (e) => {
+            window.state.priorityManageOnlyFilter = e.target.checked;
             if (typeof drawCanvas === 'function') drawCanvas();
             if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
         });
