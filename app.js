@@ -521,6 +521,19 @@ document.addEventListener('DOMContentLoaded', () => {
     // (saveStateToLocalStorage는 아주 자주 호출되므로, 안 그러면 같은 이미지를 계속 다시 쓰게 된다)
     const _idbPersistedDrawingKeys = new Set();
     const _idbPersistedPhotoKeys = new Set();
+    // 저장이 아직 끝나지 않은 키(진행 중). 실제 저장이 성공하기 전까지는 "저장됨"으로
+    // 표시하지 않아서, 실패 시 다음 saveStateToLocalStorage 호출 때 재시도되게 한다.
+    const _idbPendingDrawingKeys = new Set();
+    const _idbPendingPhotoKeys = new Set();
+    let _idbSaveFailedNotified = false;
+
+    function notifyIndexedDbSaveFailure() {
+        if (_idbSaveFailedNotified) return;
+        _idbSaveFailedNotified = true;
+        if (typeof window.showToast === 'function') {
+            window.showToast('사진/도면을 기기에 저장하지 못했습니다. 저장 공간을 확인해 주세요.', 'error', 6000);
+        }
+    }
 
     // 결함 사진은 편집 시 배열 전체가 통째로 교체되는데(같은 인덱스라도 실제 사진이
     // 바뀔 수 있음), "이미 저장했다"는 기록을 그대로 두면 바뀐 사진이 IndexedDB에
@@ -542,9 +555,17 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.entries(drawings).forEach(([floorCode, dataUrl]) => {
                 if (!dataUrl) return;
                 const key = `${b.id}_${floorCode}`;
-                if (_idbPersistedDrawingKeys.has(key)) return;
-                _idbPersistedDrawingKeys.add(key);
-                idbSet('floorDrawings', key, dataUrl);
+                if (_idbPersistedDrawingKeys.has(key) || _idbPendingDrawingKeys.has(key)) return;
+                _idbPendingDrawingKeys.add(key);
+                idbSet('floorDrawings', key, dataUrl).then(ok => {
+                    _idbPendingDrawingKeys.delete(key);
+                    if (ok) {
+                        _idbPersistedDrawingKeys.add(key);
+                        _idbSaveFailedNotified = false;
+                    } else {
+                        notifyIndexedDbSaveFailure();
+                    }
+                });
             });
         });
         Object.values(defectsMap || {}).forEach(arr => {
@@ -553,9 +574,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 d.photos.forEach((url, i) => {
                     if (!url) return;
                     const key = getPhotoDocId(d.id, i);
-                    if (_idbPersistedPhotoKeys.has(key)) return;
-                    _idbPersistedPhotoKeys.add(key);
-                    idbSet('photos', key, url);
+                    if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
+                    _idbPendingPhotoKeys.add(key);
+                    idbSet('photos', key, url).then(ok => {
+                        _idbPendingPhotoKeys.delete(key);
+                        if (ok) {
+                            _idbPersistedPhotoKeys.add(key);
+                            _idbSaveFailedNotified = false;
+                        } else {
+                            notifyIndexedDbSaveFailure();
+                        }
+                    });
                 });
             });
         });
@@ -3765,7 +3794,37 @@ document.addEventListener('DOMContentLoaded', () => {
         return { label: 'e', code: 'e' };
     }
 
-    function calcConcreteStrength(readings, angleDeg, ageDays) {
+    // 건물별로 평균에 포함할 추정식을 고를 수 있게 한다. 아직 한 번도 고르지 않은 건물(설정값
+    // 없음)은 기존 동작 그대로 3개 다 포함한다.
+    function getEnabledStrengthFormulaNames(bldg) {
+        const all = CONCRETE_STRENGTH_FORMULAS.map(f => f.name);
+        const saved = bldg && Array.isArray(bldg.enabledStrengthFormulas) ? bldg.enabledStrengthFormulas : null;
+        if (!saved) return all;
+        return all.filter(name => saved.includes(name));
+    }
+
+    // 추정식 포함/제외 체크박스 클릭 시 건물 설정에 저장하고 다시 계산한다.
+    window.toggleStrengthFormula = function(formulaName) {
+        const bldg = window.state.currentBuilding;
+        if (!bldg) return;
+        const current = getEnabledStrengthFormulaNames(bldg);
+        const isCurrentlyEnabled = current.includes(formulaName);
+        // 마지막 남은 하나까지 끄면 "설정 안 함(=전체 포함)"과 구분이 안 돼 조용히 3개
+        // 전부 되돌아오므로, 최소 1개는 항상 켜져 있도록 막는다.
+        if (isCurrentlyEnabled && current.length <= 1) {
+            if (typeof window.showToast === 'function') {
+                window.showToast('추정식은 최소 1개는 선택되어 있어야 합니다.', 'error', 3000);
+            }
+            recalcAllStrengthSlots();
+            return;
+        }
+        const next = isCurrentlyEnabled ? current.filter(n => n !== formulaName) : [...current, formulaName];
+        bldg.enabledStrengthFormulas = next;
+        saveStateToLocalStorage();
+        recalcAllStrengthSlots();
+    };
+
+    function calcConcreteStrength(readings, angleDeg, ageDays, enabledFormulaNames) {
         const nums = (readings || []).map(v => parseFloat(v)).filter(v => !isNaN(v) && v > 0);
         if (nums.length === 0) return null;
 
@@ -3780,14 +3839,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const correction = getAngleCorrection(finalAvg, angleDeg);
         const ro = finalAvg + correction;
 
+        const enabledNames = (enabledFormulaNames && enabledFormulaNames.length > 0)
+            ? enabledFormulaNames
+            : CONCRETE_STRENGTH_FORMULAS.map(f => f.name);
         const results = CONCRETE_STRENGTH_FORMULAS.map(f => ({
             name: f.name,
-            value: f.calc(ro)
+            value: f.calc(ro),
+            enabled: enabledNames.includes(f.name)
         }));
 
-        // 최종 강도(FC) = 추정식 결과 평균 × α(재령보정계수). 준공일이 없어 재령을
+        // 최종 강도(FC) = 체크된 추정식 결과 평균 × α(재령보정계수). 하나도 안 골랐으면(실수로
+        // 전부 해제) 평균이 안 나오니 안전하게 3개 전부로 되돌려 계산한다. 준공일이 없어 재령을
         // 못 구하면 α 없이(=1) 평균값을 그대로 최종 강도로 보여준다.
-        const formulaAvg = results.reduce((a, r) => a + r.value, 0) / results.length;
+        const includedResults = results.filter(r => r.enabled);
+        const avgSource = includedResults.length > 0 ? includedResults : results;
+        const formulaAvg = avgSource.reduce((a, r) => a + r.value, 0) / avgSource.length;
         const alpha = getAgeCorrectionFactor(ageDays);
         const finalStrength = formulaAvg * (alpha !== null ? alpha : 1);
 
@@ -3814,6 +3880,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const carbGrp = document.getElementById('groupNdtCarbonationFields');
         const genericValuesGrp = document.getElementById('groupNdtGenericValues');
         const statusGrp = document.getElementById('groupNdtStatus');
+        const commonLocationGrp = document.getElementById('ndtLocationFieldWrap');
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
 
@@ -3829,6 +3896,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (strengthGrp) strengthGrp.style.display = (cat === '강도') ? 'flex' : 'none';
         if (carbGrp) carbGrp.style.display = (cat === '탄산화') ? 'flex' : 'none';
         if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화') ? 'none' : 'block';
+        // 강도는 위치를 슬롯별로 따로 입력받으므로, 공용 측정위치 칸은 숨긴다.
+        if (commonLocationGrp) commonLocationGrp.style.display = (cat === '강도') ? 'none' : '';
 
         if (cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
@@ -3866,44 +3935,135 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // --- 콘크리트 강도 R값 목록 UI (최대 20개) ---
-    let ndtRValues = [];
+    // --- 콘크리트 강도 위치 슬롯 UI (위치+R값 묶음, 최대 3개) ---
+    // 같은 부재라도 플렌지/웨브처럼 면마다 따로 타격해서 R값을 20개씩 따로 찍는 경우가 있어서,
+    // 위치별로 R값 목록을 따로 관리할 수 있게 슬롯을 둔다. 슬롯 1개(빈 위치)가 기본값.
+    const MAX_STRENGTH_SLOTS = 3;
+    const MAX_R_VALUES_PER_SLOT = 20;
+    let ndtStrengthSlots = [{ location: '', readings: [] }];
 
-    function renderNdtRValuesList() {
-        const container = document.getElementById('ndtRValuesList');
-        if (!container) return;
-        container.innerHTML = ndtRValues.map((v, i) => `
+    function rValueChipsHtml(slotIdx) {
+        const readings = ndtStrengthSlots[slotIdx].readings;
+        return readings.map((v, i) => `
             <span style="display:flex; align-items:center; gap:0.15rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:6px; padding:0.15rem 0.15rem 0.15rem 0.4rem;">
                 <span style="font-size:0.7rem; color:var(--text-muted);">${i + 1}</span>
-                <input type="number" step="1" class="form-control ndt-r-value-input" data-idx="${i}" value="${v !== null && v !== undefined ? v : ''}" style="width:52px; padding:0.2rem 0.3rem; border:none; background:transparent;">
-                <button type="button" class="ndt-r-value-remove" data-idx="${i}" title="삭제" style="border:none; background:transparent; color:#ef4444; cursor:pointer; padding:0 0.3rem;">×</button>
+                <input type="number" step="1" class="form-control ndt-r-value-input" data-slot="${slotIdx}" data-idx="${i}" value="${v !== null && v !== undefined ? v : ''}" style="width:52px; padding:0.2rem 0.3rem; border:none; background:transparent;">
+                <button type="button" class="ndt-r-value-remove" data-slot="${slotIdx}" data-idx="${i}" title="삭제" style="border:none; background:transparent; color:#ef4444; cursor:pointer; padding:0 0.3rem;">×</button>
             </span>
-        `).join('') + (ndtRValues.length === 0 ? '<span style="font-size:0.78rem; color:var(--text-muted);">R값을 추가하거나 사진으로 스캔해주세요.</span>' : '');
+        `).join('') + (readings.length === 0 ? '<span style="font-size:0.78rem; color:var(--text-muted);">R값을 추가하거나 사진으로 스캔해주세요.</span>' : '');
+    }
 
+    function wireRValueChipEvents(slotIdx) {
+        const container = document.getElementById(`ndtRValuesList-${slotIdx}`);
+        if (!container) return;
         container.querySelectorAll('.ndt-r-value-input').forEach(el => {
             el.addEventListener('input', (e) => {
                 const idx = parseInt(e.target.dataset.idx, 10);
-                ndtRValues[idx] = e.target.value;
-                recalcNdtStrength();
+                ndtStrengthSlots[slotIdx].readings[idx] = e.target.value;
+                recalcStrengthSlot(slotIdx);
             });
         });
         container.querySelectorAll('.ndt-r-value-remove').forEach(el => {
             el.addEventListener('click', (e) => {
                 const idx = parseInt(e.currentTarget.dataset.idx, 10);
-                ndtRValues.splice(idx, 1);
-                renderNdtRValuesList();
-                recalcNdtStrength();
+                ndtStrengthSlots[slotIdx].readings.splice(idx, 1);
+                container.innerHTML = rValueChipsHtml(slotIdx);
+                wireRValueChipEvents(slotIdx);
+                recalcStrengthSlot(slotIdx);
             });
         });
     }
 
-    function addNdtRValue(value) {
-        if (ndtRValues.length >= 20) {
-            window.showToast('R값은 최대 20개까지 입력할 수 있습니다.', 'warning');
+    function addRValueToSlot(slotIdx, value) {
+        const slot = ndtStrengthSlots[slotIdx];
+        if (slot.readings.length >= MAX_R_VALUES_PER_SLOT) {
+            window.showToast(`R값은 위치당 최대 ${MAX_R_VALUES_PER_SLOT}개까지 입력할 수 있습니다.`, 'warning');
             return;
         }
-        ndtRValues.push(value !== undefined ? value : '');
-        renderNdtRValuesList();
+        slot.readings.push(value !== undefined ? value : '');
+        const container = document.getElementById(`ndtRValuesList-${slotIdx}`);
+        if (container) { container.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
+    }
+
+    function renderNdtStrengthSlots() {
+        const container = document.getElementById('ndtStrengthSlotsContainer');
+        if (!container) return;
+        container.innerHTML = ndtStrengthSlots.map((slot, idx) => `
+            <div style="border:1px solid var(--border-color); border-radius:10px; padding:0.7rem; display:flex; flex-direction:column; gap:0.6rem;">
+                <div style="display:flex; gap:0.5rem; align-items:flex-end;">
+                    <div class="form-group" style="flex:1; margin:0;">
+                        <label class="form-label">📍 측정 위치 ${ndtStrengthSlots.length > 1 ? `(${idx + 1})` : ''}${idx === 0 ? ' *' : ''}</label>
+                        <input type="text" class="form-control ndt-strength-slot-location" data-slot="${idx}" value="${slot.location || ''}" placeholder="예: 101동 1F 기둥 C1 하부(플렌지)">
+                    </div>
+                    ${ndtStrengthSlots.length > 1 ? `<button type="button" class="btn btn-sm btn-outline ndt-strength-slot-remove" data-slot="${idx}" style="border-color:#ef4444; color:#ef4444;" title="이 위치 삭제"><i class="fa-solid fa-trash"></i></button>` : ''}
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label class="form-label">📷 R값 측정지 사진 스캔 (사진에서 숫자 자동 인식)</label>
+                    <div style="display:flex; gap:0.5rem;">
+                        <button type="button" class="btn ndt-strength-slot-scan-btn" data-slot="${idx}" style="flex:1; background: linear-gradient(135deg, #0284c7, #0369a1); color:white; font-size:0.85rem;">
+                            <i class="fa-solid fa-camera"></i> 📷 측정지 사진으로 자동 인식
+                        </button>
+                        <input type="file" id="ndtStrengthSlotFile-${idx}" accept="image/*" style="display:none;">
+                    </div>
+                    <div id="rScanStatus-${idx}" style="font-size:0.78rem; color:var(--text-muted); margin-top:0.3rem;"></div>
+                </div>
+                <div class="form-group" style="margin:0;">
+                    <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span>🔢 R값 (반발경도) — 최대 ${MAX_R_VALUES_PER_SLOT}개, 인식/입력 후 꼭 확인해주세요</span>
+                        <button type="button" class="btn btn-sm btn-outline ndt-strength-slot-add-r" data-slot="${idx}" style="border-color:#38bdf8; color:#38bdf8;"><i class="fa-solid fa-plus"></i> 추가</button>
+                    </label>
+                    <div id="ndtRValuesList-${idx}" style="display:flex; flex-wrap:wrap; gap:0.4rem;">${rValueChipsHtml(idx)}</div>
+                </div>
+                <div style="background: rgba(2,132,199,0.08); border:1px solid rgba(2,132,199,0.3); border-radius:8px; padding:0.7rem 0.9rem; font-size:0.82rem;">
+                    <div id="ndtStrengthCalcSummary-${idx}" style="margin-bottom:0.5rem; color:var(--text-muted);">R값을 입력하면 자동으로 계산됩니다.</div>
+                    <table style="width:100%; border-collapse:collapse; font-size:0.8rem;">
+                        <thead>
+                            <tr style="text-align:left; color:var(--text-muted); border-bottom:1px solid rgba(2,132,199,0.3);">
+                                <th style="padding:0.25rem 0.4rem; width:1.6rem;">포함</th>
+                                <th style="padding:0.25rem 0.4rem;">추정식</th>
+                                <th style="padding:0.25rem 0.4rem; text-align:right;">압축강도 (MPa)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ndtStrengthFormulaResults-${idx}"></tbody>
+                    </table>
+                </div>
+            </div>
+        `).join('');
+
+        container.querySelectorAll('.ndt-strength-slot-location').forEach(el => {
+            el.addEventListener('input', (e) => {
+                ndtStrengthSlots[parseInt(e.target.dataset.slot, 10)].location = e.target.value;
+            });
+        });
+        container.querySelectorAll('.ndt-strength-slot-remove').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const idx = parseInt(e.currentTarget.dataset.slot, 10);
+                ndtStrengthSlots.splice(idx, 1);
+                renderNdtStrengthSlots();
+                recalcAllStrengthSlots();
+            });
+        });
+        container.querySelectorAll('.ndt-strength-slot-add-r').forEach(el => {
+            el.addEventListener('click', (e) => addRValueToSlot(parseInt(e.currentTarget.dataset.slot, 10), ''));
+        });
+        container.querySelectorAll('.ndt-strength-slot-scan-btn').forEach(el => {
+            el.addEventListener('click', (e) => {
+                document.getElementById(`ndtStrengthSlotFile-${e.currentTarget.dataset.slot}`)?.click();
+            });
+        });
+        const addBtn = document.getElementById('btnAddStrengthSlot');
+        if (addBtn) addBtn.style.display = ndtStrengthSlots.length >= MAX_STRENGTH_SLOTS ? 'none' : '';
+        ndtStrengthSlots.forEach((slot, idx) => {
+            const fileEl = document.getElementById(`ndtStrengthSlotFile-${idx}`);
+            if (fileEl) {
+                fileEl.addEventListener('change', (e) => {
+                    const file = e.target.files && e.target.files[0];
+                    if (file) scanRValuesFromImage(file, idx);
+                    e.target.value = '';
+                });
+            }
+            wireRValueChipEvents(idx);
+        });
     }
 
     // 준공일(건축물 개요) ~ 점검일 사이 재령일수를 구한다. null이면 계산 불가(준공일 미입력 등).
@@ -3951,21 +4111,27 @@ document.addEventListener('DOMContentLoaded', () => {
         return `📅 재령일수: 준공일(${bldg.completionDate}) ~ 점검일(${bldg.date || '오늘'}) = <b>${days}일</b> → α(재령보정계수) = <b>${alpha !== null ? alpha.toFixed(2) : '-'}</b>`;
     }
 
-    function recalcNdtStrength() {
-        const summaryEl = document.getElementById('ndtStrengthCalcSummary');
-        const resultsEl = document.getElementById('ndtStrengthFormulaResults');
+    function recalcAllStrengthSlots() {
+        ndtStrengthSlots.forEach((_, idx) => recalcStrengthSlot(idx));
+    }
+
+    function recalcStrengthSlot(slotIdx) {
+        const summaryEl = document.getElementById(`ndtStrengthCalcSummary-${slotIdx}`);
+        const resultsEl = document.getElementById(`ndtStrengthFormulaResults-${slotIdx}`);
         const angleEl = document.getElementById('ndtAngle');
         const avgEl = document.getElementById('ndtAvgValue');
         if (!summaryEl || !resultsEl) return;
 
         const angle = angleEl ? parseFloat(angleEl.value) : 0;
         const ageDays = getConcreteAgeInDays();
-        const calc = calcConcreteStrength(ndtRValues, angle, ageDays);
+        const enabledNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
+        const readings = ndtStrengthSlots[slotIdx] ? ndtStrengthSlots[slotIdx].readings : [];
+        const calc = calcConcreteStrength(readings, angle, ageDays, enabledNames);
 
         if (!calc) {
             summaryEl.textContent = 'R값을 입력하면 자동으로 계산됩니다.';
             resultsEl.innerHTML = '';
-            if (avgEl) avgEl.value = '';
+            if (avgEl && slotIdx === 0) avgEl.value = '';
             return;
         }
 
@@ -3974,16 +4140,19 @@ document.addEventListener('DOMContentLoaded', () => {
             `측정 ${calc.totalCount}개 중 ${calc.excludedCount}개 제외(±20% 초과) → 평균 R = <b>${calc.finalAvg.toFixed(1)}</b> → 각도보정(${angle > 0 ? '+' : ''}${angle}°) ${calc.correction >= 0 ? '+' : ''}${calc.correction.toFixed(2)} → <b>Ro = ${calc.ro.toFixed(1)}</b>`;
         resultsEl.innerHTML = calc.results.map(r => `
             <tr>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">${r.name}</td>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:#0284c7;">${r.value.toFixed(1)}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:center;">
+                    <input type="checkbox" class="ndt-strength-formula-toggle" data-formula="${r.name}" ${r.enabled ? 'checked' : ''} onchange="window.toggleStrengthFormula('${r.name}')" style="cursor:pointer;">
+                </td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); ${r.enabled ? '' : 'color:var(--text-muted); text-decoration:line-through;'}">${r.name}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:${r.enabled ? '#0284c7' : 'var(--text-muted)'};">${r.value.toFixed(1)}</td>
             </tr>
         `).join('') + `
             <tr>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4);">평균</td>
+                <td colspan="2" style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4);">평균 (체크된 식만)</td>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${calc.formulaAvg.toFixed(1)}</td>
             </tr>
             <tr>
-                <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">최종 강도 (평균 × α${calc.alpha !== null ? '=' + calc.alpha.toFixed(2) : '(미적용)'})</td>
+                <td colspan="2" style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800; color:#16a34a;">최종 강도 (평균 × α${calc.alpha !== null ? '=' + calc.alpha.toFixed(2) : '(미적용)'})</td>
                 <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800; color:#16a34a; font-size:0.95rem;">${calc.finalStrength.toFixed(1)}</td>
             </tr>
         `;
@@ -3995,17 +4164,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const grade = getStrengthGrade(ratio);
             resultsEl.innerHTML += `
                 <tr>
-                    <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
+                    <td colspan="2" style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
                     <td style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); text-align:right; font-weight:800;">${ratio.toFixed(0)}%</td>
                 </tr>
                 <tr>
-                    <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">등급</td>
+                    <td colspan="2" style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15);">등급</td>
                     <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800;">${grade.label}</td>
                 </tr>
             `;
         }
 
-        if (avgEl) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
+        // #ndtAvgValue는 강도 카테고리에선 화면에 안 보이지만(다른 카테고리와 공용 필드), 저장 시
+        // 하위호환용 최상위 값으로 쓰이므로 위치 1(슬롯 0) 결과로만 채워둔다.
+        if (avgEl && slotIdx === 0) avgEl.value = `${calc.finalStrength.toFixed(1)} MPa (R=${calc.finalAvg.toFixed(1)}, Ro=${calc.ro.toFixed(1)})`;
     }
 
     // --- 콘크리트 탄산화(중성화) 계산 엔진 ---
@@ -4071,8 +4242,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function scanRValuesFromImage(file) {
-        const statusEl = document.getElementById('rScanStatus');
+    async function scanRValuesFromImage(file, slotIdx = 0) {
+        const statusEl = document.getElementById(`rScanStatus-${slotIdx}`);
         if (!file) return;
         if (typeof Tesseract === 'undefined') {
             if (statusEl) statusEl.textContent = 'OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.';
@@ -4089,9 +4260,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (statusEl) statusEl.textContent = '❌ 숫자를 인식하지 못했습니다. 직접 입력해주세요.';
                 return;
             }
-            ndtRValues = scanned.slice(0, 20);
-            renderNdtRValuesList();
-            recalcNdtStrength();
+            ndtStrengthSlots[slotIdx].readings = scanned.slice(0, MAX_R_VALUES_PER_SLOT);
+            const listContainer = document.getElementById(`ndtRValuesList-${slotIdx}`);
+            if (listContainer) { listContainer.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
+            recalcStrengthSlot(slotIdx);
             if (statusEl) statusEl.textContent = `✅ ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
         } catch (err) {
             console.error('R값 스캔 실패:', err);
@@ -4129,7 +4301,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = existingItem.v3 || '';
             if (avgEl) avgEl.value = existingItem.avgValue || '';
             if (statusEl) statusEl.value = existingItem.status || '양호';
-            ndtRValues = Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [];
+            // strengthSlots(위치별 묶음)가 있으면 그대로, 없으면(구버전 항목) location/strengthReadings
+            // 하나로 슬롯 1개를 만들어서 예전과 동일하게 보이게 한다.
+            if (existingItem.category === '강도') {
+                ndtStrengthSlots = Array.isArray(existingItem.strengthSlots) && existingItem.strengthSlots.length > 0
+                    ? existingItem.strengthSlots.map(s => ({ location: s.location || '', readings: Array.isArray(s.readings) ? s.readings.slice() : [] }))
+                    : [{ location: existingItem.location || '', readings: Array.isArray(existingItem.strengthReadings) ? existingItem.strengthReadings.slice() : [] }];
+            } else {
+                ndtStrengthSlots = [{ location: '', readings: [] }];
+            }
             const angleElExisting = document.getElementById('ndtAngle');
             if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '0';
             const designStrengthElExisting = document.getElementById('ndtDesignStrength');
@@ -4138,8 +4318,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElExisting) carbDepthElExisting.value = (existingItem.carbDepth !== undefined && existingItem.carbDepth !== null) ? existingItem.carbDepth : '';
             const carbCoverElExisting = document.getElementById('ndtCarbCover');
             if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '40';
-            const rScanStatusExisting = document.getElementById('rScanStatus');
-            if (rScanStatusExisting) rScanStatusExisting.textContent = '';
 
             window._pendingNdtExtra = {
                 targetX: existingItem.targetX !== undefined ? existingItem.targetX : existingItem.x,
@@ -4166,7 +4344,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = '';
             if (avgEl) avgEl.value = '';
             if (statusEl) statusEl.value = '양호';
-            ndtRValues = [];
+            ndtStrengthSlots = [{ location: '', readings: [] }];
             const angleElNew = document.getElementById('ndtAngle');
             if (angleElNew) angleElNew.value = '0';
             const designStrengthElNew = document.getElementById('ndtDesignStrength');
@@ -4175,8 +4353,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElNew) carbDepthElNew.value = '';
             const carbCoverElNew = document.getElementById('ndtCarbCover');
             if (carbCoverElNew) carbCoverElNew.value = '40';
-            const rScanStatusNew = document.getElementById('rScanStatus');
-            if (rScanStatusNew) rScanStatusNew.textContent = '';
 
             window._pendingNdtExtra = extraOpts || {
                 targetX: imgX,
@@ -4187,8 +4363,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         window.toggleNdtModalFields();
-        renderNdtRValuesList();
-        recalcNdtStrength();
+        renderNdtStrengthSlots();
+        recalcAllStrengthSlots();
         recalcNdtCarbonation();
         modal.style.display = 'flex';
         modal.classList.add('open');
@@ -4277,7 +4453,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 window.toggleNdtModalFields();
                 calcNdtAvg();
-                recalcNdtStrength();
+                recalcAllStrengthSlots();
                 recalcNdtCarbonation();
             });
         }
@@ -4286,32 +4462,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
 
-        // --- 콘크리트 강도 R값 스캔/목록/각도 UI ---
-        const btnAddRValue = document.getElementById('btnAddRValue');
-        if (btnAddRValue) btnAddRValue.addEventListener('click', () => addNdtRValue(''));
+        // --- 콘크리트 강도 위치 슬롯/각도 UI ---
+        const btnAddStrengthSlot = document.getElementById('btnAddStrengthSlot');
+        if (btnAddStrengthSlot) btnAddStrengthSlot.addEventListener('click', () => {
+            if (ndtStrengthSlots.length >= MAX_STRENGTH_SLOTS) return;
+            ndtStrengthSlots.push({ location: '', readings: [] });
+            renderNdtStrengthSlots();
+        });
 
         const ndtAngleEl = document.getElementById('ndtAngle');
-        if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcNdtStrength);
+        if (ndtAngleEl) ndtAngleEl.addEventListener('change', recalcAllStrengthSlots);
 
         const ndtDesignStrengthEl = document.getElementById('ndtDesignStrength');
-        if (ndtDesignStrengthEl) ndtDesignStrengthEl.addEventListener('input', recalcNdtStrength);
+        if (ndtDesignStrengthEl) ndtDesignStrengthEl.addEventListener('input', recalcAllStrengthSlots);
 
         const ndtCarbDepthEl = document.getElementById('ndtCarbDepth');
         const ndtCarbCoverEl = document.getElementById('ndtCarbCover');
         [ndtCarbDepthEl, ndtCarbCoverEl].forEach(el => {
             if (el) el.addEventListener('input', recalcNdtCarbonation);
         });
-
-        const btnScanRValues = document.getElementById('btnScanRValues');
-        const inputScanRValues = document.getElementById('inputScanRValues');
-        if (btnScanRValues && inputScanRValues) {
-            btnScanRValues.addEventListener('click', () => inputScanRValues.click());
-            inputScanRValues.addEventListener('change', (e) => {
-                const file = e.target.files && e.target.files[0];
-                if (file) scanRValuesFromImage(file);
-                e.target.value = '';
-            });
-        }
 
         function closeNdtModal() {
             if (modal) {
@@ -4332,7 +4501,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const noStr = document.getElementById('ndtNo')?.value || 'NDT-01';
                 const cat = document.getElementById('ndtCategory')?.value || '강도';
                 const comp = document.getElementById('ndtComponent')?.value || '기둥';
-                const loc = document.getElementById('ndtLocation')?.value || '';
+                // 강도는 위치를 슬롯별로 입력받으므로(공용 위치칸은 숨겨져 비어있음), 하위호환용
+                // 최상위 location은 슬롯 1(또는 값이 있는 첫 슬롯) 것을 쓴다.
+                const firstStrengthSlot = (cat === '강도')
+                    ? (ndtStrengthSlots.find(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0) || ndtStrengthSlots[0])
+                    : null;
+                const loc = (cat === '강도') ? (firstStrengthSlot?.location || '') : (document.getElementById('ndtLocation')?.value || '');
                 const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
                 const formattedHeight = formatHeightValue(rawHeightStr);
                 const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
@@ -4357,14 +4531,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
 
-                // 콘크리트 강도(반발경도)는 R값 목록 + 각도보정 + 추정식 3개 결과를 별도로 저장한다.
+                // 콘크리트 강도(반발경도)는 위치 슬롯별로(최대 3개) R값 목록 + 각도보정 + 추정식 3개
+                // 결과를 각각 저장한다. 최상위 strength* 필드들은 하위호환용으로 첫 슬롯 결과만 담는다.
                 const strengthAngle = document.getElementById('ndtAngle')?.value;
                 const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
-                const strengthCalc = (cat === '강도') ? calcConcreteStrength(ndtRValues, parseFloat(strengthAngle), strengthAgeDays) : null;
+                const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
                 const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
-                const strengthRatio = (strengthCalc && !isNaN(designStrengthVal) && designStrengthVal > 0)
-                    ? (strengthCalc.finalStrength / designStrengthVal) * 100 : null;
-                const strengthGradeObj = strengthRatio !== null ? getStrengthGrade(strengthRatio) : null;
+
+                const computeSlotResult = (slot) => {
+                    const calc = calcConcreteStrength(slot.readings, parseFloat(strengthAngle), strengthAgeDays, enabledFormulaNames);
+                    const ratio = (calc && !isNaN(designStrengthVal) && designStrengthVal > 0) ? (calc.finalStrength / designStrengthVal) * 100 : null;
+                    const gradeObj = ratio !== null ? getStrengthGrade(ratio) : null;
+                    return {
+                        location: slot.location || '',
+                        readings: (slot.readings || []).slice(),
+                        results: calc ? calc.results : [],
+                        ro: calc ? calc.ro : null,
+                        ageDays: calc ? calc.ageDays : null,
+                        alpha: calc ? calc.alpha : null,
+                        formulaAvg: calc ? calc.formulaAvg : null,
+                        finalStrength: calc ? calc.finalStrength : null,
+                        ratio,
+                        grade: gradeObj ? gradeObj.code : null
+                    };
+                };
+
+                const strengthSlotResults = (cat === '강도')
+                    ? ndtStrengthSlots
+                        .filter(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0 || (s.location || '').trim() !== '')
+                        .map(computeSlotResult)
+                    : [];
+                // 슬롯을 하나도 안 채웠으면(위치/R값 둘 다 비어있는 슬롯 1개뿐) 빈 배열 대신 최소 1개는
+                // 남겨서(위치 없어도) 완전히 빈 저장이 되지 않게 한다.
+                if (cat === '강도' && strengthSlotResults.length === 0) strengthSlotResults.push(computeSlotResult(ndtStrengthSlots[0] || { location: '', readings: [] }));
+                const firstSlotResult = strengthSlotResults[0] || null;
 
                 const carbDepthVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbDepth')?.value) : NaN;
                 const carbCoverVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbCover')?.value) : NaN;
@@ -4372,22 +4572,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const carbCalc = (cat === '탄산화') ? calcCarbonation(carbDepthVal, carbCoverVal, carbAgeDays !== null ? carbAgeDays / 365 : null) : null;
 
                 const valsArr = (cat === '강도')
-                    ? ndtRValues.filter(v => v !== '' && v !== null && v !== undefined)
+                    ? (firstSlotResult ? firstSlotResult.readings.filter(v => v !== '' && v !== null && v !== undefined) : [])
                     : [v1, v2, v3].filter(x => x.trim() !== '');
                 const valuesText = valsArr.join(', ') || '-';
                 const strengthExtra = (cat === '강도') ? {
-                    strengthReadings: ndtRValues.slice(),
+                    strengthSlots: strengthSlotResults,
+                    strengthReadings: firstSlotResult ? firstSlotResult.readings : [],
                     strengthAngle: parseFloat(strengthAngle) || 0,
-                    strengthResults: strengthCalc ? strengthCalc.results : [],
-                    strengthRo: strengthCalc ? strengthCalc.ro : null,
-                    strengthAgeDays: strengthCalc ? strengthCalc.ageDays : null,
-                    strengthAlpha: strengthCalc ? strengthCalc.alpha : null,
-                    strengthFormulaAvg: strengthCalc ? strengthCalc.formulaAvg : null,
-                    strengthFinal: strengthCalc ? strengthCalc.finalStrength : null,
+                    strengthResults: firstSlotResult ? firstSlotResult.results : [],
+                    strengthRo: firstSlotResult ? firstSlotResult.ro : null,
+                    strengthAgeDays: firstSlotResult ? firstSlotResult.ageDays : null,
+                    strengthAlpha: firstSlotResult ? firstSlotResult.alpha : null,
+                    strengthFormulaAvg: firstSlotResult ? firstSlotResult.formulaAvg : null,
+                    strengthFinal: firstSlotResult ? firstSlotResult.finalStrength : null,
                     designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
-                    strengthRatio: strengthRatio,
-                    strengthGrade: strengthGradeObj ? strengthGradeObj.code : null
-                } : { strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
+                    strengthRatio: firstSlotResult ? firstSlotResult.ratio : null,
+                    strengthGrade: firstSlotResult ? firstSlotResult.grade : null
+                } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
 
                 const carbExtra = (cat === '탄산화') ? {
                     carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
@@ -7840,6 +8041,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 지하/지상 여부가 다르면 아무리 문자열이 비슷해도(예: "B1F"가 "1F"를 포함) 매칭하지
+    // 않는다. 지하1층 조회에 지상1층 도면이 잘못 걸리는 사고를 막기 위함.
+    function isBasementFloorCode(code) {
+        const c = (code || '').replace(/\s+/g, '').toUpperCase();
+        return c.startsWith('B') || c.includes('지하');
+    }
+
     function getFloorDrawingSrc(bldg, floorCode) {
         if (!bldg || !bldg.floorDrawings) return null;
         const drawings = bldg.floorDrawings;
@@ -7850,13 +8058,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // 2. Dong-to-Floor & Floor-to-Dong Mapping Lookup
         const dongToFloor = { '101동': '1F', '102동': '2F', '103동': '3F', '104동': '4F', '105동': '5F' };
         const floorToDong = { '1F': '101동', '2F': '102동', '3F': '103동', '4F': '104동', '5F': '105동' };
-        
+
         if (dongToFloor[floorCode] && drawings[dongToFloor[floorCode]]) return drawings[dongToFloor[floorCode]];
         if (floorToDong[floorCode] && drawings[floorToDong[floorCode]]) return drawings[floorToDong[floorCode]];
+
+        const floorIsBasement = isBasementFloorCode(floorCode);
 
         // 3. Case-insensitive / clean string match
         const cleanFloor = (floorCode || '').replace(/\s+/g, '').toUpperCase();
         for (const [k, v] of Object.entries(drawings)) {
+            if (isBasementFloorCode(k) !== floorIsBasement) continue;
             const cleanK = k.replace(/\s+/g, '').toUpperCase();
             if (cleanK === cleanFloor || cleanK.includes(cleanFloor) || cleanFloor.includes(cleanK)) {
                 return v;
@@ -7868,6 +8079,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (numMatch) {
             const numStr = numMatch[0];
             for (const [k, v] of Object.entries(drawings)) {
+                if (isBasementFloorCode(k) !== floorIsBasement) continue;
                 if (k.includes(numStr)) return v;
             }
         }
