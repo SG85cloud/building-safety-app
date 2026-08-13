@@ -5153,7 +5153,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 계단·기타처럼 두 그룹 어디에도 안 맞는 부재는 "전체 보기"(둘 다 켜짐) 상태일
                 // 때만 표시한다 — 하나만 골라 좁혀 볼 때 애매한 부재까지 같이 딸려 나오는 걸 방지.
                 const comp = d.component || '';
-                if (['기둥', '벽체', '조적벽체'].includes(comp)) return catFilter.columnWall !== false;
+                if (['기둥', '벽체', 'RC벽체', '조적벽체'].includes(comp)) return catFilter.columnWall !== false;
                 if (['큰보', '작은보', '슬래브'].includes(comp)) return catFilter.beamSlab !== false;
                 return catFilter.columnWall !== false && catFilter.beamSlab !== false;
             });
@@ -5660,7 +5660,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Dynamic Defect Component(부재 명칭) Presets & Custom Adding/Removing (카테고리별로 완전히 분리) ---
     const DEFECT_COMPONENT_PRESET = {
-        '구조체': ['기둥', '큰보', '작은보', '슬래브', '벽체', '계단', '기타'],
+        '구조체': ['기둥', '큰보', '작은보', '슬래브', 'RC벽체', '계단', '기타'],
         '비구조체': ['조적벽체', '기타'],
         '마감재': ['기타']
     };
