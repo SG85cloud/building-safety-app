@@ -22,6 +22,7 @@ if (!window.state) {
         surveyColumns: null, // 상태조사표 컬럼 순서/이름 커스터마이징 (미지정 시 DEFAULT_SURVEY_COLUMNS 사용)
         surveyColumnsGrade3: null, // 제3종시설물용 상태조사표 컬럼 커스터마이징 (미지정 시 GRADE3_SURVEY_COLUMNS 사용)
         locationMapLegend: null, // 결함위치도 범례 항목 커스터마이징 (미지정 시 스타일 설정 색상 기반 기본 범례 사용)
+        locationMapLegendBox: null, // 결함위치도 범례 박스 위치/크기 커스터마이징 {x, y, scale} - x/y는 결함 핀과 동일한 도면 원본 픽셀 좌표(미지정 시 좌하단 기본 위치·크기 사용)
         defectSizeMode: 'combined', // 'combined' | 'split' - 결함크기(균열폭/균열길이) 표시 방식
         bgImage: null,
         canvas: null,
@@ -601,6 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 surveyColumns: window.state.surveyColumns || null,
                 surveyColumnsGrade3: window.state.surveyColumnsGrade3 || null,
                 locationMapLegend: window.state.locationMapLegend || null,
+                locationMapLegendBox: window.state.locationMapLegendBox || null,
                 defectSizeMode: window.state.defectSizeMode || 'combined',
                 tipShape: window.state.tipShape || 'arrow'
             };
@@ -704,6 +706,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.locationMapLegend) {
                     window.state.locationMapLegend = parsed.locationMapLegend;
+                }
+                if (parsed.locationMapLegendBox) {
+                    window.state.locationMapLegendBox = parsed.locationMapLegendBox;
                 }
                 if (parsed.defectSizeMode) {
                     window.state.defectSizeMode = parsed.defectSizeMode;
@@ -2024,6 +2029,9 @@ document.addEventListener('DOMContentLoaded', () => {
         // Draw Defect Pins INSIDE the rotated context so pins rotate WITH the drawing!
         const currentDefects = getCurrentFloorFilteredDefects();
         renderDefectsGrouped(ctx, currentDefects, drawPin);
+
+        // 범례도 결함 핀처럼 도면 좌표계 안에서 그려서 팬/줌/회전 시 도면에 붙어서 같이 움직이게 한다.
+        if (typeof drawLocationMapLegend === 'function') drawLocationMapLegend(ctx, imgW, imgH, true);
 
         // Draw Live Marking Drag Preview
         if (isMarkingDrag) {
@@ -5120,16 +5128,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!isPreview) {
             // 좌상단 모서리에 결함번호 라벨 박스 표시 (핀 박스와 동일한 스타일)
-            // 도면 회전 상태와 무관하게 박스/글자는 항상 화면 기준 수평으로 보이도록 역회전
+            // 화면(forReport 없음)에서만: 사용자가 도면 회전 버튼으로 돌린 state.rotationAngle을 역회전해서
+            // 화면 기준 항상 수평으로 보이게 한다. 보고서(forReport)에서는 일부러 역회전하지 않는다 —
+            // 결함번호/범례가 도면(제목 라벨과 동일)과 한 덩어리로 함께 회전되도록 둔다.
             ctx.save();
             ctx.translate(x1, y1);
-            const boxRot = state.rotationAngle || 0;
-            if (boxRot === 90) {
-                ctx.rotate((-90 * Math.PI) / 180);
-            } else if (boxRot === 180) {
-                ctx.rotate((-180 * Math.PI) / 180);
-            } else if (boxRot === 270) {
-                ctx.rotate((-270 * Math.PI) / 180);
+            if (!forReport) {
+                const boxRot = state.rotationAngle || 0;
+                if (boxRot === 90) {
+                    ctx.rotate((-90 * Math.PI) / 180);
+                } else if (boxRot === 180) {
+                    ctx.rotate((-180 * Math.PI) / 180);
+                } else if (boxRot === 270) {
+                    ctx.rotate((-270 * Math.PI) / 180);
+                }
             }
             const areaStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const areaShapeCfg = getStyleShape(areaStyleKey);
@@ -6129,6 +6141,32 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeResizeXField = null; // 'areaX1' | 'areaX2' | null
     let activeResizeYField = null; // 'areaY1' | 'areaY2' | null
 
+    // 결함위치도 범례 박스 드래그 이동/크기조절 상태
+    let isDraggingLegend = false;
+    let isResizingLegend = false;
+    let legendDragOffsetX = 0;
+    let legendDragOffsetY = 0;
+    let legendResizeStartDist = 1;
+    let legendResizeStartScale = 1;
+
+    // lastLegendBoxBounds(도면 원본 픽셀 좌표, 결함 핀과 동일 좌표계) 기준으로 이미지 좌표(imgX, imgY —
+    // 핀 히트테스트에 쓰는 것과 동일하게 팬/줌/회전을 역변환한 좌표)가 범례 박스의 크기조절 손잡이/본문
+    // 중 어디에 해당하는지 판정한다.
+    function hitTestLegendBox(imgX, imgY) {
+        if (!lastLegendBoxBounds) return null;
+        const b = lastLegendBoxBounds;
+        const hs = LEGEND_HANDLE_SIZE * (b.scale || 1);
+        const handleX1 = b.x + b.w - hs;
+        const handleY1 = b.y + b.h - hs;
+        if (imgX >= handleX1 && imgX <= b.x + b.w && imgY >= handleY1 && imgY <= b.y + b.h) {
+            return 'handle';
+        }
+        if (imgX >= b.x && imgX <= b.x + b.w && imgY >= b.y && imgY <= b.y + b.h) {
+            return 'body';
+        }
+        return null;
+    }
+
     // Area(면적) Marking Mode State
     let isAreaDrag = false;
     let areaStartImgX = 0;
@@ -6270,6 +6308,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const imgX = coords.x;
         const imgY = coords.y;
 
+        // 범례 박스는 결함 핀과 동일한 도면 이미지 좌표계에 붙어있으므로, 핀 히트테스트와 같은
+        // imgX/imgY(팬/줌/회전 역변환 좌표)로 판정한다 — 핀 히트테스트보다 우선.
+        const legendHit = hitTestLegendBox(imgX, imgY);
+        if (legendHit === 'handle') {
+            isResizingLegend = true;
+            legendResizeStartScale = (state.locationMapLegendBox && state.locationMapLegendBox.scale) || 1;
+            legendResizeStartDist = Math.hypot(imgX - lastLegendBoxBounds.x, imgY - lastLegendBoxBounds.y) || 1;
+            elements.planCanvas.style.cursor = 'nwse-resize';
+            return;
+        }
+        if (legendHit === 'body') {
+            isDraggingLegend = true;
+            legendDragOffsetX = imgX - lastLegendBoxBounds.x;
+            legendDragOffsetY = imgY - lastLegendBoxBounds.y;
+            elements.planCanvas.style.cursor = 'move';
+            return;
+        }
+
         startMouseX = clientX;
         startMouseY = clientY;
         initialOffsetX = state.view.offsetX;
@@ -6306,6 +6362,32 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleDragMove(clientX, clientY) {
         if (!elements.planCanvas) return;
         const rect = elements.planCanvas.getBoundingClientRect();
+
+        if (isResizingLegend || isDraggingLegend) {
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            const vx = (mouseX - state.view.offsetX) / state.view.scale;
+            const vy = (mouseY - state.view.offsetY) / state.view.scale;
+            const coords = viewToImgCoords(vx, vy);
+            const imgX = coords.x;
+            const imgY = coords.y;
+
+            if (!state.locationMapLegendBox) state.locationMapLegendBox = {};
+
+            if (isResizingLegend) {
+                const dist = Math.hypot(imgX - lastLegendBoxBounds.x, imgY - lastLegendBoxBounds.y);
+                const newScale = Math.min(Math.max(2, legendResizeStartScale * (dist / legendResizeStartDist)), 40);
+                // 결함 핀과 동일한 도면 원본 픽셀 좌표로 저장 — 앵커(좌상단)는 고정
+                state.locationMapLegendBox.x = lastLegendBoxBounds.x;
+                state.locationMapLegendBox.y = lastLegendBoxBounds.y;
+                state.locationMapLegendBox.scale = newScale;
+            } else {
+                state.locationMapLegendBox.x = imgX - legendDragOffsetX;
+                state.locationMapLegendBox.y = imgY - legendDragOffsetY;
+            }
+            drawCanvas();
+            return;
+        }
 
         if (pendingDragHit && !isDraggingPin) {
             const dx = clientX - startMouseX;
@@ -6397,6 +6479,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleDragEnd() {
+        if (isResizingLegend) {
+            isResizingLegend = false;
+            saveStateToLocalStorage();
+            if (elements.planCanvas) {
+                elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
+            }
+            return;
+        }
+        if (isDraggingLegend) {
+            isDraggingLegend = false;
+            saveStateToLocalStorage();
+            if (elements.planCanvas) {
+                elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
+            }
+            return;
+        }
+
         if (pendingDragHit && !isDraggingPin) {
             // 이동임계값을 넘지 않고 그냥 뗐음 = 클릭으로 간주 → 수정 모달 오픈
             const d = pendingDragHit.hitInfo.defect;
@@ -6447,11 +6546,11 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit) handleDragMove(e.clientX, e.clientY);
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('mouseup', () => {
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit) handleDragEnd();
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
         });
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
@@ -6466,6 +6565,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 isDraggingPin = false;
                 isAreaDrag = false;
                 activeDragPin = null;
+                isDraggingLegend = false;
+                isResizingLegend = false;
 
                 isPinching = true;
                 const rect = elements.planCanvas.getBoundingClientRect();
@@ -6501,7 +6602,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     drawCanvas();
                 }
             } else if (!isPinching && e.touches.length === 1) {
-                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit) {
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
                     handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
                 }
             }
@@ -6513,13 +6614,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     isPinching = false;
                 }
             } else {
-                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit) handleDragEnd();
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
             }
         });
 
         window.addEventListener('touchcancel', () => {
             isPinching = false;
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit) handleDragEnd();
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
         });
 
 
@@ -7594,7 +7695,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // arrows: 그룹(마킹 추가로 묶인 결함들)을 한 박스+여러 화살표로 그릴 때 전달하는 {targetX,targetY}[]
-    function drawPinSafe(ctx, defect, arrows, counterRotateDeg) {
+    function drawPinSafe(ctx, defect, arrows) {
         try {
             if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
                 drawAreaRect(ctx, defect, false, true);
@@ -7606,6 +7707,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const color = getDefectColor(defect.category, defect.defectType);
             const safeShapeCfg = getStyleShape(safeStyleKey);
+            // 스타일 설정(핀/화살표 크기)이 화면과 동일하게 보고서에도 반영되도록 — 기존엔 여기가 고정 크기였음
+            const safeDefectSize = getStyleSize(safeStyleKey);
+            const safeScale = safeDefectSize.pin;
+            const safeArrowScale = safeDefectSize.arrow;
 
             const targets = (arrows && arrows.length > 0)
                 ? arrows
@@ -7619,7 +7724,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.moveTo(boxX, boxY);
                 ctx.lineTo(t.targetX, t.targetY);
                 ctx.strokeStyle = color;
-                ctx.lineWidth = 2.5;
+                ctx.lineWidth = 2.5 * safeArrowScale;
                 ctx.setLineDash([4, 3]);
                 ctx.stroke();
 
@@ -7627,7 +7732,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const dx = t.targetX - boxX;
                 const dy = t.targetY - boxY;
                 const angle = Math.atan2(dy, dx);
-                const arrowLen = 11;
+                const arrowLen = 11 * safeArrowScale;
 
                 ctx.beginPath();
                 ctx.moveTo(t.targetX, t.targetY);
@@ -7639,21 +7744,18 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Draw Pure White Box with Category-colored Border & Text Label
-            // 리포트 상에서도 도면 회전 방향과 무관하게 박스/글자는 항상 수평으로 보이도록 역회전
+            // 역회전하지 않는다 — 결함번호가 도면(제목 라벨과 동일)과 한 덩어리로 함께 회전되도록 둔다.
             ctx.save();
             ctx.translate(boxX, boxY);
-            if (counterRotateDeg) {
-                ctx.rotate((counterRotateDeg * Math.PI) / 180);
-            }
             ctx.fillStyle = safeShapeCfg.fill ? color : '#ffffff';
             ctx.strokeStyle = color;
-            ctx.lineWidth = 2.5;
-            traceStyledBoxPath(ctx, 44, 30, safeShapeCfg.shape, 6);
+            ctx.lineWidth = 2.5 * safeScale;
+            traceStyledBoxPath(ctx, 44 * safeScale, 30 * safeScale, safeShapeCfg.shape, 6 * safeScale);
             ctx.fill();
             ctx.stroke();
 
             ctx.fillStyle = safeShapeCfg.fill ? '#ffffff' : color;
-            ctx.font = 'bold 13px sans-serif';
+            ctx.font = `bold ${Math.round(13 * safeScale)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', safeStyleKey), 0, 0);
@@ -7858,47 +7960,65 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const btnReset = document.getElementById('btnResetLocationMapLegend');
         if (btnReset) btnReset.addEventListener('click', () => {
-            if (!confirm('범례를 기본값으로 초기화하시겠습니까?')) return;
+            if (!confirm('범례를 기본값으로 초기화하시겠습니까? (내용, 위치, 크기 모두 초기화됩니다)')) return;
             state.locationMapLegend = null;
+            state.locationMapLegendBox = null;
             renderLocationMapLegendModalList();
             saveStateToLocalStorage();
             if (typeof drawCanvas === 'function') drawCanvas();
         });
     }
 
-    // 결함위치도 캔버스 한 켠(좌하단)에 색상 범례를 그린다.
-    function drawLocationMapLegend(ctx, cw, ch) {
-        const items = getActiveLocationMapLegend();
-        if (!items.length) return;
+    // 결함위치도 범례 박스의 마지막으로 그려진 "도면 원본 픽셀" 좌표(결함 핀 x/y와 동일한 좌표계) —
+    // drawCanvas에서 매번 갱신되고, 드래그 이동/크기조절 히트테스트(이미지 좌표 기준)에 재사용된다.
+    let lastLegendBoxBounds = null;
+    const LEGEND_HANDLE_SIZE = 16; // 크기조절 손잡이 기본 크기(도면 픽셀 기준, scale 배율을 곱해서 사용)
 
-        const rowH = 22;
-        const boxW = 168;
-        const boxPad = 12;
+    // 결함위치도에 색상 범례를 그린다. 위치(x,y)는 결함 핀처럼 도면 원본 픽셀 좌표라서, 이 함수를
+    // 호출하는 쪽(화면 drawCanvas / 보고서 renderFloorPlanCanvasDataUrl)에서 이미 팬/줌/회전(혹은
+    // 보고서의 세로 페이지 맞춤 회전) 변환이 적용된 ctx 위에서 호출해야 범례가 도면에 붙어서 같이
+    // 움직인다. interactive=true(화면)일 때만 우측 하단에 크기조절 손잡이를 그리고
+    // lastLegendBoxBounds를 갱신한다 — 보고서 내보내기에는 손잡이가 나오지 않는다.
+    function drawLocationMapLegend(ctx, imgW, imgH, interactive) {
+        const items = getActiveLocationMapLegend();
+        if (!items.length) {
+            if (interactive) lastLegendBoxBounds = null;
+            return;
+        }
+
+        // 범례가 도면 원본 픽셀 좌표에 붙다 보니, 도면 해상도가 큰 경우 기본 크기(scale=1 기준 168px 폭)가
+        // 화면/보고서에서 너무 작게 보인다 — 기본 배율을 10배로 올려서 처음부터 알아볼 수 있는 크기로 시작한다.
+        const box = state.locationMapLegendBox || {};
+        const scale = (box.scale !== undefined) ? box.scale : 10;
+        const rowH = 22 * scale;
+        const boxW = 168 * scale;
+        const boxPad = 12 * scale;
         const boxH = boxPad * 2 + items.length * rowH;
-        const boxX = 16;
-        const boxY = ch - boxH - 16;
+        const margin = 16 * scale;
+        const boxX = (box.x !== undefined) ? box.x : margin;
+        const boxY = (box.y !== undefined) ? box.y : imgH - boxH - margin;
 
         ctx.save();
         ctx.fillStyle = 'rgba(255,255,255,0.92)';
         ctx.strokeStyle = '#1e293b';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 6);
+        if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 6 * scale);
         else ctx.rect(boxX, boxY, boxW, boxH);
         ctx.fill();
         ctx.stroke();
 
-        ctx.font = 'bold 12px sans-serif';
+        ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
         ctx.fillStyle = '#0f172a';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText('범례', boxX + boxPad, boxY + boxPad - 2);
+        ctx.fillText('범례', boxX + boxPad, boxY + boxPad - 2 * scale);
 
         items.forEach((item, i) => {
-            const rowY = boxY + boxPad + 14 + i * rowH;
-            const swatchX = boxX + boxPad + 6;
+            const rowY = boxY + boxPad + 14 * scale + i * rowH;
+            const swatchX = boxX + boxPad + 6 * scale;
             ctx.beginPath();
-            ctx.arc(swatchX, rowY, 6, 0, Math.PI * 2);
+            ctx.arc(swatchX, rowY, 6 * scale, 0, Math.PI * 2);
             ctx.fillStyle = item.color;
             ctx.strokeStyle = '#1e293b';
             ctx.lineWidth = 1;
@@ -7906,16 +8026,33 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.stroke();
             if (item.mark) {
                 ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 8px sans-serif';
+                ctx.font = `bold ${Math.round(8 * scale)}px sans-serif`;
                 ctx.textAlign = 'center';
                 ctx.fillText(item.mark, swatchX, rowY + 0.5);
                 ctx.textAlign = 'left';
-                ctx.font = 'bold 12px sans-serif';
+                ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
             }
             ctx.fillStyle = '#1e293b';
-            ctx.fillText(item.label, swatchX + 14, rowY);
+            ctx.fillText(item.label, swatchX + 14 * scale, rowY);
         });
+
+        if (interactive) {
+            // 우측 하단 크기조절 손잡이(대각선 줄무늬 아이콘) — 범례 자체와 같은 배율로 커지고 작아짐
+            const hs = LEGEND_HANDLE_SIZE * scale;
+            ctx.fillStyle = 'rgba(30,41,59,0.55)';
+            ctx.beginPath();
+            ctx.moveTo(boxX + boxW, boxY + boxH - hs);
+            ctx.lineTo(boxX + boxW, boxY + boxH);
+            ctx.lineTo(boxX + boxW - hs, boxY + boxH);
+            ctx.closePath();
+            ctx.fill();
+        }
+
         ctx.restore();
+
+        if (interactive) {
+            lastLegendBoxBounds = { x: boxX, y: boxY, w: boxW, h: boxH, scale };
+        }
     }
 
     function renderFloorPlanCanvasDataUrl(floorCode) {
@@ -7950,20 +8087,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     ctx.fillStyle = '#ffffff';
                     ctx.fillRect(0, 0, cw, ch);
 
-                    ctx.save();
                     const isHorizontal = imgW > imgH;
 
+                    // 도면 이미지 + 결함번호 + 범례: 셋 다 도면 원본 픽셀 좌표계 안에서 함께 그려서,
+                    // 가로형 도면을 세로 페이지에 맞추려고 돌리는 회전·축소 변환을 결함번호/범례도
+                    // 도면과 한 덩어리로 그대로 받는다(제목 라벨과 동일, 화면에서 핀/범례가 도면에
+                    // 붙어서 같이 움직이는 것과 동일한 원리) — 페이지 기준으로 따로 똑바로 세우지 않는다.
+                    ctx.save();
                     if (isHorizontal) {
                         // Rotate horizontal drawing 90 degrees left to place it vertically filling the A4 portrait page
                         ctx.translate(cw / 2, ch / 2);
                         ctx.rotate(-Math.PI / 2);
-                        
+
                         const scale = Math.min(cw / imgH, ch / imgW);
                         ctx.scale(scale, scale);
                         ctx.translate(-imgW / 2, -imgH / 2);
-
-                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                        renderDefectsGrouped(ctx, defects, (c, d, arr) => drawPinSafe(c, d, arr, 90));
                     } else {
                         // Vertical drawing: scale directly to fit portrait canvas while preserving exact aspect ratio
                         const scale = Math.min(cw / imgW, ch / imgH);
@@ -7972,13 +8110,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
                         ctx.translate(drawX, drawY);
                         ctx.scale(scale, scale);
-
-                        ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                        renderDefectsGrouped(ctx, defects, drawPinSafe);
                     }
+                    ctx.drawImage(imgObj, 0, 0, imgW, imgH);
+                    renderDefectsGrouped(ctx, defects, drawPinSafe);
+                    drawLocationMapLegend(ctx, imgW, imgH);
                     ctx.restore();
-
-                    drawLocationMapLegend(ctx, cw, ch);
 
                     return canvas.toDataURL('image/png');
                 };
