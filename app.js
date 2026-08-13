@@ -186,7 +186,7 @@ window.renderPdfFileToImage = function(file, targetLongSide = 4200, maxDataUrlBy
  * Reduces 4K/8K drawing photos (5~20MB) to lightweight JPEG (~150KB)
  * PDF 파일이 들어오면 pdf.js로 고해상도 렌더링 (renderPdfFileToImage) 후 PNG로 반환
  */
-window.compressDrawingImage = function(file, maxDim = 1400, quality = 0.8) {
+window.compressDrawingImage = function(file, maxDim = 2200, quality = 0.88) {
     return new Promise((resolve) => {
         if (!file || !(file instanceof Blob)) {
             return resolve(null);
@@ -8076,9 +8076,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const imgW = imgObj.naturalWidth || imgObj.width || 1400;
                     const imgH = imgObj.naturalHeight || imgObj.height || 900;
 
-                    // Set canvas to A4 PORTRAIT dimensions (cw = 900, ch = 1270)
-                    const cw = 900;
-                    const ch = 1270;
+                    // Set canvas to A4 PORTRAIT dimensions, 2x for sharper print/PDF text&lines (cw = 1800, ch = 2540)
+                    const cw = 1800;
+                    const ch = 2540;
                     canvas.width = cw;
                     canvas.height = ch;
                     const ctx = canvas.getContext('2d');
@@ -8180,8 +8180,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     const imgW = imgObj.naturalWidth || imgObj.width || 1400;
                     const imgH = imgObj.naturalHeight || imgObj.height || 900;
 
-                    const cw = 900;
-                    const ch = 1270;
+                    const cw = 1800;
+                    const ch = 2540;
                     canvas.width = cw;
                     canvas.height = ch;
                     const ctx = canvas.getContext('2d');
