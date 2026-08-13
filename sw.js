@@ -1,8 +1,8 @@
 /* ==========================================================================
-   스마트 건축물 안전점검 시스템 Service Worker (PWA Offline Engine v60.0)
+   스마트 건축물 안전점검 시스템 Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v60.0';
+const CACHE_NAME = 'building-safety-v61.0';
 const STATIC_ASSETS = [
     './',
     './index.html',
