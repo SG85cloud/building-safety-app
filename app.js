@@ -907,6 +907,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (bldg.inspectionType && document.getElementById('selectInspectionType')) document.getElementById('selectInspectionType').value = bldg.inspectionType;
         if (bldg.inspectionYear && document.getElementById('selectInspectionYear')) document.getElementById('selectInspectionYear').value = bldg.inspectionYear;
         if (bldg.inspectionPeriod && document.getElementById('selectInspectionPeriod')) document.getElementById('selectInspectionPeriod').value = bldg.inspectionPeriod;
+        // 이 건물의 "최신 회차" 기준점이 아직 없으면(기존 데이터) 지금 값으로 초기화하고,
+        // 이미 있으면 지금 값이 더 최신일 때만 전진시킨다(과거로는 절대 되돌리지 않음).
+        advanceLatestSurveyRound(bldg, `${bldg.inspectionYear || '2026년'}_${bldg.inspectionPeriod || '하반기'}`);
 
         // Populate Header Selectors
         populateFloorSelectDropdown(bldg);
@@ -4840,11 +4843,48 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${year}_${period}`;
     }
 
-    // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면 등록 당시 회차와 현재 회차 비교
+    // 회차 키(예: "2026년_하반기")를 순서 비교 가능한 숫자로 바꾼다. "수시점검"은 연중
+    // 아무 때나 진행될 수 있어 상/하반기와 선후 관계를 매길 수 없으므로 순서 비교
+    // 대상에서 제외한다(null 반환).
+    function getSurveyRoundOrderRank(roundKey) {
+        if (!roundKey) return null;
+        const [yearPart, periodPart] = roundKey.split('_');
+        const year = parseInt(yearPart, 10);
+        if (isNaN(year)) return null;
+        const periodRank = periodPart === '상반기' ? 0 : (periodPart === '하반기' ? 1 : null);
+        if (periodRank === null) return null;
+        return year * 10 + periodRank;
+    }
+
+    // 건물별 "최신 회차"를 앞으로만 전진시킨다. 상단 "점검 설정" 드롭다운을 보고서
+    // 미리보기 등으로 잠깐 과거 회차로 바꿔도 이 값은 되돌아가지 않으므로, 이미
+    // 전회차로 분류된 결함이 드롭다운 변경만으로 다시 금회차로 돌아오지 않는다.
+    // "수시점검"은 순서 비교 대상이 아니라 이 값을 전진시키지 않는다.
+    function advanceLatestSurveyRound(bldg, candidateKey) {
+        if (!bldg || !candidateKey) return;
+        const candidateRank = getSurveyRoundOrderRank(candidateKey);
+        if (candidateRank === null) return;
+        const currentRank = getSurveyRoundOrderRank(bldg.latestSurveyRoundKey);
+        if (currentRank === null || candidateRank > currentRank) {
+            bldg.latestSurveyRoundKey = candidateKey;
+        }
+    }
+
+    // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면
+    // 등록 당시 회차와 건물의 "최신 회차"(latestSurveyRoundKey, 앞으로만 전진)를 비교한다.
+    // 상단 드롭다운의 지금 이 순간 값과 비교하지 않으므로, 드롭다운을 잠깐 다른 회차로
+    // 바꿔도(보고서 미리보기 등) 분류가 뒤집히지 않는다. "수시점검" 회차 결함은 순서
+    // 비교 대상이 아니라 항상 금회차로 취급한다.
     function isPreviousRoundDefect(defect) {
         if (defect.isCarriedOver) return true;
         if (!defect.surveyRound) return false; // 회차 정보 없는 과거 데이터는 금회차로 취급
-        return defect.surveyRound !== getCurrentSurveyRoundKey();
+        const bldg = state.currentBuilding;
+        const latestKey = (bldg && bldg.latestSurveyRoundKey) || getCurrentSurveyRoundKey();
+        if (defect.surveyRound === latestKey) return false;
+        const defectRank = getSurveyRoundOrderRank(defect.surveyRound);
+        const latestRank = getSurveyRoundOrderRank(latestKey);
+        if (defectRank === null || latestRank === null) return false; // 수시점검 등은 순서 비교 없이 금회차 취급
+        return defectRank < latestRank;
     }
 
     // "마킹 추가"로 같은 결함을 여러 위치에 표시한 그룹(groupId 공유)을 목록/보고서용으로 한 행으로 합친다.
@@ -4909,11 +4949,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cat === '비구조체') return catFilter.nonStructural !== false;
                 if (cat === '마감재') return catFilter.finishing !== false;
                 // 구조체: 부재 종류로 기둥·벽체 / 보·슬래브 두 그룹으로 세분화.
-                // 계단·기타처럼 두 그룹 어디에도 안 맞는 부재는 둘 중 하나라도 켜져 있으면 표시.
+                // 계단·기타처럼 두 그룹 어디에도 안 맞는 부재는 "전체 보기"(둘 다 켜짐) 상태일
+                // 때만 표시한다 — 하나만 골라 좁혀 볼 때 애매한 부재까지 같이 딸려 나오는 걸 방지.
                 const comp = d.component || '';
-                if (['기둥', '벽체'].includes(comp)) return catFilter.columnWall !== false;
+                if (['기둥', '벽체', '조적벽체'].includes(comp)) return catFilter.columnWall !== false;
                 if (['큰보', '작은보', '슬래브'].includes(comp)) return catFilter.beamSlab !== false;
-                return catFilter.columnWall !== false || catFilter.beamSlab !== false;
+                return catFilter.columnWall !== false && catFilter.beamSlab !== false;
             });
         }
         const filter = window.state.damageTypeFilter || 'ALL';
@@ -7101,6 +7142,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } else {
             // Add new defect
+            const newDefectSurveyRound = getCurrentSurveyRoundKey();
+            // 새 결함을 등록한 회차는 정의상 "지금까지 중 가장 최신"이므로 최신 회차 기준점을 전진시킨다.
+            advanceLatestSurveyRound(window.state.currentBuilding, newDefectSurveyRound);
             const newDefect = {
                 id: 'pin-' + Date.now(),
                 no: document.getElementById('defectNo')?.value || 'NO.01',
@@ -7117,7 +7161,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 isCarriedOver: isCarriedOver,
                 isBookmark: isBookmark,
                 isPriorityManage: isPriorityManage,
-                surveyRound: getCurrentSurveyRoundKey(),
+                surveyRound: newDefectSurveyRound,
                 photos: photosVal,
                 inspectorName: window.state.userName || '',
                 x: coords.x,
@@ -10207,6 +10251,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (id === 'selectInspectionType') window.state.currentBuilding.inspectionType = sel.value;
                     if (id === 'selectInspectionYear') window.state.currentBuilding.inspectionYear = sel.value;
                     if (id === 'selectInspectionPeriod') window.state.currentBuilding.inspectionPeriod = sel.value;
+                    // 연도/기간을 더 최신 회차로 바꿨을 때만 "최신 회차" 기준점을 전진시킨다.
+                    // 보고서 미리보기 등으로 과거 회차로 잠깐 바꿔도 이 기준점은 그대로라
+                    // 전회차로 이미 분류된 결함이 다시 금회차로 돌아오지 않는다.
+                    if (id === 'selectInspectionYear' || id === 'selectInspectionPeriod') {
+                        advanceLatestSurveyRound(window.state.currentBuilding, getCurrentSurveyRoundKey());
+                    }
                     saveStateToLocalStorage();
                 }
             });
@@ -11191,6 +11241,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 const boxX = marginX + col * stepX;
                 const boxY = marginY + rowIdx * stepY;
 
+                const importSurveyRound = getCurrentSurveyRoundKey();
+                // 가져온 결함들이 등록된 회차는 정의상 "지금까지 중 가장 최신"이므로 최신 회차 기준점을 전진시킨다.
+                advanceLatestSurveyRound(window.state.currentBuilding, importSurveyRound);
                 const newDefect = {
                     id: 'pin-' + Date.now() + '-' + floorCode + '-' + i,
                     no,
@@ -11205,7 +11258,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     isProgress: isGood ? false : resolveImportFlag(progressRaw),
                     isLeak: isGood ? false : resolveImportFlag(leakRaw),
                     isCarriedOver: false,
-                    surveyRound: getCurrentSurveyRoundKey(),
+                    surveyRound: importSurveyRound,
                     photos: [],
                     inspectorName: window.state.userName || '',
                     x: boxX,
