@@ -5096,6 +5096,140 @@ document.addEventListener('DOMContentLoaded', () => {
         return bestKey;
     }
 
+    // --- 결함 회차 일괄 재지정 모달 ---
+    // 건물 전체(또는 현재 층)가 잘못된 회차로 통째로 등록됐을 때, 결함들의 surveyRound를
+    // 한번에 올바른 값으로 옮기는 관리자용 복구 기능. 결함 내용은 건드리지 않고 회차 값만 바꾼다.
+    function getSurveyReassignScopeKeys(bldg, wholeBuilding) {
+        if (!bldg) return [];
+        const prefix = `${bldg.id}_`;
+        const floorKey = `${bldg.id}_${state.currentFloor}`;
+        return Object.keys(state.defects).filter(k => {
+            if (!k.startsWith(prefix)) return false;
+            return wholeBuilding ? true : k === floorKey;
+        });
+    }
+
+    function countSurveyReassignMatches(bldg, fromKey, wholeBuilding) {
+        const keys = getSurveyReassignScopeKeys(bldg, wholeBuilding);
+        let count = 0;
+        keys.forEach(k => {
+            (state.defects[k] || []).forEach(d => {
+                if (d.surveyRound === fromKey) count++;
+            });
+        });
+        return count;
+    }
+
+    function updateSurveyReassignPreview() {
+        const previewEl = document.getElementById('surveyReassignPreviewCount');
+        if (!previewEl) return;
+        const bldg = state.currentBuilding;
+        if (!bldg) { previewEl.textContent = '건물을 먼저 선택해 주세요.'; return; }
+        const fromKey = `${document.getElementById('surveyReassignFromYear').value}_${document.getElementById('surveyReassignFromPeriod').value}`;
+        const toKey = `${document.getElementById('surveyReassignToYear').value}_${document.getElementById('surveyReassignToPeriod').value}`;
+        const wholeBuilding = document.getElementById('surveyReassignScopeBuilding').checked;
+        if (fromKey === toKey) {
+            previewEl.textContent = '변경 전/후 회차가 같습니다. 다른 회차를 선택해 주세요.';
+            return;
+        }
+        const count = countSurveyReassignMatches(bldg, fromKey, wholeBuilding);
+        const fromLabel = fromKey.replace('_', ' ');
+        const toLabel = toKey.replace('_', ' ');
+        previewEl.textContent = count > 0
+            ? `"${fromLabel}"로 등록된 결함 ${count}건을 "${toLabel}"(으)로 옮깁니다. (${wholeBuilding ? '건물 전체 층' : state.currentFloor + '만'})`
+            : `"${fromLabel}"로 등록된 결함이 없습니다.`;
+    }
+
+    window.openSurveyRoundReassignModal = function() {
+        const bldg = state.currentBuilding;
+        if (!bldg) { window.showToast('먼저 건물을 선택해 주세요.', 'warning', 4000); return; }
+        // "이렇게 등록된 결함을"은 상단 점검 설정의 현재 값으로 기본 설정
+        const curYear = document.getElementById('selectInspectionYear')?.value || '2026년';
+        const curPeriod = document.getElementById('selectInspectionPeriod')?.value || '하반기';
+        const fromYearEl = document.getElementById('surveyReassignFromYear');
+        const fromPeriodEl = document.getElementById('surveyReassignFromPeriod');
+        if (fromYearEl) fromYearEl.value = curYear;
+        if (fromPeriodEl) fromPeriodEl.value = curPeriod;
+        updateSurveyReassignPreview();
+        const modal = document.getElementById('surveyRoundReassignModal');
+        if (modal) {
+            modal.style.display = 'flex';
+            modal.classList.add('open');
+        }
+    };
+
+    function closeSurveyRoundReassignModal() {
+        const modal = document.getElementById('surveyRoundReassignModal');
+        if (modal) {
+            modal.style.display = 'none';
+            modal.classList.remove('open');
+        }
+    }
+
+    function executeSurveyRoundReassign() {
+        const bldg = state.currentBuilding;
+        if (!bldg) return;
+        const fromKey = `${document.getElementById('surveyReassignFromYear').value}_${document.getElementById('surveyReassignFromPeriod').value}`;
+        const toKey = `${document.getElementById('surveyReassignToYear').value}_${document.getElementById('surveyReassignToPeriod').value}`;
+        const wholeBuilding = document.getElementById('surveyReassignScopeBuilding').checked;
+        if (fromKey === toKey) {
+            window.showToast('변경 전/후 회차가 같습니다.', 'warning', 4000);
+            return;
+        }
+        const count = countSurveyReassignMatches(bldg, fromKey, wholeBuilding);
+        if (count === 0) {
+            window.showToast('해당 회차로 등록된 결함이 없습니다.', 'warning', 4000);
+            return;
+        }
+        const fromLabel = fromKey.replace('_', ' ');
+        const toLabel = toKey.replace('_', ' ');
+        const scopeLabel = wholeBuilding ? '이 건물 전체 층' : `${state.currentFloor}만`;
+        const ok = window.confirm(`"${fromLabel}"로 등록된 결함 ${count}건을 "${toLabel}"(으)로 재지정합니다.\n대상: ${scopeLabel}\n\n이 작업은 되돌릴 수 없습니다. 계속할까요?`);
+        if (!ok) return;
+
+        const keys = getSurveyReassignScopeKeys(bldg, wholeBuilding);
+        let changed = 0;
+        keys.forEach(k => {
+            (state.defects[k] || []).forEach(d => {
+                if (d.surveyRound === fromKey) {
+                    d.surveyRound = toKey;
+                    changed++;
+                }
+            });
+        });
+
+        // 재지정 이후의 실제 데이터를 기준으로 "최신 회차" 기준점을 다시 계산한다
+        // (관리자의 명시적 정정 작업이므로 예외적으로 전진뿐 아니라 재계산을 허용).
+        bldg.latestSurveyRoundKey = getMaxSurveyRoundKeyForBuilding(bldg);
+
+        saveStateToLocalStorage();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        if (typeof renderSurveyTable === 'function') renderSurveyTable();
+        if (typeof drawCanvas === 'function') drawCanvas();
+
+        window.showToast(`결함 ${changed}건을 "${toLabel}"(으)로 재지정했습니다.`, 'success', 5000);
+        updateSurveyReassignPreview();
+    }
+
+    function setupSurveyRoundReassignModalEvents() {
+        const btnOpen = document.getElementById('btnOpenSurveyRoundReassignModal');
+        if (btnOpen) btnOpen.addEventListener('click', window.openSurveyRoundReassignModal);
+
+        const btnClose1 = document.getElementById('btnCloseSurveyRoundReassignModal');
+        if (btnClose1) btnClose1.addEventListener('click', closeSurveyRoundReassignModal);
+        const btnClose2 = document.getElementById('btnCloseSurveyRoundReassignModal2');
+        if (btnClose2) btnClose2.addEventListener('click', closeSurveyRoundReassignModal);
+
+        ['surveyReassignFromYear', 'surveyReassignFromPeriod', 'surveyReassignToYear', 'surveyReassignToPeriod',
+         'surveyReassignScopeBuilding', 'surveyReassignScopeFloor'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('change', updateSurveyReassignPreview);
+        });
+
+        const btnExecute = document.getElementById('btnExecuteSurveyRoundReassign');
+        if (btnExecute) btnExecute.addEventListener('click', executeSurveyRoundReassign);
+    }
+
     // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면
     // 등록 당시 회차와 건물의 "최신 회차"(latestSurveyRoundKey, 앞으로만 전진)를 비교한다.
     // 상단 드롭다운의 지금 이 순간 값과 비교하지 않으므로, 드롭다운을 잠깐 다른 회차로
@@ -12485,6 +12619,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupStyleColorModalEvents === 'function') setupStyleColorModalEvents();
         if (typeof setupSurveyColumnModalEvents === 'function') setupSurveyColumnModalEvents();
         if (typeof setupLocationMapLegendModalEvents === 'function') setupLocationMapLegendModalEvents();
+        if (typeof setupSurveyRoundReassignModalEvents === 'function') setupSurveyRoundReassignModalEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         showLoginOverlay();
     }
