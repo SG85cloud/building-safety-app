@@ -3774,17 +3774,29 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         let csvContent = "\ufeff";
-        const standardItems = items.filter(x => ['실측', '강도', '탄산화'].includes(x.category));
+        const measureItems = items.filter(x => x.category === '실측');
+        const standardItems = items.filter(x => ['강도', '탄산화'].includes(x.category));
         const tiltItems = items.filter(x => ['기울기', '부재변위'].includes(x.category));
 
+        if (measureItems.length > 0) {
+            csvContent += "조사번호,측정위치,부재명,설계치수(mm),실측치수(mm),마감상태,평가(c%),비고(등급)\n";
+            measureItems.forEach(item => {
+                const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? ' x ' + item.designDepth : ''}` : '';
+                const measuredW = (item.measuredWidth !== undefined && item.measuredWidth !== null) ? item.measuredWidth : item.avgValue;
+                const measuredText = measuredW ? `${measuredW}${item.measuredDepth ? ' x ' + item.measuredDepth : ''}` : '';
+                const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? item.sectionRatio.toFixed(1) + '%' : '';
+                csvContent += `"${item.no}","${item.location}","${item.component}","${designText}","${measuredText}","${item.finishState || ''}","${ratioText}","${item.sectionGrade || ''}"\n`;
+            });
+        }
         if (standardItems.length > 0) {
+            if (measureItems.length > 0) csvContent += "\n";
             csvContent += "조사번호,조사항목,측정위치,부재명,측정수치,평균결과,상태판정\n";
             standardItems.forEach(item => {
                 csvContent += `"${item.no}","${item.category}","${item.location}","${item.component}","${item.valuesText || ''}","${item.avgValue || ''}","${item.status}"\n`;
             });
         }
         if (tiltItems.length > 0) {
-            if (standardItems.length > 0) csvContent += "\n";
+            if (measureItems.length > 0 || standardItems.length > 0) csvContent += "\n";
             csvContent += "조사번호,조사항목,측정위치,높이/길이(H/L),변위/처짐량(mm),비율(1/N),안전등급\n";
             tiltItems.forEach(item => {
                 const fmtH = formatHeightValue(item.height);
@@ -9289,27 +9301,35 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <thead>
                                     <tr style="background: #f8fafc; color: #1e293b; border-bottom: 2px solid #cbd5e1;">
                                         <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">관리번호</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">조사항목</th>
                                         <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">측정위치</th>
                                         <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">부재명</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">측정수치</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">평균결과</th>
-                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">상태판정</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">설계치수(mm)</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">실측치수(mm)</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">마감상태</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">평가(c%)</th>
+                                        <th style="padding: 0.45rem 0.3rem; border: 1px solid #cbd5e1;">비고(등급)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${measureNdtItems.length > 0 ? measureNdtItems.map(item => `
+                                    ${measureNdtItems.length > 0 ? measureNdtItems.map(item => {
+                                        const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? ' × ' + item.designDepth : ''}` : '-';
+                                        const measuredW = (item.measuredWidth !== undefined && item.measuredWidth !== null) ? item.measuredWidth : item.avgValue;
+                                        const measuredText = measuredW ? `${measuredW}${item.measuredDepth ? ' × ' + item.measuredDepth : ''}` : '-';
+                                        const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? `${item.sectionRatio.toFixed(1)}%` : '-';
+                                        return `
                                         <tr>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.category}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.component || '기둥'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-family:monospace;">${item.valuesText || '-'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.status || '양호'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-family:monospace;">${designText}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-family:monospace;">${measuredText}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.finishState || '-'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${ratioText}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800;">${item.sectionGrade || '-'}</td>
                                         </tr>
-                                    `).join('') : `
-                                        <tr><td colspan="7" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
+                                    `;
+                                    }).join('') : `
+                                        <tr><td colspan="8" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
                                     `}
                                 </tbody>
                             </table>
