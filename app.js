@@ -936,9 +936,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (bldg.inspectionType && document.getElementById('selectInspectionType')) document.getElementById('selectInspectionType').value = bldg.inspectionType;
         if (bldg.inspectionYear && document.getElementById('selectInspectionYear')) document.getElementById('selectInspectionYear').value = bldg.inspectionYear;
         if (bldg.inspectionPeriod && document.getElementById('selectInspectionPeriod')) document.getElementById('selectInspectionPeriod').value = bldg.inspectionPeriod;
-        // 이 건물의 "최신 회차" 기준점이 아직 없으면(기존 데이터) 지금 값으로 초기화하고,
-        // 이미 있으면 지금 값이 더 최신일 때만 전진시킨다(과거로는 절대 되돌리지 않음).
-        advanceLatestSurveyRound(bldg, `${bldg.inspectionYear || '2026년'}_${bldg.inspectionPeriod || '하반기'}`);
+        // 이 건물의 "최신 회차" 기준점이 아직 한 번도 설정된 적 없으면(기존 데이터) 최초 1회만
+        // 부트스트랩한다 — 실제 등록된 결함들의 회차 중 최신값을 우선 쓰고, 결함이 하나도
+        // 없는 신규 건물이면 그때만 현재 점검설정 값으로 초기화한다. 이미 설정된 뒤에는
+        // 건물을 다시 열 때마다 재계산하지 않는다(드롭다운을 잠깐 미리보기 등으로 건드린
+        // 이력이 남아있어도 그걸로 다시 전진시키지 않기 위함 — 전진은 오직 실제 결함 등록
+        // 시점에만 일어난다).
+        if (!bldg.latestSurveyRoundKey) {
+            const maxDefectRoundKey = getMaxSurveyRoundKeyForBuilding(bldg);
+            advanceLatestSurveyRound(bldg, maxDefectRoundKey || `${bldg.inspectionYear || '2026년'}_${bldg.inspectionPeriod || '하반기'}`);
+        }
 
         // Populate Header Selectors
         populateFloorSelectDropdown(bldg);
@@ -5069,6 +5076,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentRank === null || candidateRank > currentRank) {
             bldg.latestSurveyRoundKey = candidateKey;
         }
+    }
+
+    // 이 건물에 실제로 등록된 결함들의 surveyRound 중 가장 최신 값을 찾는다.
+    // "최신 회차" 최초 부트스트랩에 상단 드롭다운(언제든 미리보기 등으로 바뀔 수 있는 값)
+    // 대신 이 값을 우선 사용해, 드롭다운을 잠깐 건드린 이력이 남아있어도 영향받지 않게 한다.
+    function getMaxSurveyRoundKeyForBuilding(bldg) {
+        if (!bldg) return null;
+        const prefix = `${bldg.id}_`;
+        let bestKey = null, bestRank = null;
+        Object.keys(state.defects).forEach(k => {
+            if (!k.startsWith(prefix)) return;
+            (state.defects[k] || []).forEach(d => {
+                const rank = getSurveyRoundOrderRank(d.surveyRound);
+                if (rank === null) return;
+                if (bestRank === null || rank > bestRank) { bestRank = rank; bestKey = d.surveyRound; }
+            });
+        });
+        return bestKey;
     }
 
     // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면
@@ -10476,12 +10501,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (id === 'selectInspectionType') window.state.currentBuilding.inspectionType = sel.value;
                     if (id === 'selectInspectionYear') window.state.currentBuilding.inspectionYear = sel.value;
                     if (id === 'selectInspectionPeriod') window.state.currentBuilding.inspectionPeriod = sel.value;
-                    // 연도/기간을 더 최신 회차로 바꿨을 때만 "최신 회차" 기준점을 전진시킨다.
-                    // 보고서 미리보기 등으로 과거 회차로 잠깐 바꿔도 이 기준점은 그대로라
-                    // 전회차로 이미 분류된 결함이 다시 금회차로 돌아오지 않는다.
-                    if (id === 'selectInspectionYear' || id === 'selectInspectionPeriod') {
-                        advanceLatestSurveyRound(window.state.currentBuilding, getCurrentSurveyRoundKey());
-                    }
+                    // ⚠️ 여기서 "최신 회차" 기준점(latestSurveyRoundKey)을 전진시키지 않는다.
+                    // 이 드롭다운은 보고서 미리보기 등으로도 잠깐씩 바뀌는데, 예전엔 change
+                    // 이벤트마다 advanceLatestSurveyRound를 호출해서 미리보기로 미래 회차를
+                    // 잠깐만 봐도 기준점이 그쪽으로 전진해버려 실제 금회차 결함이 전회차로
+                    // 잘못 뒤집히는 버그가 있었다. 기준점 전진은 오직 실제 결함이 등록/가져오기
+                    // 되는 시점에만 일어난다(해당 코드에서 advanceLatestSurveyRound 호출).
                     saveStateToLocalStorage();
                 }
             });
