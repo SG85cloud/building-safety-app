@@ -7839,10 +7839,19 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'no': return ctx.gradeNo || (d.no || '').replace(/^NO\.?\s*/i, '');
             case 'floorGroup': return ctx.floorDisplayLabel || ctx.floorCode || state.currentFloor || '';
             case 'inspectionContent': {
-                const parts = [getSurveyCellText('component', d, ctx), getSurveyCellText('defectType', d, ctx), getSurveyCellText('size', d, ctx)]
+                // 결함크기는 부재종류/조사내용과 한 줄로 붙이지 않고 줄바꿈해서 출력한다.
+                // 여기서는 화면/HWPX/엑셀 어디에도 종속되지 않는 순수 개행문자(\n)만 넣어두고,
+                // 실제 표현 방식(<br>, HWP 줄바꿈 제어문자 등)은 각 출력 경로에서 변환한다.
+                const headParts = [getSurveyCellText('component', d, ctx), getSurveyCellText('defectType', d, ctx)]
                     .map(s => (s || '').trim())
                     .filter(s => s && s !== '-');
-                return parts.join(' ') || '-';
+                const head = headParts.join(' ');
+                const sizeText = (getSurveyCellText('size', d, ctx) || '').trim();
+                const hasSize = sizeText && sizeText !== '-';
+                if (!head && !hasSize) return '-';
+                if (!hasSize) return head;
+                if (!head) return sizeText;
+                return `${head}\n${sizeText}`;
             }
             case 'location': return d.location || ((ctx.floorCode || state.currentFloor) + ' ' + (d.component || '기둥'));
             case 'component': return d.component || '기둥';
@@ -7883,6 +7892,7 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'location': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'component': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'defectType': return `<span style="font-weight:700; color:#0369a1;">${text}</span>`;
+            case 'inspectionContent': return `<span style="font-weight:700; color:#1e293b; white-space:pre-line;">${text}</span>`;
             case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#94a3b8'};">${text}</span>`;
             case 'size': case 'crackWidth': case 'crackLength': return text;
             case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
@@ -10112,8 +10122,22 @@ document.addEventListener('DOMContentLoaded', () => {
                         const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
                         if (paras.length > 0) {
                             const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
-                            if (tNode && values[colIdx] !== undefined) tNode.textContent = values[colIdx];
+                            const rawVal = values[colIdx] !== undefined ? values[colIdx] : '';
+                            // "점검내용"처럼 값 안에 줄바꿈(\n)이 들어있는 경우가 있다 — HWPX 셀에서
+                            // 줄바꿈은 텍스트 안 개행문자가 아니라 문단을 나누는 방식으로 표현되므로,
+                            // 첫 문단은 첫 줄로 채우고 나머지 줄은 첫 문단을 그대로 복제해(같은 서식
+                            // 유지) 이어붙인다.
+                            const lines = String(rawVal).split('\n');
+                            if (tNode) tNode.textContent = lines[0];
                             for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
+                            let refNode = paras[0];
+                            for (let i = 1; i < lines.length; i++) {
+                                const clonedPara = paras[0].cloneNode(true);
+                                const clonedT = clonedPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                                if (clonedT) clonedT.textContent = lines[i];
+                                subList.insertBefore(clonedPara, refNode.nextSibling);
+                                refNode = clonedPara;
+                            }
                         }
                     });
                     destTbl.appendChild(newRow);
@@ -11312,7 +11336,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 tableHtml += `
                     <tr>
-                        ${activeColumns.map(c => `<td style="${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
+                        ${activeColumns.map(c => `<td style="${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx).replace(/\n/g, '<br>')}</td>`).join('')}
                     </tr>
                 `;
             });
