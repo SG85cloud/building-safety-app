@@ -7919,6 +7919,16 @@ document.addEventListener('DOMContentLoaded', () => {
         theadEl.innerHTML = `<tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>등록자</th><th>관리</th></tr>`;
     }
 
+    // 상태조사표 행을 클릭하면 "결함 핀 상세 정보 등록" 모달을 그 결함 내용으로 채워서 바로 연다
+    // (좌측 "등록된 결함 목록"의 ✏️ 수정 버튼과 동일한 경로 — 결함원인/결함크기 등 아무 항목이나
+    // 바로 고칠 수 있도록, 별도의 표 안 인라인 입력칸을 새로 만들지 않고 기존 편집 폼을 재사용한다).
+    window.openSurveyRowEditModal = function(defectId) {
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        const defect = (state.defects[key] || []).find(d => d.id === defectId);
+        if (!defect) return;
+        openAddDefectModal(defect.x, defect.y, defect.targetX, defect.targetY, defect);
+    };
+
     function renderSurveyTable() {
         if (!elements.surveyTableBody) return;
         const rawDefects = getCurrentFloorDefects();
@@ -7969,10 +7979,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const deleteAction = isGroup ? `window.deleteDefectGroup('${d.groupId}')` : `deleteDefectById('${d.id}')`;
 
             return `
-                <tr>
+                <tr style="cursor:pointer;" title="클릭하면 이 결함을 바로 수정합니다" onclick="window.openSurveyRowEditModal('${d.id}')">
                     ${columns.map(c => `<td>${renderScreenSurveyCellHtml(c.key, d, ctx)}</td>`).join('')}
                     <td><span class="badge badge-info">${d.inspectorName || '-'}</span></td>
-                    <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="${deleteAction}">삭제</button></td>
+                    <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="event.stopPropagation(); ${deleteAction}">삭제</button></td>
                 </tr>
             `;
         }).join('');
