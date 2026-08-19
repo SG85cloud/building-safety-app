@@ -2396,6 +2396,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return { tiltRatio: `1/${ratioInv}`, grade };
     }
 
+    // 설계/실측 치수 입력칸 하나에 "400*400"처럼 폭*춤을 한번에 적어도 되고, 폭/춤 칸을
+    // 따로 나눠 적어도 되게 한다. 폭 칸에 구분자(×,x,X,*)가 있으면 그걸 폭/춤으로 쪼개고,
+    // 없으면 폭 칸은 숫자만 뽑아 폭으로, 춤 칸은 따로 파싱한다.
+    function parseNdtDimensionPair(rawWidth, rawDepth) {
+        const wStr = (rawWidth || '').toString().trim();
+        const parts = wStr.split(/[×xX*]/).map(s => s.trim()).filter(Boolean);
+        if (parts.length >= 2) {
+            const w = parseFloat(parts[0]);
+            const d = parseFloat(parts[1]);
+            return { w: isNaN(w) ? null : w, d: isNaN(d) ? null : d };
+        }
+        const w = parseFloat(wStr.replace(/[^0-9.]/g, ''));
+        const d = parseFloat((rawDepth || '').toString().replace(/[^0-9.]/g, ''));
+        return { w: isNaN(w) ? null : w, d: isNaN(d) ? null : d };
+    }
+
     // 콘크리트 부재단면의 규격: 시설물의 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24]
     // c(%) = (측정단면적 ÷ 설계단면적) × 100. a: 100%이상, b: 95%이상, c: 90%이상, d: 75%이상, e: 75%미만.
     // 춤(depth)이 없는 단일치수 부재(슬래브 두께 등)는 면적 대신 그 치수 자체의 비율로 계산한다.
@@ -3977,7 +3993,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (commonLocationGrp) commonLocationGrp.style.display = (cat === '강도') ? 'none' : '';
         // 부재 실측 전용 필드(설계치수/마감상태/실측 춤/단면적비율)는 실측일 때만 노출
         if (measureGrp) measureGrp.style.display = (cat === '실측') ? 'flex' : 'none';
-        if (measuredDepthGrp) measuredDepthGrp.style.display = (cat === '실측') ? 'block' : 'none';
+        if (measuredDepthGrp) measuredDepthGrp.style.display = (cat === '실측') ? 'flex' : 'none';
         if (sectionResultGrp) sectionResultGrp.style.display = (cat === '실측') ? 'block' : 'none';
         if (cat === '실측' && !document.getElementById('ndtFinishState')?.options.length) populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
 
@@ -4560,15 +4576,15 @@ document.addEventListener('DOMContentLoaded', () => {
         function calcSectionAuto() {
             const cat = document.getElementById('ndtCategory')?.value || '강도';
             if (cat !== '실측') return;
-            const designW = parseFloat(document.getElementById('ndtDesignWidth')?.value);
-            const designD = parseFloat(document.getElementById('ndtDesignDepth')?.value);
-            // 실측 폭은 기존 1~3회 측정값의 평균(ndtAvgValue)을 그대로 쓴다.
+            const design = parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value);
+            // 실측 폭은 기존 1~3회 측정값의 평균(ndtAvgValue)을 그대로 쓴다 — 이 칸은 여러 번 측정한
+            // 값을 평균내는 용도라 "*" 결합 표기를 넣으면 평균 계산과 충돌하므로 숫자만 뽑아 쓴다.
             const measuredW = parseFloat((avgEl?.value || '').replace(/[^0-9.-]/g, ''));
-            const measuredD = parseFloat(document.getElementById('ndtMeasuredDepth')?.value);
+            const measuredD = parseFloat((document.getElementById('ndtMeasuredDepth')?.value || '').replace(/[^0-9.-]/g, ''));
 
             const ratioEl = document.getElementById('ndtSectionRatio');
             const gradeEl = document.getElementById('ndtSectionGrade');
-            const calc = calcSectionGrade(designW, designD, measuredW, measuredD);
+            const calc = calcSectionGrade(design.w, design.d, isNaN(measuredW) ? null : measuredW, isNaN(measuredD) ? null : measuredD);
             if (calc) {
                 if (ratioEl) ratioEl.value = `${calc.ratio.toFixed(1)}%`;
                 if (gradeEl) gradeEl.value = calc.code;
@@ -4718,18 +4734,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // 부재 실측(단면 규격): 설계치수/마감상태/실측 춤 + 단면적비율(c%)·등급 자동 산정
                 // (시설물 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24])
+                // 설계 폭 칸에 "400*400"처럼 폭*춤을 한번에 적어도, 폭/춤을 따로 나눠 적어도 인식된다.
+                // 실측 폭(avg)은 1~3회 평균 계산과 겹치므로 "*" 결합 표기 없이 숫자만 쓴다.
                 const finishState = (cat === '실측') ? (document.getElementById('ndtFinishState')?.value || '') : '';
-                const designWidthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtDesignWidth')?.value) : NaN;
-                const designDepthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtDesignDepth')?.value) : NaN;
-                const measuredDepthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtMeasuredDepth')?.value) : NaN;
-                const designWidth = isNaN(designWidthRaw) ? null : designWidthRaw;
-                const designDepth = isNaN(designDepthRaw) ? null : designDepthRaw;
+                const designParsed = (cat === '실측')
+                    ? parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value)
+                    : { w: null, d: null };
+                const designWidth = designParsed.w;
+                const designDepth = designParsed.d;
+                const measuredWidthRaw = (cat === '실측') ? parseFloat((avg || '').replace(/[^0-9.-]/g, '')) : NaN;
+                const measuredDepthRaw = (cat === '실측') ? parseFloat((document.getElementById('ndtMeasuredDepth')?.value || '').replace(/[^0-9.-]/g, '')) : NaN;
+                const measuredWidth = isNaN(measuredWidthRaw) ? null : measuredWidthRaw;
                 const measuredDepth = isNaN(measuredDepthRaw) ? null : measuredDepthRaw;
                 let sectionRatio = null;
                 let sectionGrade = null;
                 if (cat === '실측') {
-                    const measuredWidth = parseFloat((avg || '').replace(/[^0-9.-]/g, ''));
-                    const sectionCalc = calcSectionGrade(designWidth, designDepth, isNaN(measuredWidth) ? null : measuredWidth, measuredDepth);
+                    const sectionCalc = calcSectionGrade(designWidth, designDepth, measuredWidth, measuredDepth);
                     if (sectionCalc) {
                         sectionRatio = sectionCalc.ratio;
                         sectionGrade = sectionCalc.code;
