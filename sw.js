@@ -2,13 +2,17 @@
    스마트 건축물 안전점검 시스템 Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v61.1';
+const CACHE_NAME = 'building-safety-v61.2';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './styles.css',
     './app.js',
     './manifest.json',
+    './templates/hwpx_survey_template.hwpx',
+    './templates/hwpx_survey_template_regular.hwpx',
+    './templates/hwpx_survey_template_grade3.hwpx',
+    './templates/hwpx_survey_template_grade3_regular.hwpx',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
     'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
@@ -73,9 +77,15 @@ self.addEventListener('fetch', (event) => {
                 console.log('[ServiceWorker] Network request failed. Serving from Cache:', url);
                 return caches.match(event.request).then((cachedResponse) => {
                     if (cachedResponse) return cachedResponse;
-                    if (event.request.headers.get('accept').includes('text/html')) {
+                    const accept = event.request.headers.get('accept') || '';
+                    if (accept.includes('text/html')) {
                         return caches.match('./index.html');
                     }
+                    return new Response('오프라인 상태이며 이 파일은 캐시에 없습니다.', {
+                        status: 503,
+                        statusText: 'Offline',
+                        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+                    });
                 });
             })
     );
