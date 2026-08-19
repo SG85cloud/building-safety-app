@@ -5150,12 +5150,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (cat === '비구조체') return catFilter.nonStructural !== false;
                 if (cat === '마감재') return catFilter.finishing !== false;
                 // 구조체: 부재 종류로 기둥·벽체 / 보·슬래브 두 그룹으로 세분화.
-                // 계단·기타처럼 두 그룹 어디에도 안 맞는 부재는 "전체 보기"(둘 다 켜짐) 상태일
-                // 때만 표시한다 — 하나만 골라 좁혀 볼 때 애매한 부재까지 같이 딸려 나오는 걸 방지.
+                // 부재 명칭은 "상부 보", "계단참 슬래브"처럼 자유 입력·접두어가 붙는 경우가 많아
+                // 정확히 일치가 아니라 키워드 포함 여부로 판단한다. "기둥-보 접합부"처럼 두 그룹
+                // 키워드가 다 들어있으면 둘 중 하나만 켜져 있어도 표시. 계단·기타처럼 두 키워드
+                // 모두 없는 부재는 "전체 보기"(둘 다 켜짐) 상태일 때만 표시한다.
                 const comp = d.component || '';
-                if (['기둥', '벽체', 'RC벽체', '조적벽체'].includes(comp)) return catFilter.columnWall !== false;
-                if (['큰보', '작은보', '슬래브'].includes(comp)) return catFilter.beamSlab !== false;
+                const isColumnWall = comp.includes('기둥') || comp.includes('벽체');
+                const isBeamSlab = comp.includes('보') || comp.includes('슬래브');
+                if (isColumnWall && isBeamSlab) return catFilter.columnWall !== false || catFilter.beamSlab !== false;
+                if (isColumnWall) return catFilter.columnWall !== false;
+                if (isBeamSlab) return catFilter.beamSlab !== false;
                 return catFilter.columnWall !== false && catFilter.beamSlab !== false;
+            });
+        }
+        const periodFilter = window.state.periodFilter;
+        if (periodFilter) {
+            list = list.filter(d => {
+                const round = d.surveyRound;
+                if (!round || !(round in periodFilter)) return true; // 회차 정보 없거나 필터 목록 밖 회차는 항상 표시
+                return periodFilter[round] !== false;
             });
         }
         const filter = window.state.damageTypeFilter || 'ALL';
@@ -10658,6 +10671,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!el) return;
         el.addEventListener('change', (e) => {
             window.state.categoryFilter[stateKey] = e.target.checked;
+            if (typeof drawCanvas === 'function') drawCanvas();
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        });
+    });
+
+    // --- 2-2-1. 점검 차수 필터 ---
+    window.state.periodFilter = { '2026년_하반기': true, '2026년_상반기': true, '2025년_하반기': false };
+    const periodFilterMap = [
+        ['filterPeriod2026H2', '2026년_하반기'],
+        ['filterPeriod2026H1', '2026년_상반기'],
+        ['filterPeriod2025H2', '2025년_하반기']
+    ];
+    periodFilterMap.forEach(([elId, roundKey]) => {
+        const el = document.getElementById(elId);
+        if (!el) return;
+        window.state.periodFilter[roundKey] = el.checked;
+        el.addEventListener('change', (e) => {
+            window.state.periodFilter[roundKey] = e.target.checked;
             if (typeof drawCanvas === 'function') drawCanvas();
             if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
         });
