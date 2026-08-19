@@ -10511,6 +10511,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const allNdtItemsForHwpx = state.ndtData ? (state.ndtData[ndtKey] || []) : [];
                 const allDispGroupsForHwpx = state.ndtDisplacementGroups ? (state.ndtDisplacementGroups[ndtKey] || []) : [];
 
+                const measureItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '실측');
                 const strengthItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '강도');
                 const carbItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '탄산화');
                 const tiltItemsHwpx = allNdtItemsForHwpx.filter(item => item.category === '기울기');
@@ -10536,7 +10537,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 데이터 행 채우기 (상태조사표의 행 clone 패턴 재사용). headerRowCount개 행은 그대로
                 // 두고 그 다음부터 표 끝까지가 데이터 행이다. rowsValues[i]는 colAddr=1번 칸부터 순서대로
                 // 들어갈 값 배열이다(0번 칸은 세로로 병합된 표 왼쪽 라벨 칸이라 건드리지 않는다).
-                const fillNdtTable = (tbl, headerRowCount, rowsValues) => {
+                const fillNdtTable = (tbl, headerRowCount, rowsValues, includeCol0 = false) => {
                     const allTrs = Array.from(tbl.getElementsByTagNameNS(HP_NS, 'tr')).filter(tr => tr.parentNode === tbl);
                     const oldDataRows = allTrs.slice(headerRowCount);
                     if (oldDataRows.length < 1) return;
@@ -10567,14 +10568,25 @@ document.addEventListener('DOMContentLoaded', () => {
                             addr.setAttribute('rowAddr', String(headerRowCount + idx));
                             const bf = styleMap[colAddr];
                             if (bf !== undefined) tc.setAttribute('borderFillIDRef', bf);
-                            if (colAddr === '0') return;
-                            const colIdx = parseInt(colAddr, 10) - 1;
+                            if (colAddr === '0' && !includeCol0) return;
+                            const colIdx = includeCol0 ? parseInt(colAddr, 10) : parseInt(colAddr, 10) - 1;
                             const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
                             const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
                             if (paras.length > 0 && values[colIdx] !== undefined) {
+                                // 값 안에 줄바꿈(\n)이 있으면(예: 위치+부재명 2줄) 첫 문단은 첫 줄로 채우고
+                                // 나머지 줄은 첫 문단을 복제해(같은 서식 유지) 이어붙인다.
+                                const lines = String(values[colIdx]).split('\n');
                                 const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
-                                if (tNode) tNode.textContent = String(values[colIdx]);
+                                if (tNode) tNode.textContent = lines[0];
                                 for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
+                                let refNode = paras[0];
+                                for (let i = 1; i < lines.length; i++) {
+                                    const clonedPara = paras[0].cloneNode(true);
+                                    const clonedT = clonedPara.getElementsByTagNameNS(HP_NS, 't')[0];
+                                    if (clonedT) clonedT.textContent = lines[i];
+                                    subList.insertBefore(clonedPara, refNode.nextSibling);
+                                    refNode = clonedPara;
+                                }
                             }
                         });
                         tbl.appendChild(newRow);
@@ -10598,6 +10610,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     setPicImage(pic, imgId, size.w, size.h, maxW, maxH);
                 };
 
+                const MEASURE_TBL_ID = '2137459237', MEASURE_HEADER_ROWS = 2;
                 const STRENGTH_TBL_ID = '2119329126', STRENGTH_HEADER_ROWS = 1;
                 const CARB_TBL_ID = '2119328135', CARB_HEADER_ROWS = 1;
                 const STRENGTH_CARB_MAP_TBL_ID = '2137459495';
@@ -10608,6 +10621,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const MEMBER_DISP_MAP_TBL_ID = '1165079516';
 
                 {
+                    // 부재실측(단면 규격) 결과표 — 템플릿 표 열 구성: NO. / 위치(+부재명) / 설계치 / 실측치 / 마감상태.
+                    // 화면 결과표와 달리 템플릿엔 평가(c%)/등급 칸이 없어 그 둘은 넣지 않는다.
+                    if (measureItemsHwpx.length > 0) {
+                        const tbl = findTblById(MEASURE_TBL_ID);
+                        if (tbl) fillNdtTable(tbl, MEASURE_HEADER_ROWS, measureItemsHwpx.map((item, i) => {
+                            const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? '×' + item.designDepth : ''}` : '-';
+                            const measuredW = (item.measuredWidth !== undefined && item.measuredWidth !== null) ? item.measuredWidth : item.avgValue;
+                            const measuredText = measuredW ? `${measuredW}${item.measuredDepth ? '×' + item.measuredDepth : ''}` : '-';
+                            return [
+                                item.no || (i + 1),
+                                `${item.location || '위치미지정'}\n(${item.component || ''})`,
+                                designText,
+                                measuredText,
+                                item.finishState || '-'
+                            ];
+                        }), true);
+                    } else {
+                        removeNdtTableById(MEASURE_TBL_ID);
+                    }
+
                     if (strengthItemsHwpx.length > 0) {
                         const tbl = findTblById(STRENGTH_TBL_ID);
                         if (tbl) fillNdtTable(tbl, STRENGTH_HEADER_ROWS, strengthItemsHwpx.map((item, i) => [
