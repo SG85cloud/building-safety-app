@@ -3577,9 +3577,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <th>조사번호</th>
                     <th>측정위치</th>
                     <th>부재명</th>
-                    <th>마감상태</th>
                     <th>설계치수(mm)</th>
                     <th>실측치수(mm)</th>
+                    <th>마감상태</th>
                     <th>평가(c%)</th>
                     <th>비고(등급)</th>
                     <th>관리</th>
@@ -3665,9 +3665,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
                     <td>${item.component || '기둥'}</td>
-                    <td>${item.finishState || '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${designText}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${measuredText}</td>
+                    <td>${item.finishState || '-'}</td>
                     <td style="font-weight:800; color:#4ade80;">${ratioText}</td>
                     <td>${item.sectionGrade ? (sectionGradeBadges[item.sectionGrade] || item.sectionGrade) : '-'}</td>
                     <td>
