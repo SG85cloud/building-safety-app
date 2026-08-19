@@ -8895,7 +8895,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         }
                                         return `
                                             <tr>
-                                                ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
+                                                ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; white-space:pre-line; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
                                             </tr>
                                         `;
                                     }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#94a3b8;">${floorDisplayLabel}에 등록된 결함이 없습니다.</td></tr>`}
