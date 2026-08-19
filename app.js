@@ -6053,8 +6053,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const defectCategorySelect = document.getElementById('defectCategory');
     if (defectCategorySelect) {
         defectCategorySelect.addEventListener('change', (e) => {
-            updateDefectTypeDropdown(e.target.value);
-            populateDefectComponentDropdown(e.target.value);
+            // 분류(구조체/비구조체/마감재)만 바꾸는 것이므로, 이미 입력/선택돼 있던 부재명칭·
+            // 결함종류는 최대한 그대로 유지한다. 새 분류 목록에 없는 값이어도(예: 자유입력한
+            // "상부 보") updateDefectTypeDropdown/populateDefectComponentDropdown이 currentVal을
+            // 받으면 그 값을 커스텀 옵션으로 살려서 유지해준다 — currentVal을 안 넘기면 그냥
+            // 새 목록의 첫 항목으로 조용히 리셋돼버려서 기존 입력 내용이 사라지는 버그가 있었다.
+            const currentType = document.getElementById('defectType')?.value;
+            const currentComponent = document.getElementById('defectComponent')?.value;
+            updateDefectTypeDropdown(e.target.value, currentType);
+            populateDefectComponentDropdown(e.target.value, currentComponent);
         });
     }
 
