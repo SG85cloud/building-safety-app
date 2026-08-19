@@ -2122,6 +2122,9 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!state.ndtDisplacementGroups) state.ndtDisplacementGroups = {};
     let ndtMode = 'PAN';
     let currentNdtCategory = '실측';
+    // 부재 실측(단면 규격)의 마감상태 기본 목록 — 사용자가 직접 추가한 항목은
+    // state.customNdtFinishStates에 저장되어 이후 계속 노출된다.
+    const NDT_FINISH_STATE_PRESET = ['노출', '몰탈마감', '석재마감', '타일마감', '기타'];
     let ndtView = { offsetX: 0, offsetY: 0, scale: 1.0 };
     let ndtRotationAngle = 0;
     let ndtBgImage = null;
@@ -2393,6 +2396,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return { tiltRatio: `1/${ratioInv}`, grade };
     }
 
+    // 콘크리트 부재단면의 규격: 시설물의 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24]
+    // c(%) = (측정단면적 ÷ 설계단면적) × 100. a: 100%이상, b: 95%이상, c: 90%이상, d: 75%이상, e: 75%미만.
+    // 춤(depth)이 없는 단일치수 부재(슬래브 두께 등)는 면적 대신 그 치수 자체의 비율로 계산한다.
+    function calcSectionGrade(designW, designD, measuredW, measuredD) {
+        if (!(designW > 0) || !(measuredW > 0)) return null;
+        const designArea = designD > 0 ? designW * designD : designW;
+        const measuredArea = measuredD > 0 ? measuredW * measuredD : measuredW;
+        const ratio = (measuredArea / designArea) * 100;
+        let code = 'e';
+        if (ratio >= 100) code = 'a';
+        else if (ratio >= 95) code = 'b';
+        else if (ratio >= 90) code = 'c';
+        else if (ratio >= 75) code = 'd';
+        return { ratio, code };
+    }
+
     // 그룹(부동침하 또는 부재처짐) 변위량/처짐량 및 안전등급 연산
     function calcGroupDisplacement(group) {
         const points = group.points || [];
@@ -2556,6 +2575,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         const activeBtn = document.getElementById(`btnNdtCat${catMap[cat]}`);
         if (activeBtn) activeBtn.classList.add('active');
+        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
     };
 
     function drawNdtCanvas() {
@@ -3533,8 +3554,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     <th>관리</th>
                 `;
             }
+        } else if (currentCat === '실측') {
+            items = items.filter(x => x.category === '실측');
+            if (thead) {
+                thead.innerHTML = `
+                    <th>조사번호</th>
+                    <th>측정위치</th>
+                    <th>부재명</th>
+                    <th>마감상태</th>
+                    <th>설계치수(mm)</th>
+                    <th>실측치수(mm)</th>
+                    <th>평가(c%)</th>
+                    <th>비고(등급)</th>
+                    <th>관리</th>
+                `;
+            }
         } else {
-            items = items.filter(x => ['실측', '강도', '탄산화'].includes(x.category));
+            items = items.filter(x => ['강도', '탄산화'].includes(x.category));
             if (thead) {
                 thead.innerHTML = `
                     <th>조사번호</th>
@@ -3550,7 +3586,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (items.length === 0) {
-            const colSpan = (currentCat === '기울기' || currentCat === '변위' || currentCat === '부재변위') ? 7 : 8;
+            const colSpan = (currentCat === '기울기' || currentCat === '변위' || currentCat === '부재변위') ? 7 : (currentCat === '실측' ? 9 : 8);
             tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 ${currentCat} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
             return;
         }
@@ -3578,6 +3614,15 @@ document.addEventListener('DOMContentLoaded', () => {
             'e등급': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (1/150초과)</span>'
         };
 
+        // 부재단면 규격 등급(a~e) — [표 6.24] 단면적비율(c%) 기준, 별도 뱃지(문자 하나로 간결하게 표기)
+        const sectionGradeBadges = {
+            a: '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a</span>',
+            b: '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b</span>',
+            c: '<span class="badge" style="background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4); font-weight:800;">c</span>',
+            d: '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d</span>',
+            e: '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e</span>'
+        };
+
         if (currentCat === '기울기' || currentCat === '부재변위') {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
@@ -3593,6 +3638,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     </td>
                 </tr>
             `).join('');
+        } else if (currentCat === '실측') {
+            tbody.innerHTML = items.map((item, idx) => {
+                const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? ' × ' + item.designDepth : ''}` : '-';
+                const measuredText = item.avgValue ? `${item.avgValue}${item.measuredDepth ? ' × ' + item.measuredDepth : ''}` : '-';
+                const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? `${item.sectionRatio.toFixed(1)}%` : '-';
+                return `
+                <tr>
+                    <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700;">${item.location || '위치미지정'}</td>
+                    <td>${item.component || '기둥'}</td>
+                    <td>${item.finishState || '-'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${designText}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${measuredText}</td>
+                    <td style="font-weight:800; color:#4ade80;">${ratioText}</td>
+                    <td>${item.sectionGrade ? (sectionGradeBadges[item.sectionGrade] || item.sectionGrade) : '-'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
+                    </td>
+                </tr>
+            `;
+            }).join('');
         } else {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
@@ -3888,6 +3955,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const genericValuesGrp = document.getElementById('groupNdtGenericValues');
         const statusGrp = document.getElementById('groupNdtStatus');
         const commonLocationGrp = document.getElementById('ndtLocationFieldWrap');
+        const measureGrp = document.getElementById('groupNdtMeasureFields');
+        const measuredDepthGrp = document.getElementById('groupNdtMeasuredDepth');
+        const sectionResultGrp = document.getElementById('groupNdtSectionResult');
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
 
@@ -3905,6 +3975,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화') ? 'none' : 'block';
         // 강도는 위치를 슬롯별로 따로 입력받으므로, 공용 측정위치 칸은 숨긴다.
         if (commonLocationGrp) commonLocationGrp.style.display = (cat === '강도') ? 'none' : '';
+        // 부재 실측 전용 필드(설계치수/마감상태/실측 춤/단면적비율)는 실측일 때만 노출
+        if (measureGrp) measureGrp.style.display = (cat === '실측') ? 'flex' : 'none';
+        if (measuredDepthGrp) measuredDepthGrp.style.display = (cat === '실측') ? 'block' : 'none';
+        if (sectionResultGrp) sectionResultGrp.style.display = (cat === '실측') ? 'block' : 'none';
+        if (cat === '실측' && !document.getElementById('ndtFinishState')?.options.length) populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
 
         if (cat === '부재변위') {
             if (stdGrp) stdGrp.style.display = 'none';
@@ -3930,6 +4005,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v1El) v1El.placeholder = '1회 (예: 3.0mm)';
             if (v2El) v2El.placeholder = '2회 (예: 3.5mm)';
             if (v3El) v3El.placeholder = '3회 (예: 3.0mm)';
+        } else if (cat === '실측') {
+            if (stdGrp) stdGrp.style.display = 'flex';
+            if (statusGrp) statusGrp.style.display = 'none'; // 상태판정 대신 단면적비율(c%)/등급 자동표시
+            if (tiltGrp) tiltGrp.style.display = 'none';
+            if (valTitle) valTitle.textContent = '📊 실측 폭/치수 측정값 (1~3회 입력 시 평균 자동 연산)';
+            if (avgTitle) avgTitle.textContent = '⚡ 실측 폭/치수 평균';
+            if (v1El) v1El.placeholder = '1회 측정값(mm)';
+            if (v2El) v2El.placeholder = '2회 측정값(mm)';
+            if (v3El) v3El.placeholder = '3회 측정값(mm)';
         } else {
             if (stdGrp) stdGrp.style.display = 'flex';
             if (statusGrp) statusGrp.style.display = 'flex';
@@ -4278,6 +4362,32 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function populateNdtFinishStateDropdown(currentVal) {
+        const select = document.getElementById('ndtFinishState');
+        if (!select) return;
+        if (!window.state.customNdtFinishStates) window.state.customNdtFinishStates = [];
+        let html = '';
+        NDT_FINISH_STATE_PRESET.forEach(item => {
+            const sel = (currentVal === item) ? 'selected' : '';
+            html += `<option value="${item}" ${sel}>${item}</option>`;
+        });
+        window.state.customNdtFinishStates.forEach(item => {
+            if (!NDT_FINISH_STATE_PRESET.includes(item)) {
+                const sel = (currentVal === item) ? 'selected' : '';
+                html += `<option value="${item}" ${sel}>${item}</option>`;
+            }
+        });
+        html += `<option value="__ADD_CUSTOM_FINISH__">➕ [마감상태 직접 추가...]</option>`;
+        select.innerHTML = html;
+        if (currentVal && !NDT_FINISH_STATE_PRESET.includes(currentVal) && !window.state.customNdtFinishStates.includes(currentVal)) {
+            const customOpt = document.createElement('option');
+            customOpt.value = currentVal;
+            customOpt.textContent = currentVal;
+            customOpt.selected = true;
+            select.insertBefore(customOpt, select.lastElementChild);
+        }
+    }
+
     function openNdtModal(imgX, imgY, existingItem = null, extraOpts = null) {
         const modal = document.getElementById('ndtModal');
         if (!modal) return;
@@ -4325,6 +4435,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElExisting) carbDepthElExisting.value = (existingItem.carbDepth !== undefined && existingItem.carbDepth !== null) ? existingItem.carbDepth : '';
             const carbCoverElExisting = document.getElementById('ndtCarbCover');
             if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '40';
+            const designWidthElExisting = document.getElementById('ndtDesignWidth');
+            if (designWidthElExisting) designWidthElExisting.value = (existingItem.designWidth !== undefined && existingItem.designWidth !== null) ? existingItem.designWidth : '';
+            const designDepthElExisting = document.getElementById('ndtDesignDepth');
+            if (designDepthElExisting) designDepthElExisting.value = (existingItem.designDepth !== undefined && existingItem.designDepth !== null) ? existingItem.designDepth : '';
+            const measuredDepthElExisting = document.getElementById('ndtMeasuredDepth');
+            if (measuredDepthElExisting) measuredDepthElExisting.value = (existingItem.measuredDepth !== undefined && existingItem.measuredDepth !== null) ? existingItem.measuredDepth : '';
+            populateNdtFinishStateDropdown(existingItem.finishState || NDT_FINISH_STATE_PRESET[0]);
+            const sectionRatioElExisting = document.getElementById('ndtSectionRatio');
+            if (sectionRatioElExisting) sectionRatioElExisting.value = (existingItem.sectionRatio !== undefined && existingItem.sectionRatio !== null) ? `${existingItem.sectionRatio.toFixed(1)}%` : '';
+            const sectionGradeElExisting = document.getElementById('ndtSectionGrade');
+            if (sectionGradeElExisting) sectionGradeElExisting.value = existingItem.sectionGrade || '';
 
             window._pendingNdtExtra = {
                 targetX: existingItem.targetX !== undefined ? existingItem.targetX : existingItem.x,
@@ -4360,6 +4481,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (carbDepthElNew) carbDepthElNew.value = '';
             const carbCoverElNew = document.getElementById('ndtCarbCover');
             if (carbCoverElNew) carbCoverElNew.value = '40';
+            const designWidthElNew = document.getElementById('ndtDesignWidth');
+            if (designWidthElNew) designWidthElNew.value = '';
+            const designDepthElNew = document.getElementById('ndtDesignDepth');
+            if (designDepthElNew) designDepthElNew.value = '';
+            const measuredDepthElNew = document.getElementById('ndtMeasuredDepth');
+            if (measuredDepthElNew) measuredDepthElNew.value = '';
+            populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
+            const sectionRatioElNew = document.getElementById('ndtSectionRatio');
+            if (sectionRatioElNew) sectionRatioElNew.value = '';
+            const sectionGradeElNew = document.getElementById('ndtSectionGrade');
+            if (sectionGradeElNew) sectionGradeElNew.value = '';
 
             window._pendingNdtExtra = extraOpts || {
                 targetX: imgX,
@@ -4422,6 +4554,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             calcTiltAuto();
+            calcSectionAuto();
+        }
+
+        function calcSectionAuto() {
+            const cat = document.getElementById('ndtCategory')?.value || '강도';
+            if (cat !== '실측') return;
+            const designW = parseFloat(document.getElementById('ndtDesignWidth')?.value);
+            const designD = parseFloat(document.getElementById('ndtDesignDepth')?.value);
+            // 실측 폭은 기존 1~3회 측정값의 평균(ndtAvgValue)을 그대로 쓴다.
+            const measuredW = parseFloat((avgEl?.value || '').replace(/[^0-9.-]/g, ''));
+            const measuredD = parseFloat(document.getElementById('ndtMeasuredDepth')?.value);
+
+            const ratioEl = document.getElementById('ndtSectionRatio');
+            const gradeEl = document.getElementById('ndtSectionGrade');
+            const calc = calcSectionGrade(designW, designD, measuredW, measuredD);
+            if (calc) {
+                if (ratioEl) ratioEl.value = `${calc.ratio.toFixed(1)}%`;
+                if (gradeEl) gradeEl.value = calc.code;
+            } else {
+                if (ratioEl) ratioEl.value = '';
+                if (gradeEl) gradeEl.value = '';
+            }
         }
 
         function calcTiltAuto() {
@@ -4468,6 +4622,32 @@ document.addEventListener('DOMContentLoaded', () => {
         [v1El, v2El, v3El, heightEl].forEach(el => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
+
+        // --- 부재 실측: 설계치수/실측 춤 입력 시 단면적비율(c%)/등급 자동 재계산 ---
+        ['ndtDesignWidth', 'ndtDesignDepth', 'ndtMeasuredDepth'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', calcSectionAuto);
+        });
+
+        // --- 부재 실측: 마감상태 직접 추가 ---
+        const ndtFinishStateEl = document.getElementById('ndtFinishState');
+        if (ndtFinishStateEl) {
+            ndtFinishStateEl.addEventListener('change', (e) => {
+                if (e.target.value !== '__ADD_CUSTOM_FINISH__') return;
+                const newVal = prompt('추가하실 마감상태를 입력하세요 (예: 도장마감):');
+                if (newVal && newVal.trim()) {
+                    const trimmed = newVal.trim();
+                    if (!window.state.customNdtFinishStates) window.state.customNdtFinishStates = [];
+                    if (!window.state.customNdtFinishStates.includes(trimmed)) {
+                        window.state.customNdtFinishStates.push(trimmed);
+                        saveStateToLocalStorage();
+                    }
+                    populateNdtFinishStateDropdown(trimmed);
+                } else {
+                    populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
+                }
+            });
+        }
 
         // --- 콘크리트 강도 위치 슬롯/각도 UI ---
         const btnAddStrengthSlot = document.getElementById('btnAddStrengthSlot');
@@ -4534,6 +4714,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
                     tiltRatio = calc.tiltRatio;
                     grade = calc.grade;
+                }
+
+                // 부재 실측(단면 규격): 설계치수/마감상태/실측 춤 + 단면적비율(c%)·등급 자동 산정
+                // (시설물 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24])
+                const finishState = (cat === '실측') ? (document.getElementById('ndtFinishState')?.value || '') : '';
+                const designWidthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtDesignWidth')?.value) : NaN;
+                const designDepthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtDesignDepth')?.value) : NaN;
+                const measuredDepthRaw = (cat === '실측') ? parseFloat(document.getElementById('ndtMeasuredDepth')?.value) : NaN;
+                const designWidth = isNaN(designWidthRaw) ? null : designWidthRaw;
+                const designDepth = isNaN(designDepthRaw) ? null : designDepthRaw;
+                const measuredDepth = isNaN(measuredDepthRaw) ? null : measuredDepthRaw;
+                let sectionRatio = null;
+                let sectionGrade = null;
+                if (cat === '실측') {
+                    const measuredWidth = parseFloat((avg || '').replace(/[^0-9.-]/g, ''));
+                    const sectionCalc = calcSectionGrade(designWidth, designDepth, isNaN(measuredWidth) ? null : measuredWidth, measuredDepth);
+                    if (sectionCalc) {
+                        sectionRatio = sectionCalc.ratio;
+                        sectionGrade = sectionCalc.code;
+                    }
                 }
 
                 const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
@@ -4607,6 +4807,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     carbRemainingLifeYears: carbCalc ? carbCalc.remainingLifeYears : null
                 } : { carbDepth: null, carbCover: null, carbAgeDays: null, carbRemainMm: null, carbRate: null, carbLifeYears: null, carbRemainingLifeYears: null };
 
+                const measureExtra = (cat === '실측')
+                    ? { finishState, designWidth, designDepth, measuredDepth, sectionRatio, sectionGrade }
+                    : { finishState: null, designWidth: null, designDepth: null, measuredDepth: null, sectionRatio: null, sectionGrade: null };
+
                 if (pinId) {
                     const idx = state.ndtData[key].findIndex(x => x.id === pinId);
                     if (idx >= 0) {
@@ -4630,6 +4834,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             grade,
                             ...strengthExtra,
                             ...carbExtra,
+                            ...measureExtra,
                             inspectorName: state.ndtData[key][idx].inspectorName || window.state.userName || ''
                         };
                     }
@@ -4654,6 +4859,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         grade,
                         ...strengthExtra,
                         ...carbExtra,
+                        ...measureExtra,
                         inspectorName: window.state.userName || '',
                         x: extra.targetX,
                         y: extra.targetY

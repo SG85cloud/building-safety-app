@@ -444,7 +444,7 @@
                 </div>
                 
                 <div class="table-responsive" style="background: var(--bg-secondary); border-radius: var(--radius-md); border: 1px solid var(--border-color); padding: 0.5rem;">
-                    <table class="data-table">
+                    <table class="data-table" id="ndtSummaryTable">
                         <thead>
                             <tr>
                                 <th>번호</th>
@@ -1051,6 +1051,24 @@
                     </div>
                 </div>
 
+                <!-- 📏 부재 실측 전용 필드 그룹: 설계치수/마감상태 (단면 규격 상태평가 자동판정용) -->
+                <div id="groupNdtMeasureFields" style="display: none; flex-direction: column; gap: 0.8rem;">
+                    <div class="form-row" style="display: flex; gap: 0.8rem;">
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">🏁 마감상태 *</label>
+                            <select id="ndtFinishState" class="form-select"></select>
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">📐 설계 폭/치수 (mm) *</label>
+                            <input type="number" step="1" id="ndtDesignWidth" class="form-control" placeholder="예: 400">
+                        </div>
+                        <div class="form-group" style="flex: 1;">
+                            <label class="form-label">📐 설계 춤 (mm, 단일치수 부재는 비워두세요)</label>
+                            <input type="number" step="1" id="ndtDesignDepth" class="form-control" placeholder="예: 600">
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Dedicated Exterior Wall Tilt & Member Displacement Fields Group -->
                 <div id="groupNdtTiltFields" style="display: none; flex-direction: column; gap: 0.8rem;">
                     <div class="form-row" style="display: flex; gap: 0.8rem;">
@@ -1138,6 +1156,12 @@
                     </div>
                 </div>
 
+                <!-- 부재 실측: 실측 춤(2번째 치수, 선택) -->
+                <div class="form-group" id="groupNdtMeasuredDepth" style="display:none;">
+                    <label class="form-label">📐 실측 춤 (mm, 단일치수 부재는 비워두세요)</label>
+                    <input type="number" step="1" id="ndtMeasuredDepth" class="form-control" placeholder="예: 598">
+                </div>
+
                 <div class="form-row" style="display: flex; gap: 0.8rem;">
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label" id="lblNdtAvgTitle">⚡ 변위량 / 종합 결과값</label>
@@ -1150,6 +1174,14 @@
                             <option value="주의">🟡 주의 (Caution)</option>
                             <option value="보강필요">🔴 보강필요 (Action)</option>
                         </select>
+                    </div>
+                    <!-- 부재 실측 전용: 상태판정 대신 단면적비율(c%)+등급을 자동 표시 (시설물 안전 및 유지관리 실시 세부지침 [표 6.24]) -->
+                    <div class="form-group" id="groupNdtSectionResult" style="flex: 1; display: none;">
+                        <label class="form-label">📊 단면적 비율(c%) / 등급</label>
+                        <div style="display:flex; gap:0.5rem;">
+                            <input type="text" id="ndtSectionRatio" class="form-control" readonly placeholder="자동 계산" style="font-weight: 800; color: #38bdf8;">
+                            <input type="text" id="ndtSectionGrade" class="form-control" readonly placeholder="자동 계산" style="font-weight: 800; color: #4ade80;">
+                        </div>
                     </div>
                 </div>
 
