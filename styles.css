@@ -1227,6 +1227,11 @@ body {
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
     overflow-x: auto;
     padding: 0.5rem;
+    /* overflow-x:auto makes this a scroll container, which per spec also forces overflow-y
+       to behave as "auto" — inside a flex column ancestor that collapses shrinkable items
+       down to their automatic minimum size (0), that made this box get squeezed to a sliver.
+       flex-shrink:0 keeps it at its natural content height so the page scrolls normally instead. */
+    flex-shrink: 0;
 }
 
 .survey-table {
