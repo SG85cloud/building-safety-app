@@ -6587,6 +6587,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let isDragging = false;
     let isMarkingDrag = false;
     let pendingDragHit = null; // 눌렀지만 아직 이동임계값을 넘지 않아 드래그 시작을 보류 중인 히트 정보
+    let pendingDragIsTouch = false; // pendingDragHit이 터치로 시작됐는지 (임계값/유예시간을 마우스와 다르게 적용)
+    let pendingDragHitStartTime = 0; // 터치로 핀을 짚은 시각(ms) — 핀치줌 시작과 구분하는 유예시간 계산용
+    const TOUCH_DRAG_THRESHOLD = 16; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
+    const MOUSE_DRAG_THRESHOLD = 6;
+    const TOUCH_DRAG_GRACE_MS = 150; // 이 시간 안에 두 번째 손가락이 닿으면 핀치줌으로 판정하고 드래그 취소
     let isDraggingPin = false;
     let activeDragPin = null;
     let activeDragPart = 'BOX'; // 'BOX', 'TIP', 'AREA_MOVE', or 'AREA_RESIZE'
@@ -6749,7 +6754,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return null;
     }
 
-    function handleDragStart(clientX, clientY) {
+    function handleDragStart(clientX, clientY, isTouch = false) {
         if (!elements.planCanvas) return;
         const rect = elements.planCanvas.getBoundingClientRect();
         const mouseX = clientX - rect.left;
@@ -6788,6 +6793,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const hitInfo = findHitPinPart(imgX, imgY);
         if (hitInfo) {
             pendingDragHit = { hitInfo, imgX, imgY };
+            pendingDragIsTouch = isTouch;
+            pendingDragHitStartTime = isTouch ? Date.now() : 0;
             return;
         }
 
@@ -6844,7 +6851,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pendingDragHit && !isDraggingPin) {
             const dx = clientX - startMouseX;
             const dy = clientY - startMouseY;
-            if (Math.hypot(dx, dy) > 6) {
+            const threshold = pendingDragIsTouch ? TOUCH_DRAG_THRESHOLD : MOUSE_DRAG_THRESHOLD;
+            // 터치로 짚은 경우, 짚은 직후 짧은 유예시간 안에는 이동거리가 임계값을 넘어도 드래그를
+            // 시작하지 않는다 — 핀치줌을 하려고 두 번째 손가락을 마저 대는 순간(첫 손가락이 살짝
+            // 먼저 움직이는) 핀이 먼저 딸려가버리는 걸 막기 위함. 그 사이 두 번째 손가락이 닿으면
+            // touchstart 핸들러가 pendingDragHit을 통째로 취소하므로 여기까지 오지 않는다.
+            const withinTouchGrace = pendingDragIsTouch && (Date.now() - pendingDragHitStartTime < TOUCH_DRAG_GRACE_MS);
+            if (!withinTouchGrace && Math.hypot(dx, dy) > threshold) {
                 // 이동임계값을 넘는 순간 바로 드래그 시작(더 이상 길게 누르고 기다릴 필요 없음)
                 pushDefectHistory();
                 isDraggingPin = true;
@@ -7008,7 +7021,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
         elements.planCanvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isPinching) {
-                handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+                handleDragStart(e.touches[0].clientX, e.touches[0].clientY, true);
             } else if (e.touches.length >= 2) {
                 // Multi-touch detected: cancel active 1-finger mark or drag operations safely
                 pendingDragHit = null;
