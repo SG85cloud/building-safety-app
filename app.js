@@ -3657,7 +3657,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (currentCat === '실측') {
             tbody.innerHTML = items.map((item, idx) => {
                 const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? ' × ' + item.designDepth : ''}` : '-';
-                const measuredText = item.avgValue ? `${item.avgValue}${item.measuredDepth ? ' × ' + item.measuredDepth : ''}` : '-';
+                const measuredW = (item.measuredWidth !== undefined && item.measuredWidth !== null) ? item.measuredWidth : item.avgValue;
+                const measuredText = measuredW ? `${measuredW}${item.measuredDepth ? ' × ' + item.measuredDepth : ''}` : '-';
                 const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? `${item.sectionRatio.toFixed(1)}%` : '-';
                 return `
                 <tr>
@@ -3974,6 +3975,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const measureGrp = document.getElementById('groupNdtMeasureFields');
         const measuredDepthGrp = document.getElementById('groupNdtMeasuredDepth');
         const sectionResultGrp = document.getElementById('groupNdtSectionResult');
+        const avgValueGrp = document.getElementById('groupNdtAvgValue');
         const valTitle = document.getElementById('lblNdtValueTitle');
         const avgTitle = document.getElementById('lblNdtAvgTitle');
 
@@ -3988,13 +3990,15 @@ document.addEventListener('DOMContentLoaded', () => {
         // 나머지 항목(실측/기울기/부재변위)은 기존 1~3회 입력 UI를 그대로 쓴다.
         if (strengthGrp) strengthGrp.style.display = (cat === '강도') ? 'flex' : 'none';
         if (carbGrp) carbGrp.style.display = (cat === '탄산화') ? 'flex' : 'none';
-        if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화') ? 'none' : 'block';
+        if (genericValuesGrp) genericValuesGrp.style.display = (cat === '강도' || cat === '탄산화' || cat === '실측') ? 'none' : 'block';
         // 강도는 위치를 슬롯별로 따로 입력받으므로, 공용 측정위치 칸은 숨긴다.
         if (commonLocationGrp) commonLocationGrp.style.display = (cat === '강도') ? 'none' : '';
-        // 부재 실측 전용 필드(설계치수/마감상태/실측 춤/단면적비율)는 실측일 때만 노출
+        // 부재 실측 전용 필드(설계치수/마감상태/실측 폭·춤/단면적비율)는 실측일 때만 노출.
+        // 실측은 기존 1~3회 평균 UI 대신 설계치수와 동일한 폭/춤 입력을 쓰므로 평균값 칸도 숨긴다.
         if (measureGrp) measureGrp.style.display = (cat === '실측') ? 'flex' : 'none';
         if (measuredDepthGrp) measuredDepthGrp.style.display = (cat === '실측') ? 'flex' : 'none';
         if (sectionResultGrp) sectionResultGrp.style.display = (cat === '실측') ? 'block' : 'none';
+        if (avgValueGrp) avgValueGrp.style.display = (cat === '실측') ? 'none' : 'block';
         if (cat === '실측' && !document.getElementById('ndtFinishState')?.options.length) populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
 
         if (cat === '부재변위') {
@@ -4457,6 +4461,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (designDepthElExisting) designDepthElExisting.value = (existingItem.designDepth !== undefined && existingItem.designDepth !== null) ? existingItem.designDepth : '';
             const measuredDepthElExisting = document.getElementById('ndtMeasuredDepth');
             if (measuredDepthElExisting) measuredDepthElExisting.value = (existingItem.measuredDepth !== undefined && existingItem.measuredDepth !== null) ? existingItem.measuredDepth : '';
+            const measuredWidthElExisting = document.getElementById('ndtMeasuredWidth');
+            if (measuredWidthElExisting) {
+                if (existingItem.measuredWidth !== undefined && existingItem.measuredWidth !== null) {
+                    measuredWidthElExisting.value = existingItem.measuredWidth;
+                } else {
+                    // 이 필드가 생기기 전(구버전)에 저장된 실측 항목은 avgValue에 실측 폭이 담겨 있었다.
+                    const legacyW = parseFloat((existingItem.avgValue || '').toString().replace(/[^0-9.-]/g, ''));
+                    measuredWidthElExisting.value = isNaN(legacyW) ? '' : legacyW;
+                }
+            }
             populateNdtFinishStateDropdown(existingItem.finishState || NDT_FINISH_STATE_PRESET[0]);
             const sectionRatioElExisting = document.getElementById('ndtSectionRatio');
             if (sectionRatioElExisting) sectionRatioElExisting.value = (existingItem.sectionRatio !== undefined && existingItem.sectionRatio !== null) ? `${existingItem.sectionRatio.toFixed(1)}%` : '';
@@ -4503,6 +4517,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (designDepthElNew) designDepthElNew.value = '';
             const measuredDepthElNew = document.getElementById('ndtMeasuredDepth');
             if (measuredDepthElNew) measuredDepthElNew.value = '';
+            const measuredWidthElNew = document.getElementById('ndtMeasuredWidth');
+            if (measuredWidthElNew) measuredWidthElNew.value = '';
             populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
             const sectionRatioElNew = document.getElementById('ndtSectionRatio');
             if (sectionRatioElNew) sectionRatioElNew.value = '';
@@ -4577,14 +4593,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const cat = document.getElementById('ndtCategory')?.value || '강도';
             if (cat !== '실측') return;
             const design = parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value);
-            // 실측 폭은 기존 1~3회 측정값의 평균(ndtAvgValue)을 그대로 쓴다 — 이 칸은 여러 번 측정한
-            // 값을 평균내는 용도라 "*" 결합 표기를 넣으면 평균 계산과 충돌하므로 숫자만 뽑아 쓴다.
-            const measuredW = parseFloat((avgEl?.value || '').replace(/[^0-9.-]/g, ''));
-            const measuredD = parseFloat((document.getElementById('ndtMeasuredDepth')?.value || '').replace(/[^0-9.-]/g, ''));
+            const measured = parseNdtDimensionPair(document.getElementById('ndtMeasuredWidth')?.value, document.getElementById('ndtMeasuredDepth')?.value);
 
             const ratioEl = document.getElementById('ndtSectionRatio');
             const gradeEl = document.getElementById('ndtSectionGrade');
-            const calc = calcSectionGrade(design.w, design.d, isNaN(measuredW) ? null : measuredW, isNaN(measuredD) ? null : measuredD);
+            const calc = calcSectionGrade(design.w, design.d, measured.w, measured.d);
             if (calc) {
                 if (ratioEl) ratioEl.value = `${calc.ratio.toFixed(1)}%`;
                 if (gradeEl) gradeEl.value = calc.code;
@@ -4639,8 +4652,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el) el.addEventListener('input', calcNdtAvg);
         });
 
-        // --- 부재 실측: 설계치수/실측 춤 입력 시 단면적비율(c%)/등급 자동 재계산 ---
-        ['ndtDesignWidth', 'ndtDesignDepth', 'ndtMeasuredDepth'].forEach(id => {
+        // --- 부재 실측: 설계치수/실측치수 입력 시 단면적비율(c%)/등급 자동 재계산 ---
+        ['ndtDesignWidth', 'ndtDesignDepth', 'ndtMeasuredWidth', 'ndtMeasuredDepth'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.addEventListener('input', calcSectionAuto);
         });
@@ -4716,7 +4729,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const v1 = document.getElementById('ndtVal1')?.value || '';
                 const v2 = document.getElementById('ndtVal2')?.value || '';
                 const v3 = document.getElementById('ndtVal3')?.value || '';
-                const avg = document.getElementById('ndtAvgValue')?.value || '';
+                let avg = document.getElementById('ndtAvgValue')?.value || '';
                 const status = document.getElementById('ndtStatus')?.value || '양호';
 
                 let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
@@ -4732,20 +4745,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     grade = calc.grade;
                 }
 
-                // 부재 실측(단면 규격): 설계치수/마감상태/실측 춤 + 단면적비율(c%)·등급 자동 산정
+                // 부재 실측(단면 규격): 설계치수/마감상태/실측치수 + 단면적비율(c%)·등급 자동 산정
                 // (시설물 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24])
-                // 설계 폭 칸에 "400*400"처럼 폭*춤을 한번에 적어도, 폭/춤을 따로 나눠 적어도 인식된다.
-                // 실측 폭(avg)은 1~3회 평균 계산과 겹치므로 "*" 결합 표기 없이 숫자만 쓴다.
+                // 설계/실측 폭 칸에 "400*400"처럼 폭*춤을 한번에 적어도, 폭/춤을 따로 나눠 적어도 인식된다.
                 const finishState = (cat === '실측') ? (document.getElementById('ndtFinishState')?.value || '') : '';
                 const designParsed = (cat === '실측')
                     ? parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value)
                     : { w: null, d: null };
+                const measuredParsed = (cat === '실측')
+                    ? parseNdtDimensionPair(document.getElementById('ndtMeasuredWidth')?.value, document.getElementById('ndtMeasuredDepth')?.value)
+                    : { w: null, d: null };
                 const designWidth = designParsed.w;
                 const designDepth = designParsed.d;
-                const measuredWidthRaw = (cat === '실측') ? parseFloat((avg || '').replace(/[^0-9.-]/g, '')) : NaN;
-                const measuredDepthRaw = (cat === '실측') ? parseFloat((document.getElementById('ndtMeasuredDepth')?.value || '').replace(/[^0-9.-]/g, '')) : NaN;
-                const measuredWidth = isNaN(measuredWidthRaw) ? null : measuredWidthRaw;
-                const measuredDepth = isNaN(measuredDepthRaw) ? null : measuredDepthRaw;
+                const measuredWidth = measuredParsed.w;
+                const measuredDepth = measuredParsed.d;
+                // 실측 항목의 avgValue(하위호환용 요약 표시 필드)는 이제 실측 폭 칸 값을 그대로 담는다.
+                if (cat === '실측' && measuredWidth !== null) avg = String(measuredWidth);
                 let sectionRatio = null;
                 let sectionGrade = null;
                 if (cat === '실측') {
@@ -4828,8 +4843,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 } : { carbDepth: null, carbCover: null, carbAgeDays: null, carbRemainMm: null, carbRate: null, carbLifeYears: null, carbRemainingLifeYears: null };
 
                 const measureExtra = (cat === '실측')
-                    ? { finishState, designWidth, designDepth, measuredDepth, sectionRatio, sectionGrade }
-                    : { finishState: null, designWidth: null, designDepth: null, measuredDepth: null, sectionRatio: null, sectionGrade: null };
+                    ? { finishState, designWidth, designDepth, measuredWidth, measuredDepth, sectionRatio, sectionGrade }
+                    : { finishState: null, designWidth: null, designDepth: null, measuredWidth: null, measuredDepth: null, sectionRatio: null, sectionGrade: null };
 
                 if (pinId) {
                     const idx = state.ndtData[key].findIndex(x => x.id === pinId);

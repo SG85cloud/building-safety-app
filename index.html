@@ -1152,11 +1152,15 @@
                     </div>
                 </div>
 
-                <!-- 부재 실측: 마감상태 + 실측 춤(2번째 치수, 선택) — 실측치 바로 옆에 배치 -->
+                <!-- 부재 실측: 마감상태 + 실측 폭/춤 — 설계치수와 동일한 구조로, 실측치 바로 옆에 배치 -->
                 <div class="form-row" id="groupNdtMeasuredDepth" style="display:none; gap: 0.8rem;">
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label">🏁 마감상태 *</label>
                         <select id="ndtFinishState" class="form-select"></select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">📐 실측 폭/치수 (mm) *</label>
+                        <input type="text" inputmode="decimal" id="ndtMeasuredWidth" class="form-control" placeholder="예: 396 또는 396*598">
                     </div>
                     <div class="form-group" style="flex: 1;">
                         <label class="form-label">📐 실측 춤 (mm, 단일치수 부재는 비워두세요)</label>
@@ -1165,7 +1169,7 @@
                 </div>
 
                 <div class="form-row" style="display: flex; gap: 0.8rem;">
-                    <div class="form-group" style="flex: 1;">
+                    <div class="form-group" id="groupNdtAvgValue" style="flex: 1;">
                         <label class="form-label" id="lblNdtAvgTitle">⚡ 변위량 / 종합 결과값</label>
                         <input type="text" id="ndtAvgValue" class="form-control" placeholder="자동 계산 또는 직접 입력 (예: 3.2mm)" style="font-weight: 800; color: #4ade80;">
                     </div>
