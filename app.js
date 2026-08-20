@@ -1,397 +1,8 @@
 /* ==========================================================================
-   스마트 건축물 안전점검 현장점검 시스템 (Clean Architecture Engine v60.0)
+   스마트 건축물 안전점검 현장점검 시스템 — UI 부트스트랩
+   전역 상태·IndexedDB·이미지 헬퍼: js/core/state.js
+   탭 진입점: js/tabs/*.js
    ========================================================================== */
-
-// --- 1. GLOBAL UNIFIED STATE ENGINE ---
-if (!window.state) {
-    window.state = {
-        buildings: [],
-        currentBuilding: null,
-        currentBuildingId: null,
-        currentTab: 'tab-home',
-        currentFloor: '1F',
-        defects: {}, // { 'bldg-id_1F': [ ...defects ] }
-        grids: {},   // { 'bldg-id_1F': { enabled: true, xPrefix: 'X', xCount: 6, yPrefix: 'Y', yCount: 4, xStart: 0.08, xEnd: 0.92, yStart: 0.08, yEnd: 0.92 } } (구버전 백업 호환용, 더 이상 사용 안 함)
-        view: { offsetX: 0, offsetY: 0, scale: 1.0 },
-        mode: 'PAN', // 'PAN' | 'MARK'
-        rotationAngle: 0,
-        tipShape: 'arrow',  // 'arrow' | 'circle'
-        styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
-        styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
-        styleShapes: null, // 카테고리별 사용자 지정 박스 모양/채우기/번호형식 (미지정 시 DEFAULT_STYLE_SHAPES 사용)
-        surveyColumns: null, // 상태조사표 컬럼 순서/이름 커스터마이징 (미지정 시 DEFAULT_SURVEY_COLUMNS 사용)
-        surveyColumnsGrade3: null, // 제3종시설물용 상태조사표 컬럼 커스터마이징 (미지정 시 GRADE3_SURVEY_COLUMNS 사용)
-        locationMapLegend: null, // 결함위치도 범례 항목 커스터마이징 (미지정 시 스타일 설정 색상 기반 기본 범례 사용)
-        locationMapLegendBox: null, // 결함위치도 범례 박스 위치/크기 커스터마이징 {x, y, scale} - x/y는 결함 핀과 동일한 도면 원본 픽셀 좌표(미지정 시 좌하단 기본 위치·크기 사용)
-        defectSizeMode: 'combined', // 'combined' | 'split' - 결함크기(균열폭/균열길이) 표시 방식
-        bgImage: null,
-        canvas: null,
-        ctx: null,
-        floorSnapshots: {},
-        // --- Auth / Company (승인제 로그인) ---
-        uid: null,
-        userName: null,
-        companyId: null,
-        companyName: null,
-        companyJoinCode: null,
-        role: null // 'admin' | 'member' | 'pending' | null
-    };
-}
-window.appState = window.state;
-
-// --- 1B. LOCAL IMAGE STORE (IndexedDB) ---
-// localStorage는 브라우저당 보통 5~10MB로 용량이 작아서, 도면 사진·결함 사진(base64)을
-// 계속 쌓다 보면 압축을 해도 금방 꽉 찬다 ("저장 공간이 가득 찼습니다" 에러의 원인).
-// IndexedDB는 보통 수백MB~수GB까지 쓸 수 있으므로, 무거운 이미지 데이터는 여기로 옮기고
-// localStorage에는 가벼운 텍스트 데이터만 남긴다.
-const LOCAL_IMAGE_DB_NAME = 'building_safety_local_images';
-const LOCAL_IMAGE_DB_VERSION = 1;
-let _localImageDbPromise = null;
-
-function openLocalImageDb() {
-    if (_localImageDbPromise) return _localImageDbPromise;
-    _localImageDbPromise = new Promise((resolve, reject) => {
-        if (!window.indexedDB) { reject(new Error('이 브라우저는 IndexedDB를 지원하지 않습니다.')); return; }
-        const req = indexedDB.open(LOCAL_IMAGE_DB_NAME, LOCAL_IMAGE_DB_VERSION);
-        req.onupgradeneeded = () => {
-            const db = req.result;
-            if (!db.objectStoreNames.contains('floorDrawings')) db.createObjectStore('floorDrawings');
-            if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
-        };
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-    });
-    return _localImageDbPromise;
-}
-
-async function idbSet(storeName, key, value) {
-    try {
-        const db = await openLocalImageDb();
-        return await new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, 'readwrite');
-            tx.objectStore(storeName).put(value, key);
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error);
-        });
-    } catch (e) {
-        console.warn(`IndexedDB 저장 실패 (${storeName}/${key}):`, e);
-        return false;
-    }
-}
-
-async function idbGet(storeName, key) {
-    try {
-        const db = await openLocalImageDb();
-        return await new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, 'readonly');
-            const req = tx.objectStore(storeName).get(key);
-            req.onsuccess = () => resolve(req.result || null);
-            req.onerror = () => reject(req.error);
-        });
-    } catch (e) {
-        console.warn(`IndexedDB 조회 실패 (${storeName}/${key}):`, e);
-        return null;
-    }
-}
-
-async function idbDelete(storeName, key) {
-    try {
-        const db = await openLocalImageDb();
-        return await new Promise((resolve, reject) => {
-            const tx = db.transaction(storeName, 'readwrite');
-            tx.objectStore(storeName).delete(key);
-            tx.oncomplete = () => resolve(true);
-            tx.onerror = () => reject(tx.error);
-        });
-    } catch (e) {
-        console.warn(`IndexedDB 삭제 실패 (${storeName}/${key}):`, e);
-        return false;
-    }
-}
-
-// --- 2. IMAGE COMPRESSION & FLOOR PARSER HELPERS ---
-
-// 사용자/외부 파일에서 온 문자열을 innerHTML에 넣기 전에 이스케이프 (HTML 인젝션 방지)
-function escapeHtml(str) {
-    if (str === undefined || str === null) return '';
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-// pdf.js 워커 경로 설정 (CDN 스크립트가 로드된 경우에만)
-if (typeof pdfjsLib !== 'undefined') {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-}
-
-function isPdfFile(file) {
-    return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
-}
-
-// PDF 페이지를 지정 스케일로 캔버스에 렌더링 후 PNG dataURL로 변환
-async function renderPdfPageToDataUrl(page, scale) {
-    const viewport = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(viewport.width));
-    canvas.height = Math.max(1, Math.round(viewport.height));
-    const ctx = canvas.getContext('2d');
-    // PDF는 배경이 투명할 수 있어, 흰 배경을 먼저 채워 검게 나오는 것을 방지
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport }).promise;
-    return canvas.toDataURL('image/png');
-}
-
-/**
- * 캐드(CAD)에서 내보낸 PDF 도면을 pdf.js로 첫 페이지 고해상도 렌더링 (벡터 원본 기반이라 글씨/선이 뭉개지지 않음)
- * Firestore 문서 용량(1MB) 여유를 위해 결과가 너무 크면 스케일을 낮춰 재시도
- */
-window.renderPdfFileToImage = function(file, targetLongSide = 4200, maxDataUrlBytes = 950000) {
-    return new Promise((resolve, reject) => {
-        if (typeof pdfjsLib === 'undefined') {
-            reject(new Error('PDF 렌더링 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'));
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-            try {
-                const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(e.target.result) }).promise;
-                const page = await pdf.getPage(1);
-                const baseViewport = page.getViewport({ scale: 1 });
-                let scale = targetLongSide / Math.max(baseViewport.width, baseViewport.height);
-                scale = Math.min(Math.max(scale, 1), 8); // 너무 작은 PDF는 과도확대, 너무 큰 PDF는 과도축소 방지
-
-                let dataUrl = await renderPdfPageToDataUrl(page, scale);
-                let attempts = 0;
-                while (dataUrl && dataUrl.length > maxDataUrlBytes && attempts < 4) {
-                    scale *= 0.75;
-                    dataUrl = await renderPdfPageToDataUrl(page, scale);
-                    attempts++;
-                }
-                resolve(dataUrl);
-            } catch (err) {
-                reject(err);
-            }
-        };
-        reader.onerror = () => reject(new Error('PDF 파일을 읽는 중 오류가 발생했습니다.'));
-        reader.readAsArrayBuffer(file);
-    });
-};
-
-/**
- * HTML5 Canvas Image Compressor
- * Reduces 4K/8K drawing photos (5~20MB) to lightweight JPEG (~150KB)
- * PDF 파일이 들어오면 pdf.js로 고해상도 렌더링 (renderPdfFileToImage) 후 PNG로 반환
- */
-window.compressDrawingImage = function(file, maxDim = 2200, quality = 0.88) {
-    return new Promise((resolve) => {
-        if (!file || !(file instanceof Blob)) {
-            return resolve(null);
-        }
-        if (isPdfFile(file)) {
-            window.renderPdfFileToImage(file)
-                .then(resolve)
-                .catch((err) => {
-                    console.error('PDF 도면 렌더링 오류:', err);
-                    if (typeof window.showToast === 'function') {
-                        window.showToast(`'${file.name}' PDF 렌더링에 실패했습니다: ${err.message}`, 'error', 5000);
-                    }
-                    resolve(null);
-                });
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                let w = img.width;
-                let h = img.height;
-                if (w > maxDim || h > maxDim) {
-                    if (w > h) {
-                        h = Math.round((h * maxDim) / w);
-                        w = maxDim;
-                    } else {
-                        w = Math.round((w * maxDim) / h);
-                        h = maxDim;
-                    }
-                }
-                const canvas = document.createElement('canvas');
-                canvas.width = w;
-                canvas.height = h;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, w, h);
-                resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.onerror = () => resolve(e.target.result);
-            img.src = e.target.result;
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-    });
-};
-
-/**
- * Defect Photo Compressor with 4:3 Aspect Ratio Crop
- * Crops and resizes defect photos to 4:3 ratio (1000x750) without distortion
- */
-window.compressDefectPhoto43 = function(file, targetW = 1000, quality = 0.85) {
-    return new Promise((resolve) => {
-        if (!file || !(file instanceof Blob)) {
-            return resolve(null);
-        }
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-                const imgW = img.width;
-                const imgH = img.height;
-                const targetH = Math.round((targetW * 3) / 4); // 1000 x 750 (4:3)
-
-                let cropX = 0;
-                let cropY = 0;
-                let cropW = imgW;
-                let cropH = imgH;
-
-                if (imgW / imgH > 4 / 3) {
-                    cropW = Math.round(imgH * (4 / 3));
-                    cropX = Math.round((imgW - cropW) / 2);
-                } else {
-                    cropH = Math.round(imgW * (3 / 4));
-                    cropY = Math.round((imgH - cropH) / 2);
-                }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = targetW;
-                canvas.height = targetH;
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
-                resolve(canvas.toDataURL('image/jpeg', quality));
-            };
-            img.onerror = () => resolve(e.target.result);
-            img.src = e.target.result;
-        };
-        reader.onerror = () => resolve(null);
-        reader.readAsDataURL(file);
-    });
-};
-
-// 건축물 외부는 보통 동서남북 4장의 입면도로 나뉘므로, 파일명에 방향이 있으면
-// 하나의 "건축물 외부"가 아니라 방향별로 별도 층(EXT_N/EXT_E/EXT_S/EXT_W)으로 인식한다.
-// getFloorLabelFromCode/getFloorRankFromCode/parseFloorInfoFromFilename이 공통으로 사용.
-window.EXT_DIRECTION_DEFS = [
-    { code: 'EXT_N', label: '건축물 외부-북측 (EXT_N)', strongKeys: ['북측', '북면', '북쪽', 'NORTH'], soloChar: '북' },
-    { code: 'EXT_E', label: '건축물 외부-동측 (EXT_E)', strongKeys: ['동측', '동면', '동쪽', 'EAST'], soloChar: '동' },
-    { code: 'EXT_S', label: '건축물 외부-남측 (EXT_S)', strongKeys: ['남측', '남면', '남쪽', 'SOUTH'], soloChar: '남' },
-    { code: 'EXT_W', label: '건축물 외부-서측 (EXT_W)', strongKeys: ['서측', '서면', '서쪽', 'WEST'], soloChar: '서' }
-];
-
-/**
- * Intelligent Floor Parser from File Names (e.g. B2.jpg -> 지하 2층)
- */
-window.parseFloorInfoFromFilename = function(fileName) {
-    const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
-    const cleanName = nameWithoutExt.toUpperCase();
-
-    // 옥상~옥탑(지붕)까지는 별도 층으로 나누지 않고 한 층("옥상/옥탑")으로 합쳐서 관리
-    if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('옥탑') || cleanName.includes('PH')) {
-        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상/옥탑 층 (ROOF)', matched: true };
-    }
-
-    if (cleanName.includes('외부') || cleanName.includes('외벽') || cleanName.includes('파사드') || cleanName.includes('입면') || cleanName.includes('FACADE') || cleanName.includes('ELEVATION') || cleanName.includes('EXTERIOR')) {
-        // 방향이 뚜렷하게 적혀있으면(북측/NORTH 등) 그 방향 전용 층으로
-        for (let i = 0; i < window.EXT_DIRECTION_DEFS.length; i++) {
-            const d = window.EXT_DIRECTION_DEFS[i];
-            if (d.strongKeys.some(k => cleanName.includes(k))) {
-                return { rank: 1001 + i, floorCode: d.code, floorLabel: d.label, matched: true };
-            }
-        }
-        // "외부_북.jpg"처럼 방위 한 글자만 있는 경우도 보조로 인식
-        for (let i = 0; i < window.EXT_DIRECTION_DEFS.length; i++) {
-            const d = window.EXT_DIRECTION_DEFS[i];
-            if (cleanName.includes(d.soloChar)) {
-                return { rank: 1001 + i, floorCode: d.code, floorLabel: d.label, matched: true };
-            }
-        }
-        // 방향 표시가 없으면 통합 "건축물 외부" 한 층으로
-        return { rank: 1000, floorCode: 'EXT', floorLabel: '건축물 외부 (EXT)', matched: true };
-    }
-
-    const bMatch = cleanName.match(/(?:B|지하)\s*([0-9]{1,2})(?![0-9])/i);
-    if (bMatch) {
-        const num = parseInt(bMatch[1], 10);
-        if (num > 0 && num <= 99) {
-            return { rank: -num, floorCode: `B${num}F`, floorLabel: `지하 ${num}층 (B${num}F)`, matched: true };
-        }
-    }
-
-    // F/층/지상 접두·접미가 붙은 명확한 패턴만 "신뢰 가능한 인식"으로 처리
-    const strongFMatch = cleanName.match(/(?:F|층|지상)\s*([0-9]{1,2})(?![0-9])/i) ||
-                          cleanName.match(/([0-9]{1,2})\s*(?:F|층)(?![0-9])/i);
-    if (strongFMatch) {
-        const num = parseInt(strongFMatch[1], 10);
-        if (num > 0 && num <= 99) {
-            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)`, matched: true };
-        }
-    }
-
-    // 마지막 수단: 파일명 속 숫자를 추정치로만 사용 (카메라 자동 생성 파일명 등은 신뢰도 낮음 -> matched:false 로 표시)
-    const looseMatch = cleanName.match(/(?<![0-9])([0-9]{1,2})(?![0-9])/);
-    if (looseMatch) {
-        const num = parseInt(looseMatch[1], 10);
-        if (num > 0 && num <= 99) {
-            return { rank: num, floorCode: `${num}F`, floorLabel: `지상 ${num}층 (${num}F)`, matched: false };
-        }
-    }
-
-    return { rank: 1, floorCode: '1F', floorLabel: '지상 1층 (1F)', matched: false };
-};
-
-// 층 코드 수동 선택용 옵션 목록 (지하10층 ~ 지상30층 + 옥상/옥탑 + 건축물 외부)
-window.FLOOR_CODE_OPTION_LIST = (function() {
-    const list = [];
-    for (let i = 10; i >= 1; i--) list.push(`B${i}F`);
-    for (let i = 1; i <= 30; i++) list.push(`${i}F`);
-    list.push('ROOF');
-    list.push('EXT');
-    window.EXT_DIRECTION_DEFS.forEach(d => list.push(d.code));
-    return list;
-})();
-
-window.getFloorRankFromCode = function(code) {
-    if (!code) return 0;
-    const c = String(code).toUpperCase().trim();
-    if (c.includes('EXT') || c.includes('외부')) return 10000;
-    if (c.includes('ROOF') || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return 9999;
-    const bMatch = c.match(/B\s*([0-9]+)/);
-    if (bMatch) return -parseInt(bMatch[1], 10);
-    const fMatch = c.match(/([0-9]+)\s*F/);
-    if (fMatch) return parseInt(fMatch[1], 10);
-    const numMatch = c.match(/([0-9]+)/);
-    if (numMatch) return parseInt(numMatch[1], 10);
-    return 0;
-};
-
-window.buildFloorCodeOptionsHtml = function(selectedCode) {
-    // 선택된 층이 정해진 목록(B10F~30F, ROOF, EXT)에 없는 사용자 직접입력 값이면,
-    // 그 값도 목록에 끼워넣어 계속 선택된 상태로 보이게 한다 (필로티/기계실/중2층 등 자유 이름)
-    const isCustomSelected = selectedCode && !window.FLOOR_CODE_OPTION_LIST.includes(selectedCode);
-    let html = window.FLOOR_CODE_OPTION_LIST.map(code => {
-        const label = (typeof window.getFloorLabelFromCode === 'function') ? window.getFloorLabelFromCode(code) : code;
-        const sel = code === selectedCode ? 'selected' : '';
-        return `<option value="${code}" ${sel}>${label}</option>`;
-    }).join('');
-    if (isCustomSelected) {
-        html += `<option value="${selectedCode}" selected>✏️ ${selectedCode} (직접 입력함)</option>`;
-    }
-    html += `<option value="__CUSTOM_FLOOR__">➕ [층 이름 직접 입력...]</option>`;
-    return html;
-};
-
-window.selectedUploadedDrawings = [];
-window.selectedEditUploadedDrawings = [];
 
 // --- 3. DOM CONTENT LOADED MAIN MODULE ---
 document.addEventListener('DOMContentLoaded', () => {
@@ -627,6 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 hiddenDefectCauses: window.state.hiddenDefectCauses || {},
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
+                defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
                 styleShapes: window.state.styleShapes || null,
                 surveyColumns: window.state.surveyColumns || null,
                 surveyColumnsGrade3: window.state.surveyColumnsGrade3 || null,
@@ -724,6 +336,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (parsed.styleSizes) {
                     window.state.styleSizes = parsed.styleSizes;
                 }
+                if (parsed.defectLeaderLineScale !== undefined) {
+                    window.state.defectLeaderLineScale = parsed.defectLeaderLineScale;
+                }
                 if (parsed.styleShapes) {
                     window.state.styleShapes = parsed.styleShapes;
                 }
@@ -807,7 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- 5. TAB MANAGER ---
+    // --- 5. TAB MANAGER (진입 로직은 js/tabs/*.js) ---
     window.switchTab = function(targetTabId = 'tab-home') {
         window.state.currentTab = targetTabId;
 
@@ -826,33 +441,13 @@ document.addEventListener('DOMContentLoaded', () => {
             else btn.classList.remove('active');
         });
 
-        if (targetTabId === 'tab-home') {
-            if (elements.headerSelectorGroup) elements.headerSelectorGroup.style.display = 'none';
-            if (elements.headerReportActions) elements.headerReportActions.style.display = 'none';
-            if (elements.navBuildingTabs) elements.navBuildingTabs.style.display = 'none';
-            if (elements.appTitle) elements.appTitle.style.display = 'none';
-
+        if (window.BSA && typeof window.BSA.applyTabChrome === 'function') {
+            window.BSA.applyTabChrome(targetTabId);
+        }
+        if (window.BSA && typeof window.BSA.enterTab === 'function') {
+            window.BSA.enterTab(targetTabId);
+        } else if (targetTabId === 'tab-home' && typeof window.renderDashboard === 'function') {
             window.renderDashboard();
-        } else {
-            if (elements.headerSelectorGroup) elements.headerSelectorGroup.style.display = 'flex';
-            if (elements.headerReportActions) elements.headerReportActions.style.display = 'flex';
-            if (elements.navBuildingTabs) elements.navBuildingTabs.style.display = 'flex';
-            if (elements.appTitle) elements.appTitle.style.display = 'inline-flex';
-
-            if (targetTabId === 'tab-map') {
-                setTimeout(() => {
-                    resizeCanvas();
-                    fitToScreen();
-                    drawCanvas();
-                }, 50);
-            } else if (targetTabId === 'tab-survey') {
-                renderSurveyTable();
-            } else if (targetTabId === 'tab-ndt') {
-                setTimeout(() => {
-                    if (typeof setupNdtCanvas === 'function') setupNdtCanvas();
-                    if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
-                }, 50);
-            }
         }
     };
 
@@ -1839,6 +1434,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // 마우스(또는 터치) 위치를 기준으로 확대/축소 — 좌상단 고정 줌 방지
+    function applyFocalZoom(view, focalX, focalY, zoomFactor, minScale = 0.3, maxScale = 4.0) {
+        const oldScale = view.scale;
+        const newScale = Math.min(Math.max(minScale, oldScale * zoomFactor), maxScale);
+        if (Math.abs(newScale - oldScale) < 1e-6) return newScale;
+
+        const imgX = (focalX - view.offsetX) / oldScale;
+        const imgY = (focalY - view.offsetY) / oldScale;
+        view.scale = newScale;
+        view.offsetX = focalX - imgX * newScale;
+        view.offsetY = focalY - imgY * newScale;
+        return newScale;
+    }
+
     function loadFloorDrawing(floorCode) {
         state.currentFloor = floorCode;
         state.bgImage = null;
@@ -2072,8 +1681,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // 범례도 결함 핀처럼 도면 좌표계 안에서 그려서 팬/줌/회전 시 도면에 붙어서 같이 움직이게 한다.
         if (typeof drawLocationMapLegend === 'function') drawLocationMapLegend(ctx, imgW, imgH, true);
 
-        // Draw Live Marking Drag Preview
-        if (isMarkingDrag) {
+        // Draw Live Marking Drag Preview (마우스/터치를 뗄 때까지 화살표 끝점은 미리보기만)
+        if (isMarkingDrag && markingHasMoved) {
             const nextSeq = (currentDefects.length + 1);
             const nextSeqStr = nextSeq < 10 ? `0${nextSeq}` : `${nextSeq}`;
             const liveNoStr = `NO.${nextSeqStr}`;
@@ -2082,8 +1691,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 category: document.getElementById('defectCategory')?.value || '구조체',
                 x: liveBoxImgX,
                 y: liveBoxImgY,
-                targetX: markTargetImgX,
-                targetY: markTargetImgY
+                targetX: markPreviewTargetX,
+                targetY: markPreviewTargetY
             });
         }
 
@@ -2210,24 +1819,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 카테고리별 핀/박스 색상 커스터마이징 ---
     const DEFAULT_STYLE_COLORS = {
-        defectStructural: '#ef4444',    // 결함위치도 - 구조체
-        defectNonStructural: '#3b82f6', // 결함위치도 - 비구조체
-        defectFinish: '#f97316',        // 결함위치도 - 마감재
-        defectStructuralGood: '#22c55e',    // 결함위치도 - 구조체 상태양호
-        defectNonStructuralGood: '#22c55e', // 결함위치도 - 비구조체 상태양호
-        defectFinishGood: '#22c55e',        // 결함위치도 - 마감재 상태양호
-        defectBad: '#ef4444',           // 결함위치도(1,2종) - 결함(카테고리 무관)
-        defectGood: '#3b82f6',          // 결함위치도(1,2종) - 상태양호
-        defectNewGrade3: '#3b82f6',     // 결함위치도(3종) - 신규결함
-        defectExistingGrade3: '#ef4444', // 결함위치도(3종) - 기존결함(전회차)
+        defectStructural: '#b30000',    // 결함위치도 - 구조체 (진한 빨강)
+        defectNonStructural: '#0040c0', // 결함위치도 - 비구조체 (진한 파랑)
+        defectFinish: '#c2410c',        // 결함위치도 - 마감재 (진한 주황)
+        defectStructuralGood: '#15803d',    // 결함위치도 - 구조체 상태양호
+        defectNonStructuralGood: '#15803d', // 결함위치도 - 비구조체 상태양호
+        defectFinishGood: '#15803d',        // 결함위치도 - 마감재 상태양호
+        defectBad: '#b30000',           // 결함위치도(1,2종) - 결함(카테고리 무관)
+        defectGood: '#0040c0',          // 결함위치도(1,2종) - 상태양호
+        defectNewGrade3: '#0040c0',     // 결함위치도(3종) - 신규결함
+        defectExistingGrade3: '#b30000', // 결함위치도(3종) - 기존결함(전회차)
         defectGoodGrade3: '#000000',    // 결함위치도(3종) - 상태양호
-        priorityManage: '#16a34a',      // 결함위치도 - 중점관리 대상 배지/핀 색상(3종은 핀 본색으로도 사용)
-        ndtMeasure: '#0284c7',          // 부재 실측
-        ndtStrength: '#ef4444',         // 강도
-        ndtCarbonation: '#eab308',      // 탄산화
-        ndtTilt: '#ef4444',             // 기울기
-        ndtSettlement: '#a855f7',       // 부동침하 기울기
-        ndtMemberDisp: '#22c55e'        // 부재변위
+        priorityManage: '#15803d',      // 결함위치도 - 중점관리
+        ndtMeasure: '#0369a1',          // 부재 실측
+        ndtStrength: '#b30000',         // 강도
+        ndtCarbonation: '#ca8a04',      // 탄산화
+        ndtTilt: '#b30000',             // 기울기
+        ndtSettlement: '#7e22ce',       // 부동침하 기울기
+        ndtMemberDisp: '#15803d'        // 부재변위
     };
 
     function getStyleColor(key) {
@@ -2316,6 +1925,190 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             ctx.rect(-w / 2, -h / 2, w, h);
         }
+    }
+
+    // 핀 박스: fill=false면 투명 내부+색상 테두리, fill=true면 기존 채우기 방식
+    function paintPinBox(ctx, w, h, shapeCfg, activeColor, scale, roundLineMul, isBeingDragged) {
+        const borderColor = isBeingDragged ? '#facc15' : activeColor;
+        const cornerR = Math.min(3 * scale, w / 4, h / 4);
+        traceStyledBoxPath(ctx, w, h, shapeCfg.shape, cornerR);
+        if (shapeCfg.fill) {
+            ctx.fillStyle = borderColor;
+            ctx.fill();
+        }
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged);
+        ctx.stroke();
+    }
+
+    function getPinBoxTextColor(activeColor, shapeCfg, isBeingDragged) {
+        if (isBeingDragged) return activeColor;
+        return shapeCfg.fill ? '#ffffff' : activeColor;
+    }
+
+    // 결함 핀 번호 박스 — 글자 실측 기준, 테두리가 글자에 거의 닿도록 최소 여백
+    const PIN_BOX_PAD_X = 1.5;
+    const PIN_BOX_PAD_Y = 0.75;
+    const PIN_BOX_MIN_W = 12;
+    const PIN_BOX_MIN_H = 10;
+
+    function getPinBoxFontSize(scale) {
+        return Math.max(9, Math.round(11 * scale));
+    }
+
+    function getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged) {
+        return (isBeingDragged ? 1.5 : 1.1) * (scale || 1) * (roundLineMul || 1);
+    }
+
+    function getDefectLeaderLineWidth(scale, roundLineMul, isBeingDragged) {
+        const factor = Math.min(Math.max(parseFloat(state.defectLeaderLineScale || 1), 0.5), 3.0);
+        return getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged) * factor;
+    }
+
+    function measurePinBoxDimensions(ctx, labelText, scale, roundLineMul) {
+        const fontSize = getPinBoxFontSize(scale);
+        const text = String(labelText || 'NO.01');
+        const borderW = getPinBoxBorderWidth(scale, roundLineMul, false);
+        let textWidth = text.length * fontSize * 0.58;
+        if (ctx) {
+            ctx.save();
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            textWidth = ctx.measureText(text).width;
+            ctx.restore();
+        }
+        const padX = PIN_BOX_PAD_X * scale + borderW * 0.5;
+        const padY = PIN_BOX_PAD_Y * scale + borderW * 0.5;
+        return {
+            w: Math.max(PIN_BOX_MIN_W * scale, textWidth + padX * 2),
+            h: Math.max(PIN_BOX_MIN_H * scale, fontSize + padY * 2),
+            fontSize
+        };
+    }
+
+    function getPinBoxDimensions(scale, labelText, ctx) {
+        const measureCtx = ctx || state.ctx || null;
+        return measurePinBoxDimensions(measureCtx, labelText || 'NO.01', scale || 1, 1);
+    }
+
+    // 마킹(화살표 끝) 바로 위에 번호 박스 중심 배치 — 박스 하단과 마킹 사이 간격 = 글자 크기
+    function computePinBoxAboveTarget(targetX, targetY, labelText, scale, ctx, roundLineMul) {
+        const dims = measurePinBoxDimensions(ctx, labelText, scale || 1, roundLineMul || 1);
+        const gap = dims.fontSize;
+        return {
+            boxX: targetX,
+            boxY: targetY - gap - dims.h / 2,
+            w: dims.w,
+            h: dims.h,
+            fontSize: dims.fontSize
+        };
+    }
+
+    // 지시선이 ref 지점과 가장 가까운 박스 **모서리**에서 시작
+    function getPinLeaderBoxAnchorFromPoint(boxX, boxY, refX, refY, boxW, boxH, rotationDeg) {
+        const hw = boxW / 2;
+        const hh = boxH / 2;
+        const rad = ((rotationDeg || 0) * Math.PI) / 180;
+        const dx = refX - boxX;
+        const dy = refY - boxY;
+        if (Math.hypot(dx, dy) < 1e-6) return { x: boxX, y: boxY };
+
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const lx = dx * cos - dy * sin;
+        const ly = dx * sin + dy * cos;
+
+        const corners = [
+            { x: -hw, y: -hh },
+            { x: hw, y: -hh },
+            { x: hw, y: hh },
+            { x: -hw, y: hh }
+        ];
+
+        let best = corners[0];
+        let bestDist = Infinity;
+        corners.forEach(c => {
+            const d = Math.hypot(lx - c.x, ly - c.y);
+            if (d < bestDist) {
+                bestDist = d;
+                best = c;
+            }
+        });
+
+        return {
+            x: boxX + best.x * cos + best.y * sin,
+            y: boxY - best.x * sin + best.y * cos
+        };
+    }
+
+    function getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, boxW, boxH, rotationDeg) {
+        return getPinLeaderBoxAnchorFromPoint(boxX, boxY, targetX, targetY, boxW, boxH, rotationDeg);
+    }
+
+    function getArrowOctantUnitVector(octant) {
+        const o = ((parseInt(octant, 10) % 8) + 8) % 8;
+        const rad = (o * Math.PI) / 4;
+        return { x: Math.cos(rad), y: Math.sin(rad), octant: o };
+    }
+
+    function resolveForcedArrowDirection(arrowItem, defect) {
+        const forceFlag = (arrowItem && arrowItem.forceArrowDir !== undefined)
+            ? !!arrowItem.forceArrowDir
+            : !!(defect && defect.forceArrowDir);
+        const octantRaw = (arrowItem && arrowItem.arrowOctant !== undefined)
+            ? arrowItem.arrowOctant
+            : (defect && defect.arrowOctant !== undefined ? defect.arrowOctant : 0);
+        const unit = getArrowOctantUnitVector(octantRaw);
+        return { enabled: forceFlag, octant: unit.octant, ux: unit.x, uy: unit.y };
+    }
+
+    function compactRoutePoints(points) {
+        if (!points || !points.length) return [];
+        const out = [points[0]];
+        for (let i = 1; i < points.length; i++) {
+            const prev = out[out.length - 1];
+            const cur = points[i];
+            if (Math.hypot(cur.x - prev.x, cur.y - prev.y) > 0.5) out.push(cur);
+        }
+        return out;
+    }
+
+    function getArrowStemEndPoint(targetX, targetY, dirX, dirY, headLen) {
+        const len = Math.hypot(dirX, dirY);
+        if (len < 1e-6) return { x: targetX, y: targetY };
+        return {
+            x: targetX - (dirX / len) * headLen,
+            y: targetY - (dirY / len) * headLen
+        };
+    }
+
+    function buildForcedLeaderRoute(target, boxX, boxY, boxW, boxH, pinScale, arrowScale, octant, stemInset, headLen, rotationDeg) {
+        const unit = getArrowOctantUnitVector(octant);
+        const pullBack = Math.max(3 * (arrowScale || 1), headLen * 0.45);
+        const stemEnd = getArrowStemEndPoint(target.x, target.y, unit.x, unit.y, stemInset);
+        const tail = {
+            x: stemEnd.x - unit.x * pullBack,
+            y: stemEnd.y - unit.y * pullBack
+        };
+        const dotToBox = (boxX - target.x) * unit.x + (boxY - target.y) * unit.y;
+
+        // 화살표 반대편: tail(튀어나온 선)에서 가장 가까운 박스 모서리로 직결
+        if (dotToBox <= 0) {
+            const anchor = getPinLeaderBoxAnchorFromPoint(boxX, boxY, tail.x, tail.y, boxW, boxH, rotationDeg);
+            return { route: compactRoutePoints([anchor, tail, stemEnd]), ux: unit.x, uy: unit.y };
+        }
+
+        // 화살표 진행 방향 쪽: 90° 꺾임을 항상 네모박스 쪽으로 뺌
+        const detourLen = Math.max(10 * (pinScale || 1), 12 * (arrowScale || 1));
+        const perp = { x: -unit.y, y: unit.x };
+        const toBoxX = boxX - tail.x;
+        const toBoxY = boxY - tail.y;
+        const side = (toBoxX * perp.x + toBoxY * perp.y) >= 0 ? 1 : -1;
+        const bend = {
+            x: tail.x + perp.x * detourLen * side,
+            y: tail.y + perp.y * detourLen * side
+        };
+        const anchor = getPinLeaderBoxAnchorFromPoint(boxX, boxY, bend.x, bend.y, boxW, boxH, rotationDeg);
+        return { route: compactRoutePoints([anchor, bend, tail, stemEnd]), ux: unit.x, uy: unit.y };
     }
 
     // 카테고리 설정에 따라 "NO.01" ↔ "01" 형식으로 번호 라벨 텍스트 변환
@@ -2559,8 +2352,19 @@ document.addEventListener('DOMContentLoaded', () => {
         drawNdtCanvas();
     };
 
-    window.zoomNdtCanvas = function(factor) {
-        ndtView.scale = Math.min(Math.max(0.3, ndtView.scale * factor), 4.0);
+    window.zoomNdtCanvas = function(factor, focalX, focalY) {
+        const canvas = document.getElementById('ndtCanvas');
+        let fx = focalX;
+        let fy = focalY;
+        if (fx == null && canvas) {
+            fx = canvas.width / 2;
+            fy = canvas.height / 2;
+        }
+        if (fx != null && fy != null) {
+            applyFocalZoom(ndtView, fx, fy, factor, 0.3, 4.0);
+        } else {
+            ndtView.scale = Math.min(Math.max(0.3, ndtView.scale * factor), 4.0);
+        }
         const zoomTxt = document.getElementById('ndtZoomScaleText');
         if (zoomTxt) zoomTxt.textContent = `${Math.round(ndtView.scale * 100)}%`;
         drawNdtCanvas();
@@ -3109,6 +2913,19 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas._ndtBound = true;
 
         canvas.addEventListener('mousedown', (e) => {
+            if (e.button === 1) {
+                e.preventDefault();
+                ndtStartMouseX = e.clientX;
+                ndtStartMouseY = e.clientY;
+                ndtInitialOffsetX = ndtView.offsetX;
+                ndtInitialOffsetY = ndtView.offsetY;
+                isNdtDragging = true;
+                isNdtMarkingDrag = false;
+                isNdtDisplacementMarking = false;
+                pendingNdtDispHit = null;
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
             if (e.button !== 0) return;
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
@@ -3297,6 +3114,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 const canvas = document.getElementById('ndtCanvas');
                 if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'grab';
             }
+        });
+
+        canvas.addEventListener('auxclick', (e) => {
+            if (e.button === 1) e.preventDefault();
         });
 
         canvas.addEventListener('touchstart', (e) => {
@@ -3539,8 +3360,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
+            const rect = canvas.getBoundingClientRect();
             const factor = e.deltaY < 0 ? 1.1 : 0.9;
-            window.zoomNdtCanvas(factor);
+            window.zoomNdtCanvas(factor, e.clientX - rect.left, e.clientY - rect.top);
         }, { passive: false });
     }
 
@@ -5814,7 +5636,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
 
         ctx.save();
-        ctx.globalAlpha = 0.15;
+        ctx.globalAlpha = 0.35;
         ctx.fillStyle = activeColor;
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.globalAlpha = 1;
@@ -5843,30 +5665,21 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const areaStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const areaShapeCfg = getStyleShape(areaStyleKey);
-            ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
-            ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
-            const w = 38 * scale;
-            const h = 26 * scale;
+            const areaLabel = formatPinNumberLabel(defect.no || 'NO.01', areaStyleKey);
+            const { w, h } = measurePinBoxDimensions(ctx, areaLabel, scale, roundLineMul);
             ctx.translate(w / 2, -h / 2); // 박스 중심으로 원점 이동(모양 경로가 중심 기준이므로)
-            ctx.fillStyle = isBeingDragged ? '#facc15' : (areaShapeCfg.fill ? activeColor : '#ffffff');
-            ctx.strokeStyle = activeColor;
-            ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale * roundLineMul;
-            traceStyledBoxPath(ctx, w, h, areaShapeCfg.shape, 6 * scale);
-            ctx.fill();
-            ctx.stroke();
-            ctx.fillStyle = isBeingDragged ? '#7c2d12' : (areaShapeCfg.fill ? '#ffffff' : activeColor);
-            ctx.font = `bold ${Math.round(13 * scale)}px sans-serif`;
+            paintPinBox(ctx, w, h, areaShapeCfg, activeColor, scale, roundLineMul, isBeingDragged);
+            ctx.fillStyle = getPinBoxTextColor(activeColor, areaShapeCfg, isBeingDragged);
+            ctx.font = `bold ${getPinBoxFontSize(scale)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(formatPinNumberLabel(defect.no || 'NO.01', areaStyleKey), 0, 0);
+            ctx.fillText(areaLabel, 0, 0);
 
             // 중요 결함(⭐)은 결함위치도(도면)에서만 눈에 띄게 강조 표시. 보고서(forReport)는 그대로 둠.
             if (defect.isBookmark && !forReport) {
                 const starX = w / 2;
                 const starY = -h / 2;
                 ctx.save();
-                ctx.shadowColor = 'rgba(0,0,0,0.4)';
-                ctx.shadowBlur = 3;
                 ctx.beginPath();
                 ctx.arc(starX, starY, 8 * scale, 0, Math.PI * 2);
                 ctx.fillStyle = '#facc15';
@@ -5874,7 +5687,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.lineWidth = 1.5;
                 ctx.fill();
                 ctx.stroke();
-                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#7c2d12';
                 ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
                 ctx.textAlign = 'center';
@@ -5889,8 +5701,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const diaY = -h / 2;
                 const priorityColor = getStyleColor('priorityManage');
                 ctx.save();
-                ctx.shadowColor = 'rgba(0,0,0,0.4)';
-                ctx.shadowBlur = 3;
                 ctx.beginPath();
                 ctx.arc(diaX, diaY, 8 * scale, 0, Math.PI * 2);
                 ctx.fillStyle = priorityColor;
@@ -5898,7 +5708,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.lineWidth = 1.5;
                 ctx.fill();
                 ctx.stroke();
-                ctx.shadowBlur = 0;
                 ctx.fillStyle = '#ffffff';
                 ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
                 ctx.textAlign = 'center';
@@ -5923,7 +5732,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderedGroups.add(defect.groupId);
                     const arrows = groupMembers
                         .filter(m => m.targetX !== undefined && m.targetY !== undefined)
-                        .map(m => ({ targetX: m.targetX, targetY: m.targetY }));
+                        .map(m => ({
+                            targetX: m.targetX,
+                            targetY: m.targetY,
+                            forceArrowDir: !!m.forceArrowDir,
+                            arrowOctant: (m.arrowOctant !== undefined ? m.arrowOctant : 0)
+                        }));
                     drawFn(ctx, defect, arrows);
                     return;
                 }
@@ -5960,19 +5774,50 @@ document.addEventListener('DOMContentLoaded', () => {
             ? arrows
             : (defect.targetX !== undefined && defect.targetY !== undefined ? [{ targetX: defect.targetX, targetY: defect.targetY }] : []);
 
-        // Leader Line & Arrow Tip Rendering (Color matched to Red/Blue/Orange) — 그룹이면 화살표를 여러 개 반복해서 그림
+        const pinLabel = formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', defectStyleKey);
+        const { w, h } = measurePinBoxDimensions(ctx, pinLabel, scale, roundLineMul);
+
+        // Leader Line & Arrow Tip Rendering — 실선, 마킹과 가장 가까운 박스 모서리에서 시작
         targets.forEach(t => {
             if (t.targetX === undefined || t.targetY === undefined) return;
             const targetX = t.targetX;
             const targetY = t.targetY;
+            const anchor = getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, w, h, state.rotationAngle || 0);
+            const headLen = (isBeingDragged ? 13 : 10) * arrowScale;
+            const stemInset = state.tipShape === 'circle'
+                ? (isBeingDragged ? 6 : 4.5) * arrowScale
+                : headLen * Math.cos(Math.PI / 6);
+            const forcedDir = resolveForcedArrowDirection(t, defect);
+            const leader = forcedDir.enabled
+                ? buildForcedLeaderRoute(
+                    { x: targetX, y: targetY },
+                    boxX,
+                    boxY,
+                    w,
+                    h,
+                    scale,
+                    arrowScale,
+                    forcedDir.octant,
+                    stemInset,
+                    headLen,
+                    state.rotationAngle || 0
+                )
+                : (() => {
+                    const ux = targetX - anchor.x;
+                    const uy = targetY - anchor.y;
+                    const tipBack = stemInset;
+                    const stemEnd = getArrowStemEndPoint(targetX, targetY, ux, uy, tipBack);
+                    return { route: [anchor, stemEnd], ux, uy };
+                })();
 
             ctx.save();
             ctx.beginPath();
-            ctx.moveTo(boxX, boxY);
-            ctx.lineTo(targetX, targetY);
+            ctx.moveTo(leader.route[0].x, leader.route[0].y);
+            for (let i = 1; i < leader.route.length; i++) ctx.lineTo(leader.route[i].x, leader.route[i].y);
             ctx.strokeStyle = activeColor;
-            ctx.lineWidth = (isBeingDragged ? 3 : 2) * arrowScale * roundLineMul;
-            ctx.setLineDash([4, 3]);
+            ctx.lineWidth = getDefectLeaderLineWidth(scale, roundLineMul, isBeingDragged);
+            ctx.lineCap = 'butt';
+            ctx.setLineDash([]);
             ctx.stroke();
 
             ctx.fillStyle = activeColor;
@@ -5981,10 +5826,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4.5) * arrowScale, 0, Math.PI * 2);
                 ctx.fill();
             } else {
-                const dx = targetX - boxX;
-                const dy = targetY - boxY;
-                const angle = Math.atan2(dy, dx);
-                const arrowLen = (isBeingDragged ? 13 : 10) * arrowScale;
+                const angle = Math.atan2(leader.uy, leader.ux);
+                const arrowLen = headLen;
 
                 ctx.beginPath();
                 ctx.moveTo(targetX, targetY);
@@ -6009,28 +5852,14 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.rotate((-270 * Math.PI) / 180);
         }
 
-        ctx.shadowColor = isBeingDragged ? '#facc15' : 'rgba(0,0,0,0.6)';
-        ctx.shadowBlur = (isBeingDragged ? 16 : 6) * scale;
+        // fill=false: 투명 내부 + 마킹색 네모 테두리 / fill=true: 기존 채우기
+        paintPinBox(ctx, w, h, shapeCfg, activeColor, scale, roundLineMul, isBeingDragged);
 
-        // 채우기 유무에 따라 배경/글자 색이 뒤바뀜(채우기: 카테고리색 배경+흰글자, 미채우기: 흰 배경+카테고리색 글자)
-        const boxFillColor = (isBeingDragged ? '#facc15' : (shapeCfg.fill ? activeColor : '#ffffff'));
-        const boxTextColor = (isBeingDragged ? '#7c2d12' : (shapeCfg.fill ? '#ffffff' : activeColor));
-        ctx.fillStyle = boxFillColor;
-        ctx.strokeStyle = activeColor;
-        ctx.lineWidth = (isBeingDragged ? 3 : 2) * scale * roundLineMul;
-
-        const w = 38 * scale;
-        const h = 26 * scale;
-
-        traceStyledBoxPath(ctx, w, h, shapeCfg.shape, 6 * scale);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.fillStyle = boxTextColor;
-        ctx.font = `bold ${Math.round(13 * scale)}px sans-serif`;
+        ctx.fillStyle = getPinBoxTextColor(activeColor, shapeCfg, isBeingDragged);
+        ctx.font = `bold ${getPinBoxFontSize(scale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', defectStyleKey), 0, 0);
+        ctx.fillText(pinLabel, 0, 0);
 
         // 중요 결함(⭐)은 결함위치도(도면)에서만 눈에 띄게 강조 표시.
         // 보고서(drawPinSafe)는 일부러 그대로 둬서 다른 결함과 똑같이 나오게 한다.
@@ -6038,8 +5867,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const starX = w / 2;
             const starY = -h / 2;
             ctx.save();
-            ctx.shadowColor = 'rgba(0,0,0,0.4)';
-            ctx.shadowBlur = 3;
             ctx.beginPath();
             ctx.arc(starX, starY, 8 * scale, 0, Math.PI * 2);
             ctx.fillStyle = '#facc15';
@@ -6047,7 +5874,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineWidth = 1.5;
             ctx.fill();
             ctx.stroke();
-            ctx.shadowBlur = 0;
             ctx.fillStyle = '#7c2d12';
             ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
             ctx.textAlign = 'center';
@@ -6062,8 +5888,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const diaY = -h / 2;
             const priorityColor = getStyleColor('priorityManage');
             ctx.save();
-            ctx.shadowColor = 'rgba(0,0,0,0.4)';
-            ctx.shadowBlur = 3;
             ctx.beginPath();
             ctx.arc(diaX, diaY, 8 * scale, 0, Math.PI * 2);
             ctx.fillStyle = priorityColor;
@@ -6071,7 +5895,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.lineWidth = 1.5;
             ctx.fill();
             ctx.stroke();
-            ctx.shadowBlur = 0;
             ctx.fillStyle = '#ffffff';
             ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
             ctx.textAlign = 'center';
@@ -6703,6 +6526,24 @@ document.addEventListener('DOMContentLoaded', () => {
             arrowAllInput.addEventListener('change', () => saveStateToLocalStorage());
         }
 
+        const leaderLineAllInput = document.getElementById('styleLeaderLineScaleAll');
+        const leaderLineAllLabel = document.getElementById('styleLeaderLineScaleAllLabel');
+        const syncLeaderLineUi = () => {
+            const v = Math.min(Math.max(parseFloat(state.defectLeaderLineScale || 1), 0.5), 3.0);
+            if (leaderLineAllInput) leaderLineAllInput.value = v;
+            if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(v * 100)}%`;
+        };
+        syncLeaderLineUi();
+        if (leaderLineAllInput) {
+            leaderLineAllInput.addEventListener('input', () => {
+                const v = Math.min(Math.max(parseFloat(leaderLineAllInput.value || '1'), 0.5), 3.0);
+                state.defectLeaderLineScale = v;
+                if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(v * 100)}%`;
+                refreshAllStyleColoredCanvases();
+            });
+            leaderLineAllInput.addEventListener('change', () => saveStateToLocalStorage());
+        }
+
         STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
             const shapeInput = document.getElementById(`styleShape${suffix}`);
             const fillInput = document.getElementById(`styleFill${suffix}`);
@@ -6865,7 +6706,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function hitTestLegendBox(imgX, imgY) {
         if (!lastLegendBoxBounds) return null;
         const b = lastLegendBoxBounds;
-        const hs = LEGEND_HANDLE_SIZE * (b.scale || 1);
+        const hs = Math.max(LEGEND_HANDLE_SIZE * (b.scale || 1), 20);
         const handleX1 = b.x + b.w - hs;
         const handleY1 = b.y + b.h - hs;
         if (imgX >= handleX1 && imgX <= b.x + b.w && imgY >= handleY1 && imgY <= b.y + b.h) {
@@ -6897,8 +6738,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let markTargetImgX = 0;
     let markTargetImgY = 0;
+    let markPreviewTargetX = 0;
+    let markPreviewTargetY = 0;
+    let markingHasMoved = false;
     let liveBoxImgX = 0;
     let liveBoxImgY = 0;
+
+    function getLiveMarkPinPreviewMeta() {
+        const currentDefects = getCurrentFloorFilteredDefects();
+        const nextSeq = currentDefects.length + 1;
+        const nextSeqStr = nextSeq < 10 ? `0${nextSeq}` : `${nextSeq}`;
+        const label = `NO.${nextSeqStr}`;
+        const defaultCat = document.getElementById('defectCategory')?.value || '구조체';
+        const scale = getStyleSize(getDefectStyleKey(defaultCat, '균열')).pin;
+        return { label, scale };
+    }
+
+    function syncLiveMarkBoxAboveTarget(targetX, targetY) {
+        const { label, scale } = getLiveMarkPinPreviewMeta();
+        const pos = computePinBoxAboveTarget(targetX, targetY, label, scale, state.ctx, 1);
+        liveBoxImgX = pos.boxX;
+        liveBoxImgY = pos.boxY;
+        markPreviewTargetX = targetX;
+        markPreviewTargetY = targetY;
+    }
 
     let startMouseX = 0;
     let startMouseY = 0;
@@ -6978,8 +6841,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 // 번호 라벨 박스는 좌상단 모서리 "바깥쪽"(위)에 그려지므로(drawAreaRect 참고)
                 // 사각형 히트 영역만으로는 라벨을 눌러서 드래그를 시작할 수 없었음 — 라벨 영역도 별도로 포함
-                const labelW = 38 * scale;
-                const labelH = 26 * scale;
+                const labelSize = getPinBoxDimensions(scale, d.no || 'NO.01', state.ctx);
+                const labelW = labelSize.w;
+                const labelH = labelSize.h;
                 const inLabel = imgX >= x1 - pad && imgX <= x1 + labelW + pad && imgY >= y1 - labelH - pad && imgY <= y1 + pad;
 
                 if (inRect || inLabel) {
@@ -6988,27 +6852,46 @@ document.addEventListener('DOMContentLoaded', () => {
                 continue;
             }
 
-            // 1. Check Hit on Arrowhead Tip (targetX, targetY)
-            if (d.targetX !== undefined && d.targetY !== undefined) {
-                const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
-                if (distTip <= 28 * arrowScale) {
-                    return { defect: d, part: 'TIP' };
-                }
-            }
-
-            // 2. Check Hit on Pin Box (x, y)
+            // 1. Check Hit on Pin Box (x, y)
             const bx = d.x || 100;
             const by = d.y || 100;
+            const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
+            const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
+            const hitR = Math.hypot(boxDim.w / 2, boxDim.h / 2) + 3 * scale;
             const distBox = Math.hypot(imgX - bx, imgY - by);
-            if (distBox <= 32 * scale) {
+            if (distBox <= hitR) {
                 return { defect: d, part: 'BOX' };
+            }
+
+            // 2. Check Hit on Arrowhead Tip (targetX, targetY)
+            if (d.targetX !== undefined && d.targetY !== undefined) {
+                const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
+                if (distTip <= 18 * arrowScale) {
+                    return { defect: d, part: 'TIP' };
+                }
             }
         }
         return null;
     }
 
-    function handleDragStart(clientX, clientY, isTouch = false) {
+    function handleDragStart(clientX, clientY, isTouch = false, forcePan = false) {
         if (!elements.planCanvas) return;
+
+        // 중간 클릭(휠 클릭): MARK/AREA 모드에서도 도면 PAN 이동
+        if (forcePan) {
+            startMouseX = clientX;
+            startMouseY = clientY;
+            initialOffsetX = state.view.offsetX;
+            initialOffsetY = state.view.offsetY;
+            isDragging = true;
+            isMarkingDrag = false;
+            markingHasMoved = false;
+            isAreaDrag = false;
+            pendingDragHit = null;
+            if (elements.planCanvas) elements.planCanvas.style.cursor = 'grabbing';
+            return;
+        }
+
         const rect = elements.planCanvas.getBoundingClientRect();
         const mouseX = clientX - rect.left;
         const mouseY = clientY - rect.top;
@@ -7023,7 +6906,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const legendHit = hitTestLegendBox(imgX, imgY);
         if (legendHit === 'handle') {
             isResizingLegend = true;
-            legendResizeStartScale = (state.locationMapLegendBox && state.locationMapLegendBox.scale) || 1;
+            legendResizeStartScale = getLocationMapLegendScale(state.locationMapLegendBox);
             legendResizeStartDist = Math.hypot(imgX - lastLegendBoxBounds.x, imgY - lastLegendBoxBounds.y) || 1;
             elements.planCanvas.style.cursor = 'nwse-resize';
             return;
@@ -7053,11 +6936,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (state.mode === 'MARK') {
             isMarkingDrag = true;
-            markTargetImgX = imgX;
-            markTargetImgY = imgY;
-            liveBoxImgX = markTargetImgX + 35;
-            liveBoxImgY = markTargetImgY - 35;
-            drawCanvas();
+            markingHasMoved = false;
         } else if (state.mode === 'AREA') {
             isAreaDrag = true;
             areaStartImgX = imgX;
@@ -7088,7 +6967,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isResizingLegend) {
                 const dist = Math.hypot(imgX - lastLegendBoxBounds.x, imgY - lastLegendBoxBounds.y);
-                const newScale = Math.min(Math.max(2, legendResizeStartScale * (dist / legendResizeStartDist)), 40);
+                const newScale = clampLegendScale(legendResizeStartScale * (dist / legendResizeStartDist));
                 // 결함 핀과 동일한 도면 원본 픽셀 좌표로 저장 — 앵커(좌상단)는 고정
                 state.locationMapLegendBox.x = lastLegendBoxBounds.x;
                 state.locationMapLegendBox.y = lastLegendBoxBounds.y;
@@ -7170,13 +7049,9 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             drawCanvas();
         } else if (isMarkingDrag) {
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            const vx = (mouseX - state.view.offsetX) / state.view.scale;
-            const vy = (mouseY - state.view.offsetY) / state.view.scale;
-            const coords = viewToImgCoords(vx, vy);
-            liveBoxImgX = coords.x;
-            liveBoxImgY = coords.y;
+            markingHasMoved = true;
+            const coords = clientToImgCoords(clientX, clientY);
+            syncLiveMarkBoxAboveTarget(coords.x, coords.y);
             drawCanvas();
         } else if (isAreaDrag) {
             const mouseX = clientX - rect.left;
@@ -7196,7 +7071,17 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function handleDragEnd() {
+    function clientToImgCoords(clientX, clientY) {
+        if (!elements.planCanvas) return { x: 0, y: 0 };
+        const rect = elements.planCanvas.getBoundingClientRect();
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+        const vx = (mouseX - state.view.offsetX) / state.view.scale;
+        const vy = (mouseY - state.view.offsetY) / state.view.scale;
+        return viewToImgCoords(vx, vy);
+    }
+
+    function handleDragEnd(clientX, clientY) {
         if (isResizingLegend) {
             isResizingLegend = false;
             saveStateToLocalStorage();
@@ -7234,7 +7119,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (isMarkingDrag) {
             isMarkingDrag = false;
+            if (clientX != null && clientY != null) {
+                const coords = clientToImgCoords(clientX, clientY);
+                markTargetImgX = coords.x;
+                markTargetImgY = coords.y;
+                syncLiveMarkBoxAboveTarget(markTargetImgX, markTargetImgY);
+            }
+            markingHasMoved = false;
             openAddDefectModal(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
+            drawCanvas();
         }
 
         if (isAreaDrag) {
@@ -7260,15 +7153,24 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.planCanvas) {
         // Mouse Events
         elements.planCanvas.addEventListener('mousedown', (e) => {
+            if (e.button === 1) {
+                e.preventDefault();
+                handleDragStart(e.clientX, e.clientY, false, true);
+                return;
+            }
             if (e.button === 0) handleDragStart(e.clientX, e.clientY);
+        });
+
+        elements.planCanvas.addEventListener('auxclick', (e) => {
+            if (e.button === 1) e.preventDefault();
         });
 
         window.addEventListener('mousemove', (e) => {
             if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragMove(e.clientX, e.clientY);
         });
 
-        window.addEventListener('mouseup', () => {
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
+        window.addEventListener('mouseup', (e) => {
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd(e.clientX, e.clientY);
         });
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
@@ -7279,6 +7181,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Multi-touch detected: cancel active 1-finger mark or drag operations safely
                 pendingDragHit = null;
                 isMarkingDrag = false;
+                markingHasMoved = false;
                 isDragging = false;
                 isDraggingPin = false;
                 isAreaDrag = false;
@@ -7332,21 +7235,30 @@ document.addEventListener('DOMContentLoaded', () => {
                     isPinching = false;
                 }
             } else {
-                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
+                const t = e.changedTouches && e.changedTouches[0];
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
+                    handleDragEnd(t ? t.clientX : undefined, t ? t.clientY : undefined);
+                }
             }
         });
 
-        window.addEventListener('touchcancel', () => {
+        window.addEventListener('touchcancel', (e) => {
             isPinching = false;
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd();
+            const t = e.changedTouches && e.changedTouches[0];
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
+                handleDragEnd(t ? t.clientX : undefined, t ? t.clientY : undefined);
+            }
         });
 
 
-        // Wheel Zoom
+        // Wheel Zoom (마우스 커서 위치 기준)
         elements.planCanvas.addEventListener('wheel', (e) => {
             e.preventDefault();
+            const rect = elements.planCanvas.getBoundingClientRect();
+            const mouseX = e.clientX - rect.left;
+            const mouseY = e.clientY - rect.top;
             const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-            state.view.scale = Math.min(Math.max(0.3, state.view.scale * zoomFactor), 4.0);
+            applyFocalZoom(state.view, mouseX, mouseY, zoomFactor, 0.3, 4.0);
             if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
             drawCanvas();
         }, { passive: false });
@@ -7375,6 +7287,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const carriedOverEl = document.getElementById('defectCarriedOver');
         const bookmarkEl = document.getElementById('defectBookmark');
         const priorityManageEl = document.getElementById('defectPriorityManage');
+        const forceArrowDirEl = document.getElementById('defectForceArrowDir');
+        const arrowOctantEl = document.getElementById('defectArrowOctant');
+        const syncArrowDirUi = () => {
+            if (arrowOctantEl) arrowOctantEl.disabled = !(forceArrowDirEl && forceArrowDirEl.checked);
+        };
+        if (forceArrowDirEl && !forceArrowDirEl.dataset.boundArrowDirToggle) {
+            forceArrowDirEl.addEventListener('change', syncArrowDirUi);
+            forceArrowDirEl.dataset.boundArrowDirToggle = '1';
+        }
 
         if (existingPin) {
             if (pinIdEl) pinIdEl.value = existingPin.id;
@@ -7396,6 +7317,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (leakCheckEl) leakCheckEl.checked = !!existingPin.isLeak;
             if (bookmarkEl) bookmarkEl.checked = !!existingPin.isBookmark;
             if (priorityManageEl) priorityManageEl.checked = !!existingPin.isPriorityManage;
+            if (forceArrowDirEl) forceArrowDirEl.checked = !!existingPin.forceArrowDir;
+            if (arrowOctantEl) arrowOctantEl.value = `${((parseInt(existingPin.arrowOctant, 10) || 0) % 8 + 8) % 8}`;
+            syncArrowDirUi();
 
             window._pendingPhotos = existingPin.photos || [];
             if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
@@ -7431,6 +7355,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (leakCheckEl) leakCheckEl.checked = false;
             if (bookmarkEl) bookmarkEl.checked = false;
             if (priorityManageEl) priorityManageEl.checked = false;
+            if (forceArrowDirEl) forceArrowDirEl.checked = !!(tmpl && tmpl.forceArrowDir);
+            if (arrowOctantEl) arrowOctantEl.value = `${((parseInt(tmpl && tmpl.arrowOctant, 10) || 0) % 8 + 8) % 8}`;
+            syncArrowDirUi();
             window._pendingPhotos = [];
 
             if (areaRect) {
@@ -7753,6 +7680,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
         const isBookmark = document.getElementById('defectBookmark')?.checked || false;
         const isPriorityManage = document.getElementById('defectPriorityManage')?.checked || false;
+        const forceArrowDir = document.getElementById('defectForceArrowDir')?.checked || false;
+        const arrowOctant = ((parseInt(document.getElementById('defectArrowOctant')?.value || '0', 10) % 8) + 8) % 8;
         const photosVal = window._pendingPhotos || [];
         const dTypeVal = document.getElementById('defectType')?.value || '균열';
         const isCrackType = dTypeVal === '균열';
@@ -7779,6 +7708,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].isCarriedOver = isCarriedOver;
                 state.defects[key][idx].isBookmark = isBookmark;
                 state.defects[key][idx].isPriorityManage = isPriorityManage;
+                state.defects[key][idx].forceArrowDir = forceArrowDir;
+                state.defects[key][idx].arrowOctant = arrowOctant;
                 invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
@@ -7807,6 +7738,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 isCarriedOver: isCarriedOver,
                 isBookmark: isBookmark,
                 isPriorityManage: isPriorityManage,
+                forceArrowDir: forceArrowDir,
+                arrowOctant: arrowOctant,
                 surveyRound: newDefectSurveyRound,
                 photos: photosVal,
                 inspectorName: window.state.userName || '',
@@ -7881,6 +7814,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     size: saved.size,
                     crackWidth: saved.crackWidth,
                     crackLength: saved.crackLength,
+                    forceArrowDir: !!saved.forceArrowDir,
+                    arrowOctant: ((parseInt(saved.arrowOctant, 10) || 0) % 8 + 8) % 8,
                     groupId: isArea ? null : saved.groupId,
                     groupNo: isArea ? null : saved.groupNo,
                     boxX: saved.x,
@@ -7995,14 +7930,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Zoom Buttons
     const btnZoomIn = document.getElementById('btnZoomIn');
     if (btnZoomIn) btnZoomIn.addEventListener('click', () => {
-        state.view.scale = Math.min(4.0, state.view.scale * 1.2);
+        const canvas = elements.planCanvas || state.canvas;
+        const cx = canvas ? canvas.width / 2 : 0;
+        const cy = canvas ? canvas.height / 2 : 0;
+        applyFocalZoom(state.view, cx, cy, 1.2, 0.3, 4.0);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
     });
 
     const btnZoomOut = document.getElementById('btnZoomOut');
     if (btnZoomOut) btnZoomOut.addEventListener('click', () => {
-        state.view.scale = Math.max(0.3, state.view.scale / 1.2);
+        const canvas = elements.planCanvas || state.canvas;
+        const cx = canvas ? canvas.width / 2 : 0;
+        const cy = canvas ? canvas.height / 2 : 0;
+        applyFocalZoom(state.view, cx, cy, 1 / 1.2, 0.3, 4.0);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
     });
@@ -8457,23 +8398,49 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? arrows
                 : (defect.targetX !== undefined && defect.targetY !== undefined ? [{ targetX: defect.targetX, targetY: defect.targetY }] : []);
 
-            // Draw Leader Line & Arrowhead/Tip (그룹이면 화살표를 여러 개 반복해서 그림)
+            const safeLabel = formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', safeStyleKey);
+            const { w: safeBoxW, h: safeBoxH } = measurePinBoxDimensions(ctx, safeLabel, safeScale, 1);
+
+            // Draw Leader Line & Arrowhead/Tip — 실선, 마킹과 가장 가까운 박스 모서리에서 시작
             targets.forEach(t => {
                 if (t.targetX === undefined || t.targetY === undefined) return;
+                const anchor = getPinLeaderBoxAnchor(boxX, boxY, t.targetX, t.targetY, safeBoxW, safeBoxH, 0);
+                const safeHeadLen = 11 * safeArrowScale;
+                const forcedDir = resolveForcedArrowDirection(t, defect);
+                const stemInset = safeHeadLen * Math.cos(Math.PI / 6);
+                const leader = forcedDir.enabled
+                    ? buildForcedLeaderRoute(
+                        { x: t.targetX, y: t.targetY },
+                        boxX,
+                        boxY,
+                        safeBoxW,
+                        safeBoxH,
+                        safeScale,
+                        safeArrowScale,
+                        forcedDir.octant,
+                        stemInset,
+                        safeHeadLen,
+                        0
+                    )
+                    : (() => {
+                        const ux = t.targetX - anchor.x;
+                        const uy = t.targetY - anchor.y;
+                        const stemEnd = getArrowStemEndPoint(t.targetX, t.targetY, ux, uy, safeHeadLen);
+                        return { route: [anchor, stemEnd], ux, uy };
+                    })();
                 ctx.save();
                 ctx.beginPath();
-                ctx.moveTo(boxX, boxY);
-                ctx.lineTo(t.targetX, t.targetY);
+                ctx.moveTo(leader.route[0].x, leader.route[0].y);
+                for (let i = 1; i < leader.route.length; i++) ctx.lineTo(leader.route[i].x, leader.route[i].y);
                 ctx.strokeStyle = color;
-                ctx.lineWidth = 2.5 * safeArrowScale;
-                ctx.setLineDash([4, 3]);
+                ctx.lineWidth = getDefectLeaderLineWidth(safeScale, 1, false);
+                ctx.lineCap = 'butt';
+                ctx.setLineDash([]);
                 ctx.stroke();
 
                 ctx.fillStyle = color;
-                const dx = t.targetX - boxX;
-                const dy = t.targetY - boxY;
-                const angle = Math.atan2(dy, dx);
-                const arrowLen = 11 * safeArrowScale;
+                const angle = Math.atan2(leader.uy, leader.ux);
+                const arrowLen = safeHeadLen;
 
                 ctx.beginPath();
                 ctx.moveTo(t.targetX, t.targetY);
@@ -8484,22 +8451,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.restore();
             });
 
-            // Draw Pure White Box with Category-colored Border & Text Label
-            // 역회전하지 않는다 — 결함번호가 도면(제목 라벨과 동일)과 한 덩어리로 함께 회전되도록 둔다.
+            // Draw Pin Box — fill=false면 투명 내부+마킹색 테두리, 숫자도 마킹색
             ctx.save();
             ctx.translate(boxX, boxY);
-            ctx.fillStyle = safeShapeCfg.fill ? color : '#ffffff';
-            ctx.strokeStyle = color;
-            ctx.lineWidth = 2.5 * safeScale;
-            traceStyledBoxPath(ctx, 44 * safeScale, 30 * safeScale, safeShapeCfg.shape, 6 * safeScale);
-            ctx.fill();
-            ctx.stroke();
+            paintPinBox(ctx, safeBoxW, safeBoxH, safeShapeCfg, color, safeScale, 1, false);
 
-            ctx.fillStyle = safeShapeCfg.fill ? '#ffffff' : color;
-            ctx.font = `bold ${Math.round(13 * safeScale)}px sans-serif`;
+            ctx.fillStyle = getPinBoxTextColor(color, safeShapeCfg, false);
+            ctx.font = `bold ${getPinBoxFontSize(safeScale)}px sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', safeStyleKey), 0, 0);
+            ctx.fillText(safeLabel, 0, 0);
             ctx.restore();
         } catch(e) {
             console.warn('drawPinSafe error:', e);
@@ -8621,17 +8582,17 @@ document.addEventListener('DOMContentLoaded', () => {
         // 기본 범례도 실제 핀 색상과 맞도록 등급별로 다르게 구성한다.
         if (isGrade3Building()) {
             return [
-                { label: '상태양호', color: getStyleColor('defectGoodGrade3') },
-                { label: '기존결함', color: getStyleColor('defectExistingGrade3') },
-                { label: '신규결함', color: getStyleColor('defectNewGrade3') },
-                { label: '중점관리', color: getStyleColor('priorityManage'), mark: '◆' }
+                { colorName: '흑색', label: '상태양호', color: getStyleColor('defectGoodGrade3') },
+                { colorName: '적색', label: '기존결함', color: getStyleColor('defectExistingGrade3') },
+                { colorName: '청색', label: '신규결함', color: getStyleColor('defectNewGrade3') },
+                { colorName: '녹색', label: '중점관리', color: getStyleColor('priorityManage') }
             ];
         }
         return [
-            { label: '결함', color: getStyleColor('defectBad') },
-            { label: '상태양호', color: getStyleColor('defectGood') },
-            { label: '중요 결함', color: '#facc15', mark: '★' },
-            { label: '중점관리', color: getStyleColor('priorityManage'), mark: '◆' }
+            { colorName: '적색', label: '결함', color: getStyleColor('defectBad') },
+            { colorName: '청색', label: '상태양호', color: getStyleColor('defectGood') },
+            { colorName: '황색', label: '중요 결함', color: '#facc15' },
+            { colorName: '녹색', label: '중점관리', color: getStyleColor('priorityManage') }
         ];
     }
 
@@ -8647,17 +8608,75 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 위치도 범례 설정 모달 ---
+    function reorderLocationMapLegendItems(fromIdx, toIdx) {
+        const items = ensureLocationMapLegendInitialized();
+        if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || fromIdx >= items.length || toIdx >= items.length) return;
+        const [item] = items.splice(fromIdx, 1);
+        items.splice(toIdx, 0, item);
+        renderLocationMapLegendModalList();
+        saveStateToLocalStorage();
+        if (typeof drawCanvas === 'function') drawCanvas();
+    }
+
+    function setupLocationMapLegendListDragDrop(listEl) {
+        if (!listEl) return;
+        let dragFromIdx = null;
+
+        listEl.querySelectorAll('.legend-modal-row').forEach(row => {
+            const handle = row.querySelector('.legend-drag-handle');
+            if (!handle) return;
+
+            handle.addEventListener('dragstart', (e) => {
+                dragFromIdx = parseInt(row.dataset.legendIdx, 10);
+                if (isNaN(dragFromIdx)) return;
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(dragFromIdx));
+                try { e.dataTransfer.setDragImage(row, 24, 20); } catch (_) {}
+                row.classList.add('legend-row-dragging');
+            });
+
+            handle.addEventListener('dragend', () => {
+                dragFromIdx = null;
+                row.classList.remove('legend-row-dragging');
+                listEl.querySelectorAll('.legend-modal-row').forEach(r => r.classList.remove('legend-row-drag-over'));
+            });
+
+            row.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                row.classList.add('legend-row-drag-over');
+            });
+
+            row.addEventListener('dragleave', (e) => {
+                if (!row.contains(e.relatedTarget)) row.classList.remove('legend-row-drag-over');
+            });
+
+            row.addEventListener('drop', (e) => {
+                e.preventDefault();
+                row.classList.remove('legend-row-drag-over');
+                const toIdx = parseInt(row.dataset.legendIdx, 10);
+                const fromIdx = dragFromIdx ?? parseInt(e.dataTransfer.getData('text/plain'), 10);
+                if (isNaN(fromIdx) || isNaN(toIdx)) return;
+                reorderLocationMapLegendItems(fromIdx, toIdx);
+            });
+        });
+    }
+
     function renderLocationMapLegendModalList() {
         const listEl = document.getElementById('locationMapLegendListBody');
         if (!listEl) return;
         const items = ensureLocationMapLegendInitialized();
         listEl.innerHTML = items.map((item, idx) => `
-            <div class="style-cat-card" style="display:flex; align-items:center; gap:0.5rem;">
+            <div class="style-cat-card legend-modal-row" data-legend-idx="${idx}" style="display:flex; align-items:center; gap:0.45rem; margin-bottom:0.35rem;">
+                <button type="button" class="legend-drag-handle" draggable="true" title="드래그하여 순서 변경" aria-label="순서 변경" style="border:none;background:transparent;padding:0.2rem 0.15rem;color:#94a3b8;cursor:grab;flex-shrink:0;line-height:1;">
+                    <i class="fa-solid fa-grip-vertical"></i>
+                </button>
                 <input type="color" value="${item.color}" onchange="window.recolorLocationMapLegendItem(${idx}, this.value)">
                 <input type="text" class="form-control" value="${item.label}" style="flex:1;" onchange="window.renameLocationMapLegendItem(${idx}, this.value)">
                 <button type="button" class="btn btn-sm btn-danger-outline" onclick="window.removeLocationMapLegendItem(${idx})"><i class="fa-solid fa-trash"></i></button>
             </div>
         `).join('');
+        setupLocationMapLegendListDragDrop(listEl);
     }
 
     window.openLocationMapLegendModal = function() {
@@ -8680,7 +8699,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.recolorLocationMapLegendItem = function(idx, color) {
         const items = ensureLocationMapLegendInitialized();
-        if (items[idx]) items[idx].color = color;
+        if (items[idx]) {
+            items[idx].color = color;
+            items[idx].colorName = resolveLegendColorName({ color });
+        }
         saveStateToLocalStorage();
         if (typeof drawCanvas === 'function') drawCanvas();
     };
@@ -8713,7 +8735,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnAdd = document.getElementById('btnAddLocationMapLegendItem');
         if (btnAdd) btnAdd.addEventListener('click', () => {
             const items = ensureLocationMapLegendInitialized();
-            items.push({ label: '새 항목', color: '#64748b' });
+            const color = '#64748b';
+            items.push({ label: '새 항목', color, colorName: resolveLegendColorName({ color }) });
             renderLocationMapLegendModalList();
             saveStateToLocalStorage();
         });
@@ -8733,71 +8756,180 @@ document.addEventListener('DOMContentLoaded', () => {
     // drawCanvas에서 매번 갱신되고, 드래그 이동/크기조절 히트테스트(이미지 좌표 기준)에 재사용된다.
     let lastLegendBoxBounds = null;
     const LEGEND_HANDLE_SIZE = 16; // 크기조절 손잡이 기본 크기(도면 픽셀 기준, scale 배율을 곱해서 사용)
+    const LEGEND_DEFAULT_SCALE = 4;
+    const LEGEND_SCALE_MIN = 0.35;
+    const LEGEND_SCALE_MAX = 40;
+
+    function getLocationMapLegendScale(box) {
+        const b = box || state.locationMapLegendBox || {};
+        return (b.scale !== undefined) ? b.scale : LEGEND_DEFAULT_SCALE;
+    }
+
+    function clampLegendScale(scale) {
+        return Math.min(Math.max(LEGEND_SCALE_MIN, scale), LEGEND_SCALE_MAX);
+    }
 
     // 결함위치도에 색상 범례를 그린다. 위치(x,y)는 결함 핀처럼 도면 원본 픽셀 좌표라서, 이 함수를
     // 호출하는 쪽(화면 drawCanvas / 보고서 renderFloorPlanCanvasDataUrl)에서 이미 팬/줌/회전(혹은
     // 보고서의 세로 페이지 맞춤 회전) 변환이 적용된 ctx 위에서 호출해야 범례가 도면에 붙어서 같이
     // 움직인다. interactive=true(화면)일 때만 우측 하단에 크기조절 손잡이를 그리고
     // lastLegendBoxBounds를 갱신한다 — 보고서 내보내기에는 손잡이가 나오지 않는다.
+    function normalizeHexColor(hex) {
+        if (!hex || typeof hex !== 'string') return '';
+        let h = hex.trim().toLowerCase();
+        if (!h.startsWith('#')) h = '#' + h;
+        if (h.length === 4) h = '#' + h[1] + h[1] + h[2] + h[2] + h[3] + h[3];
+        return h.length === 7 ? h : '';
+    }
+
+    function hexToLegendColorName(hex) {
+        const h = normalizeHexColor(hex);
+        if (!h) return '—';
+        const r = parseInt(h.slice(1, 3), 16);
+        const g = parseInt(h.slice(3, 5), 16);
+        const b = parseInt(h.slice(5, 7), 16);
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const delta = max - min;
+        const lightness = (max + min) / (2 * 255);
+        if (delta < 35 && lightness < 0.22) return '흑색';
+
+        let hue = 0;
+        if (delta > 0) {
+            if (max === r) hue = ((g - b) / delta) % 6;
+            else if (max === g) hue = (b - r) / delta + 2;
+            else hue = (r - g) / delta + 4;
+            hue = hue * 60;
+            if (hue < 0) hue += 360;
+        }
+
+        if (hue >= 38 && hue <= 68 && r > 160 && g > 130) return '황색';
+        if (hue >= 68 && hue <= 165 && g >= Math.max(r, b) - 20) return '녹색';
+        if (hue >= 165 && hue <= 260) return '청색';
+        return '적색';
+    }
+
+    // 범례 '구분' 열 — 내용(label)과 무관하게 항목 색상(hex) 기준으로만 결정
+    function resolveLegendColorName(item) {
+        const hex = normalizeHexColor(item && item.color);
+        if (!hex) return '—';
+
+        const styleKeyColorNames = [
+            ['defectGoodGrade3', '흑색'],
+            ['defectBad', '적색'],
+            ['defectExistingGrade3', '적색'],
+            ['defectStructural', '적색'],
+            ['defectFinish', '적색'],
+            ['defectGood', '청색'],
+            ['defectNewGrade3', '청색'],
+            ['defectNonStructural', '청색'],
+            ['priorityManage', '녹색'],
+            ['defectStructuralGood', '녹색'],
+            ['defectNonStructuralGood', '녹색'],
+            ['defectFinishGood', '녹색']
+        ];
+        for (const [key, name] of styleKeyColorNames) {
+            if (normalizeHexColor(getStyleColor(key)) === hex) return name;
+        }
+        if (hex === '#facc15' || hex === '#eab308' || hex === '#ca8a04') return '황색';
+
+        return hexToLegendColorName(hex);
+    }
+
+    function enrichLocationMapLegendItem(item) {
+        return { ...item, colorName: resolveLegendColorName(item) };
+    }
+
+    function measureLocationMapLegendTable(ctx, items, scale) {
+        const fontSize = Math.max(6, Math.round(11 * scale));
+        const cellPadX = 3 * scale;
+        const cellPadY = 2 * scale;
+        const rowH = fontSize + cellPadY * 2;
+        const headerRowH = rowH;
+        const headers = ['구분', '내 용'];
+        ctx.save();
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        let col1Max = ctx.measureText(headers[0]).width;
+        let col2Max = ctx.measureText(headers[1]).width;
+        items.forEach(item => {
+            const cat = resolveLegendColorName(item);
+            col1Max = Math.max(col1Max, ctx.measureText(cat).width);
+            col2Max = Math.max(col2Max, ctx.measureText(item.label || '').width);
+        });
+        ctx.restore();
+        const col1W = col1Max + cellPadX * 2;
+        const col2W = col2Max + cellPadX * 2;
+        return {
+            col1W, col2W,
+            boxW: col1W + col2W,
+            boxH: headerRowH + items.length * rowH,
+            rowH, headerRowH, fontSize, cellPadX, cellPadY
+        };
+    }
+
     function drawLocationMapLegend(ctx, imgW, imgH, interactive) {
-        const items = getActiveLocationMapLegend();
+        const items = getActiveLocationMapLegend().map(enrichLocationMapLegendItem);
         if (!items.length) {
             if (interactive) lastLegendBoxBounds = null;
             return;
         }
 
-        // 범례가 도면 원본 픽셀 좌표에 붙다 보니, 도면 해상도가 큰 경우 기본 크기(scale=1 기준 168px 폭)가
-        // 화면/보고서에서 너무 작게 보인다 — 기본 배율을 10배로 올려서 처음부터 알아볼 수 있는 크기로 시작한다.
         const box = state.locationMapLegendBox || {};
-        const scale = (box.scale !== undefined) ? box.scale : 10;
-        const rowH = 22 * scale;
-        const boxW = 168 * scale;
-        const boxPad = 12 * scale;
-        const boxH = boxPad * 2 + items.length * rowH;
+        const scale = getLocationMapLegendScale(box);
+        const dims = measureLocationMapLegendTable(ctx, items, scale);
+        const { col1W, col2W, boxW, boxH, rowH, headerRowH, fontSize, cellPadX, cellPadY } = dims;
         const margin = 16 * scale;
         const boxX = (box.x !== undefined) ? box.x : margin;
         const boxY = (box.y !== undefined) ? box.y : imgH - boxH - margin;
+        const lineW = Math.max(1, 1.2 * scale);
 
         ctx.save();
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
-        ctx.strokeStyle = '#1e293b';
-        ctx.lineWidth = 1.5;
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = lineW;
+
+        // 배경 + 외곽
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+        // 세로 구분선
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(boxX, boxY, boxW, boxH, 6 * scale);
-        else ctx.rect(boxX, boxY, boxW, boxH);
-        ctx.fill();
+        ctx.moveTo(boxX + col1W, boxY);
+        ctx.lineTo(boxX + col1W, boxY + boxH);
         ctx.stroke();
 
-        ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
-        ctx.fillStyle = '#0f172a';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('범례', boxX + boxPad, boxY + boxPad - 2 * scale);
-
-        items.forEach((item, i) => {
-            const rowY = boxY + boxPad + 14 * scale + i * rowH;
-            const swatchX = boxX + boxPad + 6 * scale;
+        // 가로 구분선 (헤더 아래 + 각 행)
+        ctx.beginPath();
+        ctx.moveTo(boxX, boxY + headerRowH);
+        ctx.lineTo(boxX + boxW, boxY + headerRowH);
+        ctx.stroke();
+        for (let i = 1; i < items.length; i++) {
+            const y = boxY + headerRowH + i * rowH;
             ctx.beginPath();
-            ctx.arc(swatchX, rowY, 6 * scale, 0, Math.PI * 2);
-            ctx.fillStyle = item.color;
-            ctx.strokeStyle = '#1e293b';
-            ctx.lineWidth = 1;
-            ctx.fill();
+            ctx.moveTo(boxX, y);
+            ctx.lineTo(boxX + boxW, y);
             ctx.stroke();
-            if (item.mark) {
-                ctx.fillStyle = '#ffffff';
-                ctx.font = `bold ${Math.round(8 * scale)}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.fillText(item.mark, swatchX, rowY + 0.5);
-                ctx.textAlign = 'left';
-                ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`;
-            }
-            ctx.fillStyle = '#1e293b';
-            ctx.fillText(item.label, swatchX + 14 * scale, rowY);
+        }
+
+        ctx.font = `bold ${fontSize}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // 헤더
+        ctx.fillStyle = '#64748b';
+        ctx.fillText('구분', boxX + col1W / 2, boxY + headerRowH / 2);
+        ctx.fillText('내 용', boxX + col1W + col2W / 2, boxY + headerRowH / 2);
+
+        // 데이터 행
+        items.forEach((item, i) => {
+            const rowY = boxY + headerRowH + i * rowH + rowH / 2;
+            const cat = resolveLegendColorName(item);
+            ctx.fillStyle = item.color || '#1e293b';
+            ctx.fillText(cat, boxX + col1W / 2, rowY);
+            ctx.fillText(item.label || '', boxX + col1W + col2W / 2, rowY);
         });
 
         if (interactive) {
-            // 우측 하단 크기조절 손잡이(대각선 줄무늬 아이콘) — 범례 자체와 같은 배율로 커지고 작아짐
             const hs = LEGEND_HANDLE_SIZE * scale;
             ctx.fillStyle = 'rgba(30,41,59,0.55)';
             ctx.beginPath();
@@ -12353,6 +12485,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastUsedBuildingId: window.state.currentBuildingId || null,
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
+                defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
                 styleShapes: window.state.styleShapes || null,
                 locationMapLegend: window.state.locationMapLegend || null,
                 locationMapLegendBox: window.state.locationMapLegendBox || null,
@@ -12413,6 +12546,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.styleSizes) {
                         window.state.styleSizes = data.styleSizes;
+                        isChanged = true;
+                    }
+                    if (data.defectLeaderLineScale !== undefined) {
+                        window.state.defectLeaderLineScale = data.defectLeaderLineScale;
                         isChanged = true;
                     }
                     if (data.styleShapes) {
@@ -12992,6 +13129,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 11. INITIALIZATION ---
     function init() {
+        window.setupCanvas = setupCanvas;
+        window.resizeCanvas = resizeCanvas;
+        window.fitToScreen = fitToScreen;
+        window.drawCanvas = drawCanvas;
+        window.setupNdtCanvas = setupNdtCanvas;
+        window.resizeNdtCanvas = resizeNdtCanvas;
+        window.renderNdtSummaryTable = renderNdtSummaryTable;
+        window.renderSurveyTable = renderSurveyTable;
+
         loadStateFromLocalStorage();
         setupCanvas();
         renderDashboard();

@@ -1,0 +1,23 @@
+---
+description: 탭별 기능 분류와 이어서 개발할 때 코드를 넣을 위치
+alwaysApply: true
+---
+
+# 탭 모듈 규칙
+
+이 앱은 기존 동작을 유지한 채 탭 단위로 기능을 나눕니다. **동작 구현은 아직 `app.js`에 있고**, 탭 진입·분류는 `js/tabs/` 입니다.
+
+| 화면 | 파일 | 넣을 기능 |
+|------|------|-----------|
+| 홈 | `js/tabs/home.js` | 건물 목록, 등록/수정, JSON 백업, 회사명, QR 촬영 시작 |
+| 결함위치도 | `js/tabs/map.js` | 도면 캔버스, 핀/영역, 결함 모달, 스타일/범례, 필터 |
+| 상태조사표 | `js/tabs/survey.js` | 표/앨범/차트, 컬럼 설정, 엑셀 in/out |
+| 비파괴조사 | `js/tabs/ndt.js` | 실측·강도·탄산화·기울기·변위 |
+| 공통 보고서 | `js/shared/report.js` | 미리보기, PDF, 인쇄, HWPX |
+| 공통 로그인 | `js/shared/auth.js` | Firebase Auth, 회사 승인, 동기화 |
+| 전역 상태 | `js/core/state.js` | `window.state`, IndexedDB, 이미지 압축, 층 파서 |
+| UI 부트스트랩 | `app.js` | `DOMContentLoaded`, 기존 엔진 본체 |
+
+새 기능은 **해당 탭 파일의 `features`와 `enter()`를 먼저 갱신**하고, 구현은 가능하면 그 탭 파일에 둡니다. 기존 `app.js` 클로저(캔버스, NDT 지역 변수)에 묶인 코드는 무리해서 옮기지 말고 `window.*`로 노출한 뒤 탭 `enter()`에서 호출합니다.
+
+탭 전환은 `window.switchTab` → `BSA.applyTabChrome` → `BSA.enterTab` 만 타면 됩니다.

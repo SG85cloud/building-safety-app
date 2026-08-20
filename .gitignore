@@ -1,0 +1,7 @@
+# 로컬 IDE/에이전트 설정
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

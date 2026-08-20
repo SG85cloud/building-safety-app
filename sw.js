@@ -2,11 +2,19 @@
    스마트 건축물 안전점검 시스템 Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v61.2';
+const CACHE_NAME = 'building-safety-v61.3';
 const STATIC_ASSETS = [
     './',
     './index.html',
     './styles.css',
+    './js/core/state.js',
+    './js/tabs/registry.js',
+    './js/tabs/home.js',
+    './js/tabs/map.js',
+    './js/tabs/survey.js',
+    './js/tabs/ndt.js',
+    './js/shared/report.js',
+    './js/shared/auth.js',
     './app.js',
     './manifest.json',
     './templates/hwpx_survey_template.hwpx',

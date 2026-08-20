@@ -189,6 +189,7 @@
                     <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:0.4rem 0.7rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.5rem;">
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">📍 핀(박스) 크기 <input type="range" id="stylePinSizeAll" min="0.5" max="4.4" step="0.1" value="1.0" style="width:110px;"> <span id="stylePinSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">➔ 화살표 크기 <input type="range" id="styleArrowSizeAll" min="0.5" max="5.0" step="0.1" value="1.0" style="width:110px;"> <span id="styleArrowSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
+                        <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">〰 연결선 굵기 <input type="range" id="styleLeaderLineScaleAll" min="0.5" max="3.0" step="0.1" value="1.0" style="width:110px;"> <span id="styleLeaderLineScaleAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
                     </div>
 
                     <!-- Canvas Viewport -->
@@ -629,6 +630,26 @@
                             <input type="checkbox" id="defectPriorityManage"> 🟢 중점관리 대상으로 지정
                         </label>
                     </div>
+                    <div class="form-row" style="margin-top: 0.55rem;">
+                        <div class="form-group" style="flex:1;">
+                            <label class="checkbox-chip" style="border-color:#38bdf8; color:#38bdf8;">
+                                <input type="checkbox" id="defectForceArrowDir"> ↗ 화살표 방향 8방위 강제
+                            </label>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label class="form-label">강제 방향</label>
+                            <select id="defectArrowOctant" class="form-select">
+                                <option value="0">→ 동</option>
+                                <option value="1">↘ 남동</option>
+                                <option value="2">↓ 남</option>
+                                <option value="3">↙ 남서</option>
+                                <option value="4">← 서</option>
+                                <option value="5">↖ 북서</option>
+                                <option value="6">↑ 북</option>
+                                <option value="7">↗ 북동</option>
+                            </select>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -874,8 +895,8 @@
                 <button type="button" class="modal-close" id="btnCloseLocationMapLegendModal">&times;</button>
             </div>
             <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
-                <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.6rem;">결함위치도(도면)에 표시되는 범례입니다. 색상/문구를 수정하거나 항목을 추가·삭제할 수 있습니다. 도면 화면에서 범례 박스를 직접 끌어서 옮기고, 우측 하단 모서리를 끌어서 크기를 조절할 수 있습니다.</p>
-                <div id="locationMapLegendListBody"></div>
+                <p style="font-size: 0.8rem; color: #94a3b8; margin: 0 0 0.6rem;">결함위치도(도면)에 표시되는 범례입니다. 색상/문구를 수정하거나 항목을 추가·삭제할 수 있습니다. 왼쪽 <i class="fa-solid fa-grip-vertical"></i> 아이콘을 드래그하면 항목 순서를 바꿀 수 있습니다. 도면 화면에서 범례 박스를 직접 끌어서 옮기고, 우측 하단 모서리를 끌어서 크기를 조절할 수 있습니다.</p>
+                <div id="locationMapLegendListBody" class="legend-modal-list"></div>
                 <button type="button" id="btnAddLocationMapLegendItem" class="btn btn-outline btn-sm" style="margin-top: 0.6rem; width: 100%;"><i class="fa-solid fa-plus"></i> 항목 추가</button>
             </div>
             <div class="modal-footer" style="justify-content: space-between;">
@@ -1796,8 +1817,16 @@
         </div>
     </div>
 
-    <!-- Application Script -->
-    <script src="app.js?v=20260820_0100"></script>
+    <!-- Core → 탭 분류 → 기존 엔진(app.js) -->
+    <script src="js/core/state.js?v=20260820_1420"></script>
+    <script src="js/tabs/registry.js?v=20260820_1420"></script>
+    <script src="js/tabs/home.js?v=20260820_1420"></script>
+    <script src="js/tabs/map.js?v=20260820_1420"></script>
+    <script src="js/tabs/survey.js?v=20260820_1420"></script>
+    <script src="js/tabs/ndt.js?v=20260820_1420"></script>
+    <script src="js/shared/report.js?v=20260820_1420"></script>
+    <script src="js/shared/auth.js?v=20260820_1420"></script>
+    <script src="app.js?v=20260820_1420"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
