@@ -12328,6 +12328,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 styleShapes: window.state.styleShapes || null,
+                locationMapLegend: window.state.locationMapLegend || null,
+                locationMapLegendBox: window.state.locationMapLegendBox || null,
                 companyName: window.state.companyName || localStorage.getItem('building_company_name'),
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             };
@@ -12389,6 +12391,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.styleShapes) {
                         window.state.styleShapes = data.styleShapes;
+                        isChanged = true;
+                    }
+                    if (data.locationMapLegend) {
+                        window.state.locationMapLegend = data.locationMapLegend;
+                        isChanged = true;
+                    }
+                    if (data.locationMapLegendBox) {
+                        window.state.locationMapLegendBox = data.locationMapLegendBox;
                         isChanged = true;
                     }
 
