@@ -15,7 +15,7 @@ if (!window.state) {
         view: { offsetX: 0, offsetY: 0, scale: 1.0 },
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
-        tipShape: 'arrow',  // 'arrow' | 'circle'
+        tipShape: 'circle',  // 'arrow' | 'circle' — 기본 마킹은 공(원) 형태
         styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
         styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
         defectLeaderLineScale: 1.0, // 결함위치도: 박스↔화살표 연결선 두께 배율 (박스 테두리 기준)

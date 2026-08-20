@@ -212,6 +212,30 @@
                             <span>전체 초기화</span>
                         </button>
                     </div>
+
+                    <!-- 모바일 전용: 세로 화면용 하단 모드 버튼 -->
+                    <nav class="mobile-map-fab" id="mobileMapFabBar" aria-label="모바일 도면 도구">
+                        <button type="button" class="mobile-fab-btn active" id="mobileBtnModePan" data-mode="PAN">
+                            <i class="fa-solid fa-hand"></i>
+                            <span>이동</span>
+                        </button>
+                        <button type="button" class="mobile-fab-btn mobile-fab-mark" id="mobileBtnModeMark" data-mode="MARK">
+                            <i class="fa-solid fa-location-dot"></i>
+                            <span>핀</span>
+                        </button>
+                        <button type="button" class="mobile-fab-btn mobile-fab-area" id="mobileBtnModeArea" data-mode="AREA">
+                            <i class="fa-solid fa-vector-square"></i>
+                            <span>영역</span>
+                        </button>
+                        <button type="button" class="mobile-fab-btn" id="mobileBtnZoomFit" title="화면에 맞추기">
+                            <i class="fa-solid fa-expand"></i>
+                            <span>맞춤</span>
+                        </button>
+                        <button type="button" class="mobile-fab-btn" id="mobileBtnRotate" title="도면 회전">
+                            <i class="fa-solid fa-rotate-right"></i>
+                            <span>회전</span>
+                        </button>
+                    </nav>
                 </div>
 
                 <!-- RIGHT: 도구 패널 -->
@@ -470,28 +494,31 @@
 
     </main>
 
-    <!-- MODAL: Add Defect Pin Details Modal (우측 드로어 — 도면 조작 가능) -->
+    <!-- MODAL: Add Defect Pin Details Modal (우측 드로어 — 입력 즉시 적용) -->
     <div class="modal-overlay modal-drawer-overlay" id="defectModal">
         <div class="modal-card defect-drawer-card">
-            <div class="modal-header">
-                <h3 id="defectModalTitle">📍 결함 핀 상세 정보 등록</h3>
-                <button class="modal-close" id="btnCloseDefectModal">&times;</button>
+            <div class="modal-header defect-drawer-header">
+                <div class="defect-drawer-title-wrap">
+                    <h3 id="defectModalTitle">📍 결함 핀 수정</h3>
+                    <span class="defect-autosave-badge" id="defectAutosaveBadge">자동 적용</span>
+                </div>
+                <button class="modal-close" id="btnCloseDefectModal" title="닫기">&times;</button>
             </div>
-            <div class="modal-body">
-                <form id="defectForm">
+            <div class="modal-body defect-drawer-body">
+                <form id="defectForm" class="defect-form-compact">
                     <input type="hidden" id="defectPinId">
-                    
+
                     <div class="form-row">
                         <div class="form-group">
-                            <label class="form-label">결함 번호 (수정가능)</label>
-                            <input type="text" id="defectNo" class="form-control" placeholder="예: NO.01 또는 NO.01-1">
+                            <label class="form-label" for="defectNo">결함 번호</label>
+                            <input type="text" id="defectNo" class="form-control" placeholder="예: NO.01">
                         </div>
                         <div class="form-group">
-                            <label class="form-label">부재 분류 *</label>
+                            <label class="form-label" for="defectCategory">부재 분류</label>
                             <select id="defectCategory" class="form-select">
-                                <option value="구조체">🔴 구조체</option>
-                                <option value="비구조체">🔵 비구조체</option>
-                                <option value="마감재">🟠 마감재</option>
+                                <option value="구조체">구조체</option>
+                                <option value="비구조체">비구조체</option>
+                                <option value="마감재">마감재</option>
                             </select>
                         </div>
                     </div>
@@ -499,12 +526,11 @@
                     <div class="form-row">
                         <div class="form-group">
                             <div class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>부재 명칭 *</span>
+                                <span>부재 명칭</span>
                                 <button type="button" id="btnManageComponent" class="btn-option-manage" title="부재 명칭 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
-                            <label class="form-label defect-combo-sub" for="defectComponentInput">직접 입력</label>
-                            <input type="text" id="defectComponentInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
-                            <select id="defectComponent" class="form-select">
+                            <input type="text" id="defectComponentInput" class="form-control defect-combo-input" placeholder="직접 입력" autocomplete="off">
+                            <select id="defectComponent" class="form-select defect-combo-select" title="목록에서 선택">
                                 <option value="기둥">기둥</option>
                                 <option value="큰보">큰보</option>
                                 <option value="작은보">작은보</option>
@@ -517,12 +543,11 @@
                         </div>
                         <div class="form-group">
                             <div class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>결함 종류 *</span>
+                                <span>결함 종류</span>
                                 <button type="button" id="btnManageDefectType" class="btn-option-manage" title="결함 종류 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
-                            <label class="form-label defect-combo-sub" for="defectTypeInput">직접 입력</label>
-                            <input type="text" id="defectTypeInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
-                            <select id="defectType" class="form-select">
+                            <input type="text" id="defectTypeInput" class="form-control defect-combo-input" placeholder="직접 입력" autocomplete="off">
+                            <select id="defectType" class="form-select defect-combo-select" title="목록에서 선택">
                                 <option value="균열">균열</option>
                                 <option value="누수">누수</option>
                                 <option value="백태">백태</option>
@@ -535,19 +560,19 @@
 
                     <div class="form-group">
                         <div class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                            <span>📍 상세 위치 (사용자 직접 입력) *</span>
-                            <button type="button" id="btnSpeechLocation" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; font-size:0.78rem; padding:0.1rem 0.5rem;" title="음성으로 위치 입력">
-                                <i class="fa-solid fa-microphone"></i> 🎤 음성입력
+                            <span>상세 위치</span>
+                            <button type="button" id="btnSpeechLocation" class="btn btn-sm btn-outline defect-speech-btn" title="음성으로 위치 입력">
+                                <i class="fa-solid fa-microphone"></i> 음성
                             </button>
                         </div>
-                        <input type="text" id="defectLocation" class="form-control" placeholder="예: 101동 1F 기둥 C1 하부, 슬래브 중앙">
+                        <input type="text" id="defectLocation" class="form-control" placeholder="예: 1F 기둥 C1 하부">
                     </div>
 
                     <div class="form-group" id="defectSizeFreeGroup">
                         <div class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                            <span id="defectSizeFreeLabel">규모 및 상태 (수치 입력) *</span>
-                            <button type="button" id="btnSpeechSize" class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; font-size:0.78rem; padding:0.1rem 0.5rem;" title="음성으로 상태 입력">
-                                <i class="fa-solid fa-microphone"></i> 🎤 음성입력
+                            <span id="defectSizeFreeLabel">규모 및 상태</span>
+                            <button type="button" id="btnSpeechSize" class="btn btn-sm btn-outline defect-speech-btn" title="음성으로 상태 입력">
+                                <i class="fa-solid fa-microphone"></i> 음성
                             </button>
                         </div>
                         <input type="text" id="defectSize" class="form-control" placeholder="예: W=0.2mm, L=1.5m">
@@ -555,20 +580,19 @@
 
                     <div class="form-row">
                         <div class="form-group" id="defectCrackSizeGroup" style="display:none; flex:1;">
-                            <label class="form-label">균열폭(mm) / 균열길이(m)</label>
-                            <div style="display:flex; gap:0.5rem;">
-                                <input type="number" step="0.01" id="defectCrackWidth" class="form-control" placeholder="균열폭 예: 0.15">
-                                <input type="number" step="0.01" id="defectCrackLength" class="form-control" placeholder="균열길이 예: 1.5">
+                            <label class="form-label">균열폭(mm) / 길이(m)</label>
+                            <div style="display:flex; gap:0.4rem;">
+                                <input type="number" step="0.01" id="defectCrackWidth" class="form-control" placeholder="폭 0.15">
+                                <input type="number" step="0.01" id="defectCrackLength" class="form-control" placeholder="길이 1.5">
                             </div>
                         </div>
                         <div class="form-group" id="defectCauseGroup" style="flex:1;">
                             <div class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
-                                <span>🔍 결함 원인 추정 *</span>
+                                <span>결함 원인 추정</span>
                                 <button type="button" id="btnManageCause" class="btn-option-manage" title="결함 원인 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
-                            <label class="form-label defect-combo-sub" for="defectCauseInput">직접 입력</label>
-                            <input type="text" id="defectCauseInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
-                            <select id="defectCause" class="form-select">
+                            <input type="text" id="defectCauseInput" class="form-control defect-combo-input" placeholder="직접 입력" autocomplete="off">
+                            <select id="defectCause" class="form-select defect-combo-select" title="목록에서 선택">
                                 <option value="건조수축">건조수축</option>
                                 <option value="내력부족">내력부족</option>
                                 <option value="부등침하">부등침하</option>
@@ -577,70 +601,40 @@
                         </div>
                     </div>
 
-                    <div class="form-row" style="background: rgba(255,255,255,0.04); padding: 0.8rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);">
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label" style="margin-bottom: 0.4rem;">📈 진행 여부</label>
-                            <label class="checkbox-chip" style="font-size: 0.95rem; font-weight: 700; padding: 0.4rem 0.8rem; background: var(--bg-primary);">
-                                <input type="checkbox" id="defectProgressCheck"> 📈 진행중 체크
-                            </label>
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label" style="margin-bottom: 0.4rem;">💧 누수 여부</label>
-                            <label class="checkbox-chip" style="font-size: 0.95rem; font-weight: 700; padding: 0.4rem 0.8rem; background: var(--bg-primary); color: #38bdf8;">
-                                <input type="checkbox" id="defectLeakCheck"> 💧 누수중 체크
-                            </label>
-                        </div>
-                        <div class="form-group" style="margin-bottom: 0;">
-                            <label class="form-label" style="margin-bottom: 0.4rem;">🕐 회차 구분</label>
-                            <label class="checkbox-chip" style="font-size: 0.95rem; font-weight: 700; padding: 0.4rem 0.8rem; background: var(--bg-primary); color: #94a3b8;">
-                                <input type="checkbox" id="defectCarriedOver"> 🕐 전회차부터 있던 결함
-                            </label>
-                        </div>
+                    <div class="defect-flag-grid">
+                        <label class="checkbox-chip"><input type="checkbox" id="defectProgressCheck"> 진행중</label>
+                        <label class="checkbox-chip" style="color:#38bdf8; border-color:rgba(56,189,248,0.45);"><input type="checkbox" id="defectLeakCheck"> 누수</label>
+                        <label class="checkbox-chip" style="color:#94a3b8; border-color:rgba(148,163,184,0.45);"><input type="checkbox" id="defectCarriedOver"> 전회차</label>
+                        <label class="checkbox-chip" style="border-color:#facc15; color:#facc15;"><input type="checkbox" id="defectBookmark"> 중요</label>
+                        <label class="checkbox-chip" style="border-color:#16a34a; color:#16a34a;"><input type="checkbox" id="defectPriorityManage"> 중점관리</label>
                     </div>
 
-
-
-                    <!-- Photo Attachment Section -->
-                    <div class="form-group">
-                        <label class="form-label">📷 현장 결함 사진 첨부</label>
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
-                            <button type="button" id="btnTriggerCamera" class="btn" style="flex: 1; background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; font-weight: 700; padding: 0.65rem 0.5rem; border-radius: 8px; border: 1px solid #38bdf8; font-size: 0.88rem;">
-                                <i class="fa-solid fa-camera"></i> 📷 즉시 카메라 촬영
+                    <div class="form-group defect-photo-block">
+                        <label class="form-label">현장 사진</label>
+                        <div class="defect-photo-actions">
+                            <button type="button" id="btnTriggerCamera" class="btn defect-photo-btn-primary">
+                                <i class="fa-solid fa-camera"></i> 촬영
                             </button>
-                            <button type="button" id="btnTriggerGallery" class="btn" style="flex: 1; background: rgba(255,255,255,0.08); color: #38bdf8; border: 1px solid rgba(56,189,248,0.4); font-weight: 700; padding: 0.65rem 0.5rem; border-radius: 8px; font-size: 0.88rem;">
-                                <i class="fa-solid fa-images"></i> 🖼️ 갤러리/앨범 선택
+                            <button type="button" id="btnTriggerGallery" class="btn defect-photo-btn-secondary">
+                                <i class="fa-solid fa-images"></i> 갤러리
                             </button>
                         </div>
-                        <p style="font-size: 0.76rem; color: #94a3b8; margin: -0.2rem 0 0.6rem;">
-                            💡 태블릿에서 카메라가 바로 안 열리면, 기기 카메라 앱으로 먼저 촬영해두고 "갤러리/앨범 선택"으로 불러오시거나, 홈 화면의 <b>휴대폰 연동</b> 기능을 이용해주세요.
-                        </p>
-                        <div id="phoneRelayStatusBadge" style="display:none; align-items:center; gap: 0.4rem; width: 100%; background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.35); font-weight: 700; padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.82rem; margin-bottom: 0.6rem;">
-                            <i class="fa-solid fa-mobile-screen-button"></i> <span id="phoneRelayStatusText">휴대폰 연동됨 — 휴대폰에서 촬영하면 자동으로 여기에 추가됩니다</span>
+                        <div id="phoneRelayStatusBadge" style="display:none; align-items:center; gap: 0.4rem; width: 100%; background: rgba(74,222,128,0.1); color: #4ade80; border: 1px solid rgba(74,222,128,0.35); font-weight: 700; padding: 0.45rem 0.65rem; border-radius: 8px; font-size: 0.78rem; margin-bottom: 0.5rem;">
+                            <i class="fa-solid fa-mobile-screen-button"></i> <span id="phoneRelayStatusText">휴대폰 연동됨 — 촬영 시 자동 추가</span>
                         </div>
                         <div class="photo-upload-area" id="photoUploadArea">
                             <i class="fa-solid fa-camera"></i>
-                            <span>터치하여 카메라 촬영 또는 갤러리 사진 추가</span>
+                            <span>터치하여 사진 추가</span>
                             <input type="file" id="inputDefectPhoto" accept="image/*" style="display:none;">
                             <input type="file" id="inputDefectCamera" accept="image/*" capture="environment" style="display:none;">
                         </div>
                         <div class="photo-preview-list" id="photoPreviewList"></div>
                     </div>
 
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label class="checkbox-chip" style="border-color: #facc15; color: #facc15;">
-                            <input type="checkbox" id="defectBookmark"> ⭐ 중요 결함으로 지정 (보고서 우선 강조)
+                    <div class="form-group defect-arrow-block">
+                        <label class="checkbox-chip" style="border-color:#38bdf8; color:#38bdf8; margin-bottom: 0.45rem;">
+                            <input type="checkbox" id="defectForceArrowDir"> 화살표 방향 지정
                         </label>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0; margin-top: 0.5rem;">
-                        <label class="checkbox-chip" style="border-color: #16a34a; color: #16a34a;">
-                            <input type="checkbox" id="defectPriorityManage"> 🟢 중점관리 대상으로 지정
-                        </label>
-                    </div>
-                    <div class="form-group" style="margin-top: 0.55rem;">
-                        <label class="checkbox-chip" style="border-color:#38bdf8; color:#38bdf8; margin-bottom: 0.55rem;">
-                            <input type="checkbox" id="defectForceArrowDir"> ↗ 화살표 방향 지정
-                        </label>
-                        <label class="form-label">지정 방향</label>
                         <div class="arrow-octant-grid disabled" id="defectArrowOctantGrid" role="group" aria-label="화살표 지정 방향">
                             <button type="button" class="arrow-octant-btn" data-octant="5" title="북서" aria-label="북서">↖</button>
                             <button type="button" class="arrow-octant-btn" data-octant="6" title="북" aria-label="북">↑</button>
@@ -656,15 +650,28 @@
                     </div>
                 </form>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-danger-outline" id="btnDeleteDefect"><i class="fa-solid fa-trash"></i> 삭제</button>
-                <div>
-                    <button class="btn btn-outline" id="btnCancelDefect">취소</button>
-                    <button class="btn btn-outline" id="btnAddAnotherMarking" style="border-color:#0284c7; color:#0284c7;" title="같은 결함 정보를 유지한 채 위치만 바꿔서 계속 마킹합니다">
-                        <i class="fa-solid fa-location-dot"></i> 저장 후 같은 결함 계속 마킹
-                    </button>
-                    <button class="btn btn-primary" id="btnSaveDefect"><i class="fa-solid fa-check"></i> 저장</button>
-                </div>
+            <div class="modal-footer defect-drawer-footer defect-drawer-footer-desktop">
+                <button class="btn btn-danger-outline" id="btnDeleteDefect" title="이 결함 삭제"><i class="fa-solid fa-trash"></i></button>
+                <button class="btn btn-outline" id="btnAddAnotherMarking" title="같은 정보로 다른 위치에 계속 마킹">
+                    <i class="fa-solid fa-location-dot"></i> 계속 마킹
+                </button>
+                <button class="btn btn-primary" id="btnSaveDefect"><i class="fa-solid fa-check"></i> 닫기</button>
+                <button class="btn btn-outline" id="btnCancelDefect" style="display:none;">취소</button>
+            </div>
+            <!-- 모바일 전용 하단 액션 (큰 터치 버튼) -->
+            <div class="defect-mobile-actions" id="defectMobileActions" aria-label="모바일 결함 작업">
+                <button type="button" class="defect-mobile-btn danger" id="btnDeleteDefectMobile">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>삭제</span>
+                </button>
+                <button type="button" class="defect-mobile-btn secondary" id="btnAddAnotherMarkingMobile">
+                    <i class="fa-solid fa-location-dot"></i>
+                    <span>계속 마킹</span>
+                </button>
+                <button type="button" class="defect-mobile-btn primary" id="btnSaveDefectMobile">
+                    <i class="fa-solid fa-check"></i>
+                    <span>닫기</span>
+                </button>
             </div>
         </div>
     </div>

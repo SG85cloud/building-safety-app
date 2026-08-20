@@ -1538,6 +1538,15 @@ body {
     transform: translateX(100%);
     transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
     animation: none;
+    display: flex;
+    flex-direction: column;
+}
+
+#defectModal .defect-drawer-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 #defectModal.open .defect-drawer-card {
@@ -1545,11 +1554,155 @@ body {
 }
 
 @media (max-width: 768px) {
-    #defectModal .defect-drawer-card {
-        width: min(100vw, 430px);
-        max-width: 100vw;
-        border-radius: 0;
+    #defectModal.modal-drawer-overlay {
+        align-items: flex-end;
+        justify-content: stretch;
     }
+
+    #defectModal .defect-drawer-card {
+        width: 100vw;
+        max-width: 100vw;
+        height: min(78vh, 100%);
+        max-height: 78vh;
+        border-radius: 16px 16px 0 0;
+        transform: translateY(110%);
+    }
+
+    #defectModal.open .defect-drawer-card {
+        transform: translateY(0);
+    }
+
+    .defect-drawer-footer-desktop {
+        display: none !important;
+    }
+
+    .defect-mobile-actions {
+        display: grid;
+        grid-template-columns: 1fr 1.35fr 1fr;
+        gap: 0.45rem;
+        padding: 0.55rem 0.7rem calc(0.55rem + env(safe-area-inset-bottom, 0px));
+        border-top: 1px solid var(--border-color);
+        background: rgba(15, 23, 42, 0.96);
+        flex-shrink: 0;
+    }
+
+    .defect-mobile-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.2rem;
+        min-height: 3.35rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-card);
+        color: var(--text-secondary);
+        font-size: 0.72rem;
+        font-weight: 800;
+        cursor: pointer;
+        padding: 0.35rem 0.25rem;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .defect-mobile-btn i {
+        font-size: 1.05rem;
+    }
+
+    .defect-mobile-btn.primary {
+        background: linear-gradient(135deg, #0284c7, #0369a1);
+        border-color: #38bdf8;
+        color: #fff;
+    }
+
+    .defect-mobile-btn.secondary {
+        border-color: rgba(2, 132, 199, 0.55);
+        color: #7dd3fc;
+        background: rgba(2, 132, 199, 0.12);
+    }
+
+    .defect-mobile-btn.danger {
+        border-color: rgba(239, 68, 68, 0.5);
+        color: #fca5a5;
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    /* 모바일: 상단 모드 버튼은 숨기고 하단 FAB 사용 */
+    .canvas-top-toolbar .toolbar-mode-group {
+        display: none;
+    }
+
+    .mobile-map-fab {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 0.35rem;
+        position: sticky;
+        bottom: 0;
+        z-index: 30;
+        margin-top: 0.45rem;
+        padding: 0.45rem 0.4rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
+        background: rgba(15, 23, 42, 0.94);
+        border: 1px solid var(--border-highlight);
+        border-radius: 14px;
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
+        backdrop-filter: blur(10px);
+    }
+
+    .mobile-fab-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.18rem;
+        min-height: 3.4rem;
+        border-radius: 12px;
+        border: 1px solid var(--border-color);
+        background: var(--bg-card);
+        color: var(--text-secondary);
+        font-size: 0.68rem;
+        font-weight: 800;
+        cursor: pointer;
+        padding: 0.3rem 0.15rem;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .mobile-fab-btn i {
+        font-size: 1.05rem;
+    }
+
+    .mobile-fab-btn.active {
+        border-color: #38bdf8;
+        color: #e0f2fe;
+        background: rgba(56, 189, 248, 0.2);
+        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+    }
+
+    .mobile-fab-btn.mobile-fab-mark.active {
+        border-color: #f87171;
+        background: rgba(248, 113, 113, 0.18);
+        color: #fecaca;
+    }
+
+    .mobile-fab-btn.mobile-fab-area.active {
+        border-color: #fb923c;
+        background: rgba(251, 146, 60, 0.18);
+        color: #fed7aa;
+    }
+
+    body.defect-modal-open .mobile-map-fab {
+        display: none;
+    }
+
+    #canvasContainer {
+        min-height: 48vh;
+    }
+}
+
+.defect-mobile-actions {
+    display: none;
+}
+
+.mobile-map-fab {
+    display: none;
 }
 
 .defect-combo-sub {
@@ -1560,7 +1713,137 @@ body {
 }
 
 .defect-combo-input {
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.28rem;
+}
+
+.defect-combo-select {
+    font-size: 0.82rem;
+}
+
+.defect-drawer-header {
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.defect-drawer-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.defect-drawer-title-wrap h3 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+.defect-autosave-badge {
+    flex-shrink: 0;
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: #4ade80;
+    background: rgba(74, 222, 128, 0.12);
+    border: 1px solid rgba(74, 222, 128, 0.35);
+    border-radius: 999px;
+    padding: 0.12rem 0.5rem;
+}
+
+.defect-autosave-badge.is-saving {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border-color: rgba(56, 189, 248, 0.35);
+}
+
+.defect-form-compact .form-group {
+    margin-bottom: 0.65rem;
+}
+
+.defect-form-compact .form-label {
+    margin-bottom: 0.28rem;
+    font-size: 0.78rem;
+}
+
+.defect-form-compact .form-control,
+.defect-form-compact .form-select {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.88rem;
+}
+
+.defect-speech-btn {
+    border-color: #38bdf8 !important;
+    color: #38bdf8 !important;
+    font-size: 0.72rem !important;
+    padding: 0.08rem 0.45rem !important;
+}
+
+.defect-flag-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0.2rem 0 0.75rem;
+}
+
+.defect-flag-grid .checkbox-chip {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    padding: 0.32rem 0.55rem;
+    background: var(--bg-primary);
+}
+
+.defect-photo-actions {
+    display: flex;
+    gap: 0.45rem;
+    margin-bottom: 0.45rem;
+}
+
+.defect-photo-btn-primary {
+    flex: 1;
+    background: linear-gradient(135deg, #0284c7, #0369a1);
+    color: #fff;
+    font-weight: 700;
+    padding: 0.55rem 0.4rem;
+    border-radius: 8px;
+    border: 1px solid #38bdf8;
+    font-size: 0.84rem;
+}
+
+.defect-photo-btn-secondary {
+    flex: 1;
+    background: rgba(255,255,255,0.08);
+    color: #38bdf8;
+    border: 1px solid rgba(56,189,248,0.4);
+    font-weight: 700;
+    padding: 0.55rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.84rem;
+}
+
+.defect-drawer-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    justify-content: stretch;
+}
+
+.defect-drawer-footer #btnDeleteDefect {
+    flex: 0 0 auto;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+}
+
+.defect-drawer-footer #btnAddAnotherMarking {
+    flex: 1;
+    border-color: #0284c7;
+    color: #0284c7;
+    font-size: 0.82rem;
+}
+
+.defect-drawer-footer #btnSaveDefect {
+    flex: 0 0 auto;
+    min-width: 5.5rem;
 }
 
 .arrow-octant-grid {

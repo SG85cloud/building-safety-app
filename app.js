@@ -2122,6 +2122,26 @@ document.addEventListener('DOMContentLoaded', () => {
         return m ? m[1] : (rawText || '');
     }
 
+    // 결함 종류 미입력 = 도면 기본 마킹(빈 원 + 숫자만)
+    function isUnsetDefect(defect) {
+        return !defect || !String(defect.defectType || '').trim();
+    }
+
+    function getDefectPinShapeCfg(defect, styleKey) {
+        if (isUnsetDefect(defect)) {
+            return { shape: 'circle', fill: false, numberFormat: 'plain' };
+        }
+        return getStyleShape(styleKey);
+    }
+
+    function formatDefectPinLabel(defect, styleKey) {
+        const shapeCfg = getDefectPinShapeCfg(defect, styleKey);
+        const raw = defect.groupNo || defect.no || 'NO.01';
+        if (shapeCfg.numberFormat !== 'plain') return raw;
+        const m = String(raw).match(/(\d+)/);
+        return m ? m[1] : raw;
+    }
+
     // NDT 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
     function getNdtStyleKey(cat) {
         if (cat === '부재변위') return 'ndtMemberDisp';
@@ -5703,103 +5723,157 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 영역(면적) 형태 결함 렌더링 — 화면 캔버스와 보고서 캔버스(drawPinSafe) 양쪽에서 공용으로 사용
+    // 번호 네모칸은 여기에 고정하지 않고, drawPin이 지시선으로 연결해 그린다.
     function drawAreaRect(ctx, defect, isPreview, forReport) {
         const x1 = Math.min(defect.areaX1, defect.areaX2);
         const y1 = Math.min(defect.areaY1, defect.areaY2);
         const x2 = Math.max(defect.areaX1, defect.areaX2);
         const y2 = Math.max(defect.areaY1, defect.areaY2);
-        const scale = getStyleSize(getDefectStyleKey(defect.category, defect.defectType)).pin;
         const isBeingDragged = (!isPreview && typeof activeDragPin !== 'undefined' && activeDragPin && activeDragPin.id === defect.id);
 
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(forReport)는 구분 없이 그대로 둠
         const isPrevRoundDefect = !forReport && isPreviousRoundDefect(defect);
-        const roundLineMul = isPrevRoundDefect ? 1.6 : 1.0;
+        const roundLineMul = isPrevRoundDefect ? 1.35 : 1.0;
         const mainColor = getDefectColor(defect);
         const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
 
         ctx.save();
-        ctx.globalAlpha = 0.35;
+        ctx.globalAlpha = 0.28;
         ctx.fillStyle = activeColor;
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
         ctx.globalAlpha = 1;
         ctx.strokeStyle = activeColor;
-        ctx.lineWidth = (isBeingDragged ? 3 : 2.5) * roundLineMul;
-        if (isPreview) ctx.setLineDash([6, 4]);
+        // 영역 테두리는 얇게 — 지시선이 꼽히는 윤곽만 보이게
+        ctx.lineWidth = (isBeingDragged ? 1.6 : 1.1) * roundLineMul;
+        if (isPreview) ctx.setLineDash([5, 4]);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.restore();
+    }
 
-        if (!isPreview) {
-            // 좌상단 모서리에 결함번호 라벨 박스 표시 (핀 박스와 동일한 스타일)
-            // 화면(forReport 없음)에서만: 사용자가 도면 회전 버튼으로 돌린 state.rotationAngle을 역회전해서
-            // 화면 기준 항상 수평으로 보이게 한다. 보고서(forReport)에서는 일부러 역회전하지 않는다 —
-            // 결함번호/범례가 도면(제목 라벨과 동일)과 한 덩어리로 함께 회전되도록 둔다.
-            ctx.save();
-            ctx.translate(x1, y1);
-            if (!forReport) {
-                const boxRot = state.rotationAngle || 0;
-                if (boxRot === 90) {
-                    ctx.rotate((-90 * Math.PI) / 180);
-                } else if (boxRot === 180) {
-                    ctx.rotate((-180 * Math.PI) / 180);
-                } else if (boxRot === 270) {
-                    ctx.rotate((-270 * Math.PI) / 180);
-                }
-            }
-            const areaStyleKey = getDefectStyleKey(defect.category, defect.defectType);
-            const areaShapeCfg = getStyleShape(areaStyleKey);
-            const areaLabel = formatPinNumberLabel(defect.no || 'NO.01', areaStyleKey);
-            const { w, h } = measurePinBoxDimensions(ctx, areaLabel, scale, roundLineMul);
-            ctx.translate(w / 2, -h / 2); // 박스 중심으로 원점 이동(모양 경로가 중심 기준이므로)
-            paintPinBox(ctx, w, h, areaShapeCfg, activeColor, scale, roundLineMul, isBeingDragged);
-            ctx.fillStyle = getPinBoxTextColor(activeColor, areaShapeCfg, isBeingDragged);
-            ctx.font = `bold ${getPinBoxFontSize(scale)}px sans-serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(areaLabel, 0, 0);
+    // 바깥 점(from)에서 목표점(to) 방향으로 직사각형 테두리에 처음 닿는 점 — 영역 내부를 관통하지 않음
+    function getRectBorderAttachPoint(fromX, fromY, toX, toY, areaX1, areaY1, areaX2, areaY2) {
+        const x1 = Math.min(areaX1, areaX2);
+        const y1 = Math.min(areaY1, areaY2);
+        const x2 = Math.max(areaX1, areaX2);
+        const y2 = Math.max(areaY1, areaY2);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
+        let aimX = (toX === undefined || toX === null || Number.isNaN(Number(toX))) ? cx : Number(toX);
+        let aimY = (toY === undefined || toY === null || Number.isNaN(Number(toY))) ? cy : Number(toY);
 
-            // 중요 결함(⭐)은 결함위치도(도면)에서만 눈에 띄게 강조 표시. 보고서(forReport)는 그대로 둠.
-            if (defect.isBookmark && !forReport) {
-                const starX = w / 2;
-                const starY = -h / 2;
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(starX, starY, 8 * scale, 0, Math.PI * 2);
-                ctx.fillStyle = '#facc15';
-                ctx.strokeStyle = '#b45309';
-                ctx.lineWidth = 1.5;
-                ctx.fill();
-                ctx.stroke();
-                ctx.fillStyle = '#7c2d12';
-                ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('★', starX, starY + 0.5);
-                ctx.restore();
-            }
-
-            // 중점관리 대상(◆)은 중요 결함(⭐)과 반대쪽(좌상단)에 다른 색으로 표시 — 결함위치도(도면)에서만.
-            if (defect.isPriorityManage && !forReport) {
-                const diaX = -w / 2;
-                const diaY = -h / 2;
-                const priorityColor = getStyleColor('priorityManage');
-                ctx.save();
-                ctx.beginPath();
-                ctx.arc(diaX, diaY, 8 * scale, 0, Math.PI * 2);
-                ctx.fillStyle = priorityColor;
-                ctx.strokeStyle = darkenHexColor(priorityColor, 0.25);
-                ctx.lineWidth = 1.5;
-                ctx.fill();
-                ctx.stroke();
-                ctx.fillStyle = '#ffffff';
-                ctx.font = `bold ${Math.round(11 * scale)}px sans-serif`;
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('◆', diaX, diaY + 0.5);
-                ctx.restore();
-            }
-
-            ctx.restore();
+        const eps = 1e-6;
+        let dx = aimX - fromX;
+        let dy = aimY - fromY;
+        if (Math.abs(dx) < eps && Math.abs(dy) < eps) {
+            dx = cx - fromX;
+            dy = cy - fromY;
         }
+        if (Math.abs(dx) < eps && Math.abs(dy) < eps) {
+            return { x: cx, y: y1 };
+        }
+
+        const insideFrom = fromX >= x1 - eps && fromX <= x2 + eps && fromY >= y1 - eps && fromY <= y2 + eps;
+        if (insideFrom) {
+            // 번호칸이 영역 안이면 가장 가까운 변으로 투영
+            const dl = Math.abs(fromX - x1);
+            const dr = Math.abs(x2 - fromX);
+            const dt = Math.abs(fromY - y1);
+            const db = Math.abs(y2 - fromY);
+            const m = Math.min(dl, dr, dt, db);
+            if (m === dl) return { x: x1, y: Math.min(y2, Math.max(y1, fromY)) };
+            if (m === dr) return { x: x2, y: Math.min(y2, Math.max(y1, fromY)) };
+            if (m === dt) return { x: Math.min(x2, Math.max(x1, fromX)), y: y1 };
+            return { x: Math.min(x2, Math.max(x1, fromX)), y: y2 };
+        }
+
+        const hits = [];
+        const pushHit = (t, x, y) => {
+            if (t > eps && t <= 1 + eps) hits.push({ t, x, y });
+        };
+        // 선분 from→aim 을 충분히 연장해 테두리 교차점 중 from에 가장 가까운 것 선택
+        const farScale = 50;
+        const endX = fromX + dx * farScale;
+        const endY = fromY + dy * farScale;
+        const segDx = endX - fromX;
+        const segDy = endY - fromY;
+
+        if (Math.abs(segDx) > eps) {
+            let t = (x1 - fromX) / segDx;
+            let y = fromY + t * segDy;
+            if (y >= y1 - eps && y <= y2 + eps) pushHit(t, x1, Math.min(y2, Math.max(y1, y)));
+            t = (x2 - fromX) / segDx;
+            y = fromY + t * segDy;
+            if (y >= y1 - eps && y <= y2 + eps) pushHit(t, x2, Math.min(y2, Math.max(y1, y)));
+        }
+        if (Math.abs(segDy) > eps) {
+            let t = (y1 - fromY) / segDy;
+            let x = fromX + t * segDx;
+            if (x >= x1 - eps && x <= x2 + eps) pushHit(t, Math.min(x2, Math.max(x1, x)), y1);
+            t = (y2 - fromY) / segDy;
+            x = fromX + t * segDx;
+            if (x >= x1 - eps && x <= x2 + eps) pushHit(t, Math.min(x2, Math.max(x1, x)), y2);
+        }
+
+        if (!hits.length) return { x: cx, y: y1 };
+        hits.sort((a, b) => a.t - b.t);
+        return { x: hits[0].x, y: hits[0].y };
+    }
+
+    function projectPointToRectBorder(px, py, areaX1, areaY1, areaX2, areaY2) {
+        const x1 = Math.min(areaX1, areaX2);
+        const y1 = Math.min(areaY1, areaY2);
+        const x2 = Math.max(areaX1, areaX2);
+        const y2 = Math.max(areaY1, areaY2);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
+        const inside = px > x1 && px < x2 && py > y1 && py < y2;
+        if (!inside) {
+            // 바깥이면 중심 쪽으로 끌어 테두리에 붙임
+            return getRectBorderAttachPoint(px, py, cx, cy, x1, y1, x2, y2);
+        }
+        const dl = px - x1;
+        const dr = x2 - px;
+        const dt = py - y1;
+        const db = y2 - py;
+        const m = Math.min(dl, dr, dt, db);
+        if (m === dl) return { x: x1, y: py };
+        if (m === dr) return { x: x2, y: py };
+        if (m === dt) return { x: px, y: y1 };
+        return { x: px, y: y2 };
+    }
+
+    // 구버전 영역 마킹(번호가 좌상단 고정, tip 없음)을 일반 핀처럼 지시선 연결 좌표로 보정
+    function ensureAreaPinPlacement(defect) {
+        if (!defect || defect.shapeType !== 'area' || defect.areaX1 === undefined) return;
+        const x1 = Math.min(defect.areaX1, defect.areaX2);
+        const y1 = Math.min(defect.areaY1, defect.areaY2);
+        const x2 = Math.max(defect.areaX1, defect.areaX2);
+        const y2 = Math.max(defect.areaY1, defect.areaY2);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
+        const styleKey = getDefectStyleKey(defect.category, defect.defectType);
+        const label = formatDefectPinLabel(defect, styleKey);
+        const scale = getStyleSize(styleKey).pin;
+
+        const atLegacyCorner = Math.abs((defect.x ?? x1) - x1) < 2 && Math.abs((defect.y ?? y1) - y1) < 2;
+        const atLegacyCenter = Math.abs((defect.targetX ?? 0) - cx) < 2
+            && Math.abs((defect.targetY ?? 0) - cy) < 2;
+        const needsTip = defect.targetX === undefined || defect.targetY === undefined
+            || Number.isNaN(Number(defect.targetX)) || Number.isNaN(Number(defect.targetY));
+        const needsBox = defect.x === undefined || defect.y === undefined
+            || ((needsTip || atLegacyCenter) && atLegacyCorner);
+
+        if (needsBox) {
+            const provX = (needsTip || atLegacyCenter) ? cx : defect.targetX;
+            const provY = (needsTip || atLegacyCenter) ? y1 : defect.targetY;
+            const pos = computePinBoxAboveTarget(provX, provY, label, scale, state.ctx, 1);
+            defect.x = pos.boxX;
+            defect.y = pos.boxY;
+        }
+
+        const attach = getRectBorderAttachPoint(defect.x, defect.y, cx, cy, x1, y1, x2, y2);
+        defect.targetX = attach.x;
+        defect.targetY = attach.y;
     }
 
     // defects를 groupId 기준으로 묶어서 그룹당 한 번만 drawFn(ctx, 대표결함, arrows)을 호출한다.
@@ -5832,7 +5906,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawPin(ctx, defect, arrows) {
         if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
             drawAreaRect(ctx, defect, false);
-            return;
+            ensureAreaPinPlacement(defect);
+            // 번호칸·지시선은 아래 일반 핀 로직으로 이어서 그림
         }
         const boxX = defect.x || 100;
         const boxY = defect.y || 100;
@@ -5845,7 +5920,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Category Theme Color: 사용자 지정 색상(styleColors) 우선, 없으면 기본값
         const defectStyleKey = getDefectStyleKey(defect.category, defect.defectType);
         const mainColor = getDefectColor(defect);
-        const shapeCfg = getStyleShape(defectStyleKey);
+        const shapeCfg = getDefectPinShapeCfg(defect, defectStyleKey);
+        const useCircleTip = isUnsetDefect(defect) || state.tipShape === 'circle';
 
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(drawPinSafe)는 구분 없이 그대로 둠
         const isPrevRoundDefect = isPreviousRoundDefect(defect);
@@ -5856,20 +5932,34 @@ document.addEventListener('DOMContentLoaded', () => {
             ? arrows
             : (defect.targetX !== undefined && defect.targetY !== undefined ? [{ targetX: defect.targetX, targetY: defect.targetY }] : []);
 
-        const pinLabel = formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', defectStyleKey);
+        const pinLabel = formatDefectPinLabel(defect, defectStyleKey);
         const { w, h } = measurePinBoxDimensions(ctx, pinLabel, scale, roundLineMul);
 
         // Leader Line & Arrow Tip Rendering — 실선, 마킹과 가장 가까운 박스 모서리에서 시작
+        // 영역 마킹: 테두리에만 선이 꼽히고 내부/화살표 관통은 없음
+        const isAreaDefect = defect.shapeType === 'area' && defect.areaX1 !== undefined;
         targets.forEach(t => {
             if (t.targetX === undefined || t.targetY === undefined) return;
-            const targetX = t.targetX;
-            const targetY = t.targetY;
+            let targetX = t.targetX;
+            let targetY = t.targetY;
+            if (isAreaDefect) {
+                const ax1 = Math.min(defect.areaX1, defect.areaX2);
+                const ay1 = Math.min(defect.areaY1, defect.areaY2);
+                const ax2 = Math.max(defect.areaX1, defect.areaX2);
+                const ay2 = Math.max(defect.areaY1, defect.areaY2);
+                const attach = getRectBorderAttachPoint(
+                    boxX, boxY, (ax1 + ax2) / 2, (ay1 + ay2) / 2,
+                    defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
+                );
+                targetX = attach.x;
+                targetY = attach.y;
+            }
             const anchor = getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, w, h, state.rotationAngle || 0);
             const headLen = (isBeingDragged ? 13 : 10) * arrowScale;
-            const stemInset = state.tipShape === 'circle'
+            const stemInset = useCircleTip
                 ? (isBeingDragged ? 6 : 4.5) * arrowScale
                 : headLen * Math.cos(Math.PI / 6);
-            const forcedDir = resolveForcedArrowDirection(t, defect);
+            const forcedDir = isAreaDefect ? { enabled: false } : resolveForcedArrowDirection(t, defect);
             const leader = forcedDir.enabled
                 ? buildForcedLeaderRoute(
                     { x: targetX, y: targetY },
@@ -5887,8 +5977,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 : (() => {
                     const ux = targetX - anchor.x;
                     const uy = targetY - anchor.y;
-                    const tipBack = stemInset;
-                    const stemEnd = getArrowStemEndPoint(targetX, targetY, ux, uy, tipBack);
+                    // 영역은 화살촉 inset 없이 테두리까지 직선
+                    const tipBack = isAreaDefect ? 0 : stemInset;
+                    const stemEnd = tipBack > 0
+                        ? getArrowStemEndPoint(targetX, targetY, ux, uy, tipBack)
+                        : { x: targetX, y: targetY };
                     return { route: [anchor, stemEnd], ux, uy };
                 })();
 
@@ -5902,21 +5995,24 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.setLineDash([]);
             ctx.stroke();
 
-            ctx.fillStyle = activeColor;
-            if (state.tipShape === 'circle') {
-                ctx.beginPath();
-                ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4.5) * arrowScale, 0, Math.PI * 2);
-                ctx.fill();
-            } else {
-                const angle = Math.atan2(leader.uy, leader.ux);
-                const arrowLen = headLen;
+            // 영역 마킹은 화살표 머리 없이 테두리에 선만 꽂음
+            if (!isAreaDefect) {
+                ctx.fillStyle = activeColor;
+                if (useCircleTip) {
+                    ctx.beginPath();
+                    ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4.5) * arrowScale, 0, Math.PI * 2);
+                    ctx.fill();
+                } else {
+                    const angle = Math.atan2(leader.uy, leader.ux);
+                    const arrowLen = headLen;
 
-                ctx.beginPath();
-                ctx.moveTo(targetX, targetY);
-                ctx.lineTo(targetX - arrowLen * Math.cos(angle - Math.PI / 6), targetY - arrowLen * Math.sin(angle - Math.PI / 6));
-                ctx.lineTo(targetX - arrowLen * Math.cos(angle + Math.PI / 6), targetY - arrowLen * Math.sin(angle + Math.PI / 6));
-                ctx.closePath();
-                ctx.fill();
+                    ctx.beginPath();
+                    ctx.moveTo(targetX, targetY);
+                    ctx.lineTo(targetX - arrowLen * Math.cos(angle - Math.PI / 6), targetY - arrowLen * Math.sin(angle - Math.PI / 6));
+                    ctx.lineTo(targetX - arrowLen * Math.cos(angle + Math.PI / 6), targetY - arrowLen * Math.sin(angle + Math.PI / 6));
+                    ctx.closePath();
+                    ctx.fill();
+                }
             }
             ctx.restore();
         });
@@ -6066,6 +6162,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!v) return;
                 ensureDefectComboOption(select, v);
                 if (onChange) onChange(v);
+                if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
             });
         });
     }
@@ -6085,7 +6182,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const presetList = (DEFECT_COMPONENT_PRESET[cat] || DEFECT_COMPONENT_PRESET['구조체']).filter(c => !hidden.includes(c));
         const customList = window.state.customDefectComponents[cat];
 
-        let html = '';
+        let html = `<option value="" ${!currentVal ? 'selected' : ''}>—</option>`;
         presetList.forEach(item => {
             const label = item === '기타' ? '기타 부재' : item;
             const sel = (currentVal && currentVal === item) ? 'selected' : '';
@@ -6110,7 +6207,9 @@ document.addEventListener('DOMContentLoaded', () => {
             select.insertBefore(customOpt, select.lastElementChild);
         }
 
-        const resolved = currentVal || (isDefectComboCustomToken(select.value) ? '' : select.value);
+        const resolved = (currentVal !== null && currentVal !== undefined)
+            ? currentVal
+            : (isDefectComboCustomToken(select.value) ? '' : select.value);
         syncDefectComboFields(select, document.getElementById('defectComponentInput'), resolved);
     }
 
@@ -6159,7 +6258,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const presetList = (categoryDefectPreset[category] || categoryDefectPreset['구조체']).filter(t => !hidden.includes(t));
         const customList = window.state.customDefectTypes[category] || [];
 
-        let html = '';
+        let html = `<option value="" ${!currentVal ? 'selected' : ''}>—</option>`;
         presetList.forEach(item => {
             const sel = (currentVal && currentVal === item) ? 'selected' : '';
             html += `<option value="${item}" ${sel}>${item}</option>`;
@@ -6183,11 +6282,13 @@ document.addEventListener('DOMContentLoaded', () => {
             select.insertBefore(customOpt, select.lastElementChild);
         }
 
-        const resolved = currentVal || (isDefectComboCustomToken(select.value) ? '' : select.value);
+        const resolved = (currentVal !== null && currentVal !== undefined)
+            ? currentVal
+            : (isDefectComboCustomToken(select.value) ? '' : select.value);
         syncDefectComboFields(select, document.getElementById('defectTypeInput'), resolved);
 
         // Trigger cause update for current defect type
-        updateDefectCauseDropdown(resolved || select.value);
+        updateDefectCauseDropdown(resolved);
         toggleDefectSizeInputMode();
     }
 
@@ -6197,7 +6298,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function toggleDefectSizeInputMode() {
         const typeSelect = document.getElementById('defectType');
         const typeInput = document.getElementById('defectTypeInput');
-        const dType = getDefectComboValue(typeSelect, typeInput) || '균열';
+        const dType = getDefectComboValue(typeSelect, typeInput) || '';
         const isCrack = dType === '균열';
         const isGood = dType === '상태양호';
         const crackGroup = document.getElementById('defectCrackSizeGroup');
@@ -6207,8 +6308,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (crackGroup) crackGroup.style.display = (isCrack && !isGood) ? '' : 'none';
         if (freeLabel) {
             freeLabel.textContent = isCrack
-                ? '규모 및 상태 (직접 입력 — 아래 균열폭/길이 칸을 대신 써도 됩니다)'
-                : '규모 및 상태 (수치 입력) *';
+                ? '규모 및 상태 (균열폭/길이도 가능)'
+                : '규모 및 상태';
         }
         if (sizeGroup) sizeGroup.style.display = isGood ? 'none' : '';
         if (causeGroup) causeGroup.style.display = isGood ? 'none' : '';
@@ -6248,12 +6349,18 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (!window.state.hiddenDefectCauses) window.state.hiddenDefectCauses = {};
 
+        if (!defectType || !String(defectType).trim()) {
+            select.innerHTML = `<option value="" selected>—</option><option value="__ADD_CUSTOM_CAUSE__">➕ [결함 원인 직접 추가...]</option>`;
+            syncDefectComboFields(select, document.getElementById('defectCauseInput'), '');
+            return;
+        }
+
         const key = getCauseKey(defectType);
         const hidden = window.state.hiddenDefectCauses[key] || [];
         const presetList = (defectCausePreset[key] || ['건조수축', '내력부족', '건축물 부등침하', '시공불량', '방수층 파손', '자연 노후화', '기타']).filter(c => !hidden.includes(c));
         const customList = window.state.customDefectCauses[key] || [];
 
-        let html = '';
+        let html = `<option value="" ${!currentVal ? 'selected' : ''}>—</option>`;
         presetList.forEach(item => {
             const sel = (currentVal && currentVal === item) ? 'selected' : '';
             html += `<option value="${item}" ${sel}>${item}</option>`;
@@ -6277,7 +6384,9 @@ document.addEventListener('DOMContentLoaded', () => {
             select.insertBefore(customOpt, select.lastElementChild);
         }
 
-        const resolved = currentVal || (isDefectComboCustomToken(select.value) ? '' : select.value);
+        const resolved = (currentVal !== null && currentVal !== undefined)
+            ? currentVal
+            : (isDefectComboCustomToken(select.value) ? '' : select.value);
         syncDefectComboFields(select, document.getElementById('defectCauseInput'), resolved);
     }
 
@@ -6404,6 +6513,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.toggle('selected', parseInt(btn.dataset.octant, 10) === v);
             btn.setAttribute('aria-pressed', parseInt(btn.dataset.octant, 10) === v ? 'true' : 'false');
         });
+        if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
     }
 
     function syncDefectArrowDirUi() {
@@ -6414,6 +6524,7 @@ document.addEventListener('DOMContentLoaded', () => {
             grid.classList.toggle('disabled', !enabled);
             grid.querySelectorAll('.arrow-octant-btn').forEach(btn => { btn.disabled = !enabled; });
         }
+        if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
     }
 
     function bindDefectArrowOctantGrid() {
@@ -7020,14 +7131,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (window._pendingAreaRect) {
             const r = window._pendingAreaRect;
-            drawAreaRect(ctx, {
-                areaX1: r.x1,
-                areaY1: r.y1,
-                areaX2: r.x2,
-                areaY2: r.y2,
-                category,
-                no
-            }, false);
+            const pending = window._pendingPinCoords || {};
+        drawPin(ctx, {
+            shapeType: 'area',
+            areaX1: r.x1,
+            areaY1: r.y1,
+            areaX2: r.x2,
+            areaY2: r.y2,
+            no,
+            category,
+            defectType: getDefectComboValue(document.getElementById('defectType'), document.getElementById('defectTypeInput')) || '',
+            x: pending.x,
+            y: pending.y,
+            targetX: pending.targetX,
+            targetY: pending.targetY,
+            forceArrowDir,
+            arrowOctant
+        });
             return;
         }
 
@@ -7036,6 +7156,7 @@ document.addEventListener('DOMContentLoaded', () => {
         drawPin(ctx, {
             no,
             category,
+            defectType: getDefectComboValue(document.getElementById('defectType'), document.getElementById('defectTypeInput')) || '',
             x: pending.x,
             y: pending.y,
             targetX: pending.targetX,
@@ -7073,8 +7194,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const scale = dSize.pin;
             const arrowScale = dSize.arrow;
 
-            // 0. Area(면적) 결함: 모서리/변(리사이즈) → 사각형 내부·번호 라벨(이동) 순으로 판정
+            // 0. Area(면적) 결함: 모서리/변(리사이즈) → 번호칸(BOX) → 화살표 끝(TIP) → 영역 이동
             if (d.shapeType === 'area' && d.areaX1 !== undefined) {
+                ensureAreaPinPlacement(d);
                 const pad = 10;
                 const x1 = Math.min(d.areaX1, d.areaX2);
                 const x2 = Math.max(d.areaX1, d.areaX2);
@@ -7114,21 +7236,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     return { defect: d, part: 'AREA_RESIZE', resizeXField: maxXField, resizeYField: null }; // RIGHT
                 }
 
-                // 사각형 내부 또는 번호 라벨 박스 클릭이면 전체 이동 대상으로 인식
+                // 번호 칸 / 화살표 끝 — 일반 결함과 동일하게 따로 이동 가능
+                const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
+                const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
+                const hitR = Math.hypot(boxDim.w / 2, boxDim.h / 2) + 3 * scale;
+                const bx = d.x || 100;
+                const by = d.y || 100;
+                if (Math.hypot(imgX - bx, imgY - by) <= hitR) {
+                    return { defect: d, part: 'BOX' };
+                }
+                if (d.targetX !== undefined && d.targetY !== undefined) {
+                    if (Math.hypot(imgX - d.targetX, imgY - d.targetY) <= 18 * arrowScale) {
+                        return { defect: d, part: 'TIP' };
+                    }
+                }
+
+                // 사각형 내부면 영역 전체 이동
                 const rx1 = x1 - pad;
                 const rx2 = x2 + pad;
                 const ry1 = y1 - pad;
                 const ry2 = y2 + pad;
                 const inRect = imgX >= rx1 && imgX <= rx2 && imgY >= ry1 && imgY <= ry2;
-
-                // 번호 라벨 박스는 좌상단 모서리 "바깥쪽"(위)에 그려지므로(drawAreaRect 참고)
-                // 사각형 히트 영역만으로는 라벨을 눌러서 드래그를 시작할 수 없었음 — 라벨 영역도 별도로 포함
-                const labelSize = getPinBoxDimensions(scale, d.no || 'NO.01', state.ctx);
-                const labelW = labelSize.w;
-                const labelH = labelSize.h;
-                const inLabel = imgX >= x1 - pad && imgX <= x1 + labelW + pad && imgY >= y1 - labelH - pad && imgY <= y1 + pad;
-
-                if (inRect || inLabel) {
+                if (inRect) {
                     return { defect: d, part: 'AREA_MOVE' };
                 }
                 continue;
@@ -7303,8 +7432,18 @@ document.addEventListener('DOMContentLoaded', () => {
             const currentImgY = coords.y;
 
             if (activeDragPart === 'TIP') {
-                activeDragPin.targetX = currentImgX;
-                activeDragPin.targetY = currentImgY;
+                if (activeDragPin.shapeType === 'area' && activeDragPin.areaX1 !== undefined) {
+                    const snapped = projectPointToRectBorder(
+                        currentImgX, currentImgY,
+                        activeDragPin.areaX1, activeDragPin.areaY1,
+                        activeDragPin.areaX2, activeDragPin.areaY2
+                    );
+                    activeDragPin.targetX = snapped.x;
+                    activeDragPin.targetY = snapped.y;
+                } else {
+                    activeDragPin.targetX = currentImgX;
+                    activeDragPin.targetY = currentImgY;
+                }
             } else if (activeDragPart === 'AREA_MOVE') {
                 const dx = currentImgX - areaMoveLastImgX;
                 const dy = currentImgY - areaMoveLastImgY;
@@ -7312,8 +7451,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeDragPin.areaY1 += dy;
                 activeDragPin.areaX2 += dx;
                 activeDragPin.areaY2 += dy;
-                activeDragPin.x = activeDragPin.areaX1;
-                activeDragPin.y = activeDragPin.areaY1;
+                // 지시선 끝점도 영역과 같이 이동 (번호칸은 제자리 유지)
+                if (activeDragPin.targetX !== undefined && activeDragPin.targetY !== undefined) {
+                    activeDragPin.targetX += dx;
+                    activeDragPin.targetY += dy;
+                }
                 areaMoveLastImgX = currentImgX;
                 areaMoveLastImgY = currentImgY;
             } else if (activeDragPart === 'AREA_RESIZE') {
@@ -7554,6 +7696,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window._defectMarkingTemplate = null;
         window._pendingPinCoords = null;
         window._pendingAreaRect = null;
+        document.body.classList.remove('defect-modal-open');
         if (elements.defectModal) {
             elements.defectModal.classList.remove('open');
             window.setTimeout(() => {
@@ -7566,6 +7709,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
+        window._defectFormHydrating = true;
+        window.clearTimeout(window._defectAutoApplyTimer);
+        window._defectAutoApplyTimer = null;
+
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         const defects = state.defects[key] || [];
 
@@ -7608,8 +7755,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             window._pendingPhotos = existingPin.photos || [];
             if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
+                ensureAreaPinPlacement(existingPin);
                 window._pendingAreaRect = { x1: existingPin.areaX1, y1: existingPin.areaY1, x2: existingPin.areaX2, y2: existingPin.areaY2 };
-                window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: undefined, targetY: undefined };
+                window._pendingPinCoords = {
+                    x: existingPin.x,
+                    y: existingPin.y,
+                    targetX: existingPin.targetX,
+                    targetY: existingPin.targetY
+                };
             } else {
                 window._pendingAreaRect = null;
                 window._pendingPinCoords = { x: existingPin.x, y: existingPin.y, targetX: existingPin.targetX, targetY: existingPin.targetY };
@@ -7626,11 +7779,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (noEl) noEl.value = (tmpl && tmpl.groupId) ? `${tmpl.groupNo}-${tmpl.chainIndex}` : defectNoStr;
             const defaultCat = (tmpl && tmpl.category) || '구조체';
             if (catEl) catEl.value = defaultCat;
-            updateDefectTypeDropdown(defaultCat, (tmpl && tmpl.defectType) || null);
-            updateDefectCauseDropdown((tmpl && tmpl.defectType) || '균열', (tmpl && tmpl.cause) || null);
-            const defaultComp = (tmpl && tmpl.component) || (DEFECT_COMPONENT_PRESET[defaultCat] || DEFECT_COMPONENT_PRESET['구조체'])[0];
-            populateDefectComponentDropdown(defaultCat, defaultComp);
+            updateDefectTypeDropdown(defaultCat, tmpl ? (tmpl.defectType || '') : '');
+            updateDefectCauseDropdown(tmpl ? (tmpl.defectType || '') : '', tmpl ? (tmpl.cause || '') : '');
+            populateDefectComponentDropdown(defaultCat, tmpl ? (tmpl.component || '') : '');
             if (carriedOverEl) carriedOverEl.checked = false;
+            if (locEl) locEl.value = (tmpl && tmpl.location) || '';
             if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
             const crackWidthElNew = document.getElementById('defectCrackWidth');
             const crackLengthElNew = document.getElementById('defectCrackLength');
@@ -7646,12 +7799,24 @@ document.addEventListener('DOMContentLoaded', () => {
             window._pendingPhotos = [];
 
             if (areaRect) {
-                // 영역(면적)으로 새로 등록하는 경우
-                if (locEl) {
+                if (locEl && !tmpl) {
                     locEl.value = '';
                 }
-                window._pendingAreaRect = { x1: areaRect.x1, y1: areaRect.y1, x2: areaRect.x2, y2: areaRect.y2 };
-                window._pendingPinCoords = { x: areaRect.x1, y: areaRect.y1, targetX: undefined, targetY: undefined };
+                const ax1 = Math.min(areaRect.x1, areaRect.x2);
+                const ay1 = Math.min(areaRect.y1, areaRect.y2);
+                const ax2 = Math.max(areaRect.x1, areaRect.x2);
+                const ay2 = Math.max(areaRect.y1, areaRect.y2);
+                const cx = (ax1 + ax2) / 2;
+                const cy = (ay1 + ay2) / 2;
+                const areaCat = (tmpl && tmpl.category) || document.getElementById('defectCategory')?.value || '구조체';
+                const areaNo = noEl?.value || 'NO.01';
+                const areaStyleKey = getDefectStyleKey(areaCat, tmpl ? (tmpl.defectType || '') : '');
+                const areaScale = getStyleSize(areaStyleKey).pin;
+                const areaLabel = formatDefectPinLabel({ no: areaNo, defectType: tmpl ? tmpl.defectType : '' }, areaStyleKey);
+                const boxPos = computePinBoxAboveTarget(cx, ay1, areaLabel, areaScale, state.ctx, 1);
+                const attach = getRectBorderAttachPoint(boxPos.boxX, boxPos.boxY, cx, cy, ax1, ay1, ax2, ay2);
+                window._pendingAreaRect = { x1: ax1, y1: ay1, x2: ax2, y2: ay2 };
+                window._pendingPinCoords = { x: boxPos.boxX, y: boxPos.boxY, targetX: attach.x, targetY: attach.y };
             } else {
                 const tX = targetX !== undefined ? targetX : (boxX - 35);
                 const tY = targetY !== undefined ? targetY : (boxY + 35);
@@ -7680,14 +7845,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const titleEl = document.getElementById('defectModalTitle');
         if (titleEl) {
-            titleEl.textContent = existingPin ? '📍 결함 핀 수정' : '📍 결함 핀 상세 정보 등록';
+            titleEl.textContent = existingPin ? '📍 결함 핀 수정' : '📍 결함 핀 등록';
         }
+
+        window._defectPhotosDirty = false;
+        window._defectEditSessionHistoryPushed = !!existingPin ? false : true;
 
         if (elements.defectModal) {
             elements.defectModal.style.display = 'flex';
-            window.requestAnimationFrame(() => {
+            document.body.classList.add('defect-modal-open');
+            window.requestAnimationFrame(async () => {
                 if (elements.defectModal) elements.defectModal.classList.add('open');
+                // 신규 마킹은 모달을 여는 순간 바로 저장해, 저장 버튼 없이 도면에 확정한다
+                if (!existingPin) {
+                    const created = await commitDefectFromForm({ pushHistory: true, uploadPhotos: false });
+                    if (created) {
+                        const pinIdFresh = document.getElementById('defectPinId');
+                        if (pinIdFresh) pinIdFresh.value = created.id;
+                        window._defectEditSessionHistoryPushed = true;
+                    }
+                }
+                window._defectFormHydrating = false;
                 drawCanvas();
+                if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
             });
         }
     }
@@ -7717,7 +7897,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window._pendingPhotos && window._pendingPhotos[idx]) {
             window.openPhotoAnnotationModal(window._pendingPhotos[idx], (annotatedDataUrl) => {
                 window._pendingPhotos[idx] = annotatedDataUrl;
+                window._defectPhotosDirty = true;
                 renderPhotoPreviewList();
+                scheduleDefectAutoApply();
             });
         }
     };
@@ -7725,7 +7907,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.removePendingPhoto = function(idx) {
         if (window._pendingPhotos) {
             window._pendingPhotos.splice(idx, 1);
+            window._defectPhotosDirty = true;
             renderPhotoPreviewList();
+            scheduleDefectAutoApply();
         }
     };
 
@@ -7740,7 +7924,9 @@ document.addEventListener('DOMContentLoaded', () => {
         window.compressDefectPhoto43(file, 1000, 0.85).then(compressedUrl => {
             if (!window._pendingPhotos) window._pendingPhotos = [];
             window._pendingPhotos.push(compressedUrl);
+            window._defectPhotosDirty = true;
             renderPhotoPreviewList();
+            scheduleDefectAutoApply();
         });
     }
 
@@ -7958,11 +8144,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 결함 모달의 현재 입력값을 저장(신규 생성 또는 기존 결함 수정)하고 저장된 결함 객체를 반환
-    async function commitDefectFromForm() {
+    async function commitDefectFromForm(options = {}) {
+        const opts = (typeof options === 'object' && options) ? options : {};
+        const pushHistory = opts.pushHistory !== false;
+        const uploadPhotos = opts.uploadPhotos !== false;
         if (!state.currentBuildingId) return null;
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         if (!state.defects[key]) state.defects[key] = [];
-        pushDefectHistory();
+        if (pushHistory) pushDefectHistory();
 
         const pinId = document.getElementById('defectPinId').value;
         const coords = window._pendingPinCoords || { x: 200, y: 200, targetX: 165, targetY: 235 };
@@ -7970,16 +8159,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const compVal = getDefectComboValue(
             document.getElementById('defectComponent'),
             document.getElementById('defectComponentInput')
-        ) || '기둥';
+        ) || '';
         const dTypeVal = getDefectComboValue(
             document.getElementById('defectType'),
             document.getElementById('defectTypeInput')
-        ) || '균열';
+        ) || '';
         const causeVal = getDefectComboValue(
             document.getElementById('defectCause'),
             document.getElementById('defectCauseInput')
-        ) || '건조수축';
-        const locVal = document.getElementById('defectLocation')?.value || `${state.currentFloor} ${compVal}`;
+        ) || '';
+        const locVal = document.getElementById('defectLocation')?.value?.trim() || '';
         const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
@@ -8004,7 +8193,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].location = locVal;
                 state.defects[key][idx].defectType = dTypeVal;
                 state.defects[key][idx].cause = causeVal;
-                state.defects[key][idx].size = document.getElementById('defectSize')?.value || 'W=0.2mm';
+                state.defects[key][idx].size = document.getElementById('defectSize')?.value || '';
                 state.defects[key][idx].crackWidth = crackWidthVal;
                 state.defects[key][idx].crackLength = crackLengthVal;
                 state.defects[key][idx].isProgress = isProgress;
@@ -8034,7 +8223,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 location: locVal,
                 defectType: dTypeVal,
                 cause: causeVal,
-                size: document.getElementById('defectSize')?.value || 'W=0.2mm',
+                size: document.getElementById('defectSize')?.value || '',
                 crackWidth: crackWidthVal,
                 crackLength: crackLengthVal,
                 isProgress: isProgress,
@@ -8067,19 +8256,78 @@ document.addEventListener('DOMContentLoaded', () => {
             savedDefect = newDefect;
         }
 
-        if (savedDefect && photosVal.length > 0) {
+        if (uploadPhotos && savedDefect && photosVal.length > 0 && window._defectPhotosDirty) {
             await uploadDefectPhotos(savedDefect.id, photosVal);
+            window._defectPhotosDirty = false;
         }
 
         saveStateToLocalStorage();
         return savedDefect;
     }
 
+    function flashDefectAutosaveBadge(mode) {
+        const badge = document.getElementById('defectAutosaveBadge');
+        if (!badge) return;
+        if (mode === 'saving') {
+            badge.textContent = '적용 중…';
+            badge.classList.add('is-saving');
+            return;
+        }
+        badge.textContent = '자동 적용';
+        badge.classList.remove('is-saving');
+    }
+
+    function scheduleDefectAutoApply() {
+        if (window._defectFormHydrating) return;
+        if (!isDefectModalOpen()) return;
+        window.clearTimeout(window._defectAutoApplyTimer);
+        window._defectAutoApplyTimer = window.setTimeout(async () => {
+            if (window._defectFormHydrating || !isDefectModalOpen()) return;
+            flashDefectAutosaveBadge('saving');
+            const needHistory = !window._defectEditSessionHistoryPushed;
+            if (needHistory) window._defectEditSessionHistoryPushed = true;
+            const saved = await commitDefectFromForm({
+                pushHistory: needHistory,
+                uploadPhotos: !!window._defectPhotosDirty
+            });
+            if (saved) {
+                const pinIdEl = document.getElementById('defectPinId');
+                if (pinIdEl && !pinIdEl.value) pinIdEl.value = saved.id;
+            }
+            drawCanvas();
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+            if (typeof renderSurveyTable === 'function') renderSurveyTable();
+            flashDefectAutosaveBadge('done');
+        }, 180);
+    }
+
+    function bindDefectFormAutoApply() {
+        const form = document.getElementById('defectForm');
+        if (!form || form.dataset.autoApplyBound) return;
+        form.dataset.autoApplyBound = '1';
+        form.addEventListener('input', (e) => {
+            if (!e.target || e.target.closest?.('#defectArrowOctantGrid')) return;
+            scheduleDefectAutoApply();
+        });
+        form.addEventListener('change', () => scheduleDefectAutoApply());
+    }
+
+    bindDefectFormAutoApply();
+
     const btnSaveDefect = document.getElementById('btnSaveDefect');
     if (btnSaveDefect) {
         btnSaveDefect.addEventListener('click', async () => {
-            await commitDefectFromForm();
-            closeDefectModal(); // 일반 저장은 연속 마킹 종료로 간주 (closeDefectModal이 템플릿을 정리함)
+            // 이미 자동 적용되므로 닫기만 수행 (대기 중인 디바운스 저장 먼저 flush)
+            if (window._defectAutoApplyTimer) {
+                window.clearTimeout(window._defectAutoApplyTimer);
+                window._defectAutoApplyTimer = null;
+                await commitDefectFromForm({
+                    pushHistory: !window._defectEditSessionHistoryPushed,
+                    uploadPhotos: !!window._defectPhotosDirty
+                });
+                window._defectEditSessionHistoryPushed = true;
+            }
+            closeDefectModal();
             drawCanvas();
         });
     }
@@ -8088,7 +8336,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnAddAnotherMarking = document.getElementById('btnAddAnotherMarking');
     if (btnAddAnotherMarking) {
         btnAddAnotherMarking.addEventListener('click', async () => {
-            const saved = await commitDefectFromForm();
+            if (window._defectAutoApplyTimer) {
+                window.clearTimeout(window._defectAutoApplyTimer);
+                window._defectAutoApplyTimer = null;
+            }
+            const saved = await commitDefectFromForm({
+                pushHistory: !window._defectEditSessionHistoryPushed,
+                uploadPhotos: !!window._defectPhotosDirty
+            });
+            window._defectEditSessionHistoryPushed = true;
             closeDefectModal();
             if (saved) {
                 const isArea = saved.shapeType === 'area';
@@ -8173,6 +8429,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pan) pan.classList.toggle('active', mode === 'PAN');
         if (mark) mark.classList.toggle('active', mode === 'MARK');
         if (area) area.classList.toggle('active', mode === 'AREA');
+        // 모바일 하단 FAB도 동일 상태 동기화
+        document.querySelectorAll('#mobileMapFabBar .mobile-fab-btn[data-mode]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.mode === mode);
+        });
+        if (elements.planCanvas) {
+            elements.planCanvas.style.cursor = mode === 'MARK' || mode === 'AREA' ? 'crosshair' : 'grab';
+        }
     }
 
     const btnModePan = document.getElementById('btnModePan');
@@ -8183,6 +8446,36 @@ document.addEventListener('DOMContentLoaded', () => {
         btnModeMark.addEventListener('click', () => setDrawMode('MARK'));
         if (btnModeArea) btnModeArea.addEventListener('click', () => setDrawMode('AREA'));
     }
+
+    // 모바일 전용 하단 모드/도구 버튼
+    const mobileBtnModePan = document.getElementById('mobileBtnModePan');
+    const mobileBtnModeMark = document.getElementById('mobileBtnModeMark');
+    const mobileBtnModeArea = document.getElementById('mobileBtnModeArea');
+    if (mobileBtnModePan) mobileBtnModePan.addEventListener('click', () => setDrawMode('PAN'));
+    if (mobileBtnModeMark) mobileBtnModeMark.addEventListener('click', () => setDrawMode('MARK'));
+    if (mobileBtnModeArea) mobileBtnModeArea.addEventListener('click', () => setDrawMode('AREA'));
+    const mobileBtnZoomFit = document.getElementById('mobileBtnZoomFit');
+    if (mobileBtnZoomFit) {
+        mobileBtnZoomFit.addEventListener('click', () => {
+            document.getElementById('btnZoomFit')?.click();
+        });
+    }
+    const mobileBtnRotate = document.getElementById('mobileBtnRotate');
+    if (mobileBtnRotate) {
+        mobileBtnRotate.addEventListener('click', () => {
+            document.getElementById('btnRotateDrawing')?.click();
+        });
+    }
+
+    // 결함 모달 모바일 액션 → 데스크톱 버튼과 동일 동작
+    const proxyClick = (fromId, toId) => {
+        const from = document.getElementById(fromId);
+        const to = document.getElementById(toId);
+        if (from && to) from.addEventListener('click', () => to.click());
+    };
+    proxyClick('btnDeleteDefectMobile', 'btnDeleteDefect');
+    proxyClick('btnAddAnotherMarkingMobile', 'btnAddAnotherMarking');
+    proxyClick('btnSaveDefectMobile', 'btnSaveDefect');
 
     // 되돌리기 / 다시실행 / 전체초기화 (하단 아이콘 툴바)
     const btnUndoEl = document.getElementById('btnUndo');
@@ -8685,14 +8978,16 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
                 drawAreaRect(ctx, defect, false, true);
-                return;
+                ensureAreaPinPlacement(defect);
+                // 번호칸·지시선은 아래 일반 핀 로직으로 이어서 그림
             }
             const boxX = defect.x || 100;
             const boxY = defect.y || 100;
 
             const safeStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const color = getDefectColor(defect);
-            const safeShapeCfg = getStyleShape(safeStyleKey);
+            const safeShapeCfg = getDefectPinShapeCfg(defect, safeStyleKey);
+            const useCircleTipSafe = isUnsetDefect(defect) || state.tipShape === 'circle';
             // 스타일 설정(핀/화살표 크기)이 화면과 동일하게 보고서에도 반영되도록 — 기존엔 여기가 고정 크기였음
             const safeDefectSize = getStyleSize(safeStyleKey);
             const safeScale = safeDefectSize.pin;
@@ -8702,19 +8997,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 ? arrows
                 : (defect.targetX !== undefined && defect.targetY !== undefined ? [{ targetX: defect.targetX, targetY: defect.targetY }] : []);
 
-            const safeLabel = formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', safeStyleKey);
+            const safeLabel = formatDefectPinLabel(defect, safeStyleKey);
             const { w: safeBoxW, h: safeBoxH } = measurePinBoxDimensions(ctx, safeLabel, safeScale, 1);
 
             // Draw Leader Line & Arrowhead/Tip — 실선, 마킹과 가장 가까운 박스 모서리에서 시작
+            const isAreaDefectSafe = defect.shapeType === 'area' && defect.areaX1 !== undefined;
             targets.forEach(t => {
                 if (t.targetX === undefined || t.targetY === undefined) return;
-                const anchor = getPinLeaderBoxAnchor(boxX, boxY, t.targetX, t.targetY, safeBoxW, safeBoxH, 0);
+                let tipX = t.targetX;
+                let tipY = t.targetY;
+                if (isAreaDefectSafe) {
+                    const ax1 = Math.min(defect.areaX1, defect.areaX2);
+                    const ay1 = Math.min(defect.areaY1, defect.areaY2);
+                    const ax2 = Math.max(defect.areaX1, defect.areaX2);
+                    const ay2 = Math.max(defect.areaY1, defect.areaY2);
+                    const attach = getRectBorderAttachPoint(
+                        boxX, boxY, (ax1 + ax2) / 2, (ay1 + ay2) / 2,
+                        defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
+                    );
+                    tipX = attach.x;
+                    tipY = attach.y;
+                }
+                const anchor = getPinLeaderBoxAnchor(boxX, boxY, tipX, tipY, safeBoxW, safeBoxH, 0);
                 const safeHeadLen = 11 * safeArrowScale;
-                const forcedDir = resolveForcedArrowDirection(t, defect);
-                const stemInset = safeHeadLen * Math.cos(Math.PI / 6);
+                const forcedDir = isAreaDefectSafe ? { enabled: false } : resolveForcedArrowDirection(t, defect);
+                const stemInset = useCircleTipSafe
+                    ? 4.5 * safeArrowScale
+                    : safeHeadLen * Math.cos(Math.PI / 6);
                 const leader = forcedDir.enabled
                     ? buildForcedLeaderRoute(
-                        { x: t.targetX, y: t.targetY },
+                        { x: tipX, y: tipY },
                         boxX,
                         boxY,
                         safeBoxW,
@@ -8727,9 +9039,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         0
                     )
                     : (() => {
-                        const ux = t.targetX - anchor.x;
-                        const uy = t.targetY - anchor.y;
-                        const stemEnd = getArrowStemEndPoint(t.targetX, t.targetY, ux, uy, safeHeadLen);
+                        const ux = tipX - anchor.x;
+                        const uy = tipY - anchor.y;
+                        const tipBack = isAreaDefectSafe ? 0 : (useCircleTipSafe ? stemInset : safeHeadLen * Math.cos(Math.PI / 6));
+                        const stemEnd = (isAreaDefectSafe || tipBack <= 0)
+                            ? { x: tipX, y: tipY }
+                            : getArrowStemEndPoint(tipX, tipY, ux, uy, tipBack);
                         return { route: [anchor, stemEnd], ux, uy };
                     })();
                 ctx.save();
@@ -8742,16 +9057,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.setLineDash([]);
                 ctx.stroke();
 
-                ctx.fillStyle = color;
-                const angle = Math.atan2(leader.uy, leader.ux);
-                const arrowLen = safeHeadLen;
+                if (!isAreaDefectSafe) {
+                    ctx.fillStyle = color;
+                    if (useCircleTipSafe) {
+                        ctx.beginPath();
+                        ctx.arc(tipX, tipY, 4.5 * safeArrowScale, 0, Math.PI * 2);
+                        ctx.fill();
+                    } else {
+                        const angle = Math.atan2(leader.uy, leader.ux);
+                        const arrowLen = safeHeadLen;
 
-                ctx.beginPath();
-                ctx.moveTo(t.targetX, t.targetY);
-                ctx.lineTo(t.targetX - arrowLen * Math.cos(angle - Math.PI / 6), t.targetY - arrowLen * Math.sin(angle - Math.PI / 6));
-                ctx.lineTo(t.targetX - arrowLen * Math.cos(angle + Math.PI / 6), t.targetY - arrowLen * Math.sin(angle + Math.PI / 6));
-                ctx.closePath();
-                ctx.fill();
+                        ctx.beginPath();
+                        ctx.moveTo(tipX, tipY);
+                        ctx.lineTo(tipX - arrowLen * Math.cos(angle - Math.PI / 6), tipY - arrowLen * Math.sin(angle - Math.PI / 6));
+                        ctx.lineTo(tipX - arrowLen * Math.cos(angle + Math.PI / 6), tipY - arrowLen * Math.sin(angle + Math.PI / 6));
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                }
                 ctx.restore();
             });
 
