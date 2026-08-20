@@ -4195,8 +4195,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
+        let worker;
         try {
-            const { data: { text } } = await Tesseract.recognize(file, 'eng');
+            // 화이트리스트(R/숫자만)와 "단일 텍스트 블록" 모드로 고정해서, 표 테두리·체크박스 때문에
+            // 자동 레이아웃 분석이 줄을 통째로 건너뛰는 문제를 줄인다.
+            worker = await Tesseract.createWorker('eng');
+            await worker.setParameters({
+                tessedit_char_whitelist: 'R0123456789',
+                tessedit_pageseg_mode: '6'
+            });
+            const { data: { text } } = await worker.recognize(file);
             // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
             const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
             const scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
@@ -4213,6 +4221,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             console.error('R값 스캔 실패:', err);
             if (statusEl) statusEl.textContent = '❌ 인식에 실패했습니다. 직접 입력해주세요.';
+        } finally {
+            if (worker) await worker.terminate();
         }
     }
 
