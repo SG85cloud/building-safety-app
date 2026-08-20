@@ -470,9 +470,9 @@
 
     </main>
 
-    <!-- MODAL: Add Defect Pin Details Modal -->
-    <div class="modal-overlay" id="defectModal">
-        <div class="modal-card">
+    <!-- MODAL: Add Defect Pin Details Modal (우측 드로어 — 도면 조작 가능) -->
+    <div class="modal-overlay modal-drawer-overlay" id="defectModal">
+        <div class="modal-card defect-drawer-card">
             <div class="modal-header">
                 <h3 id="defectModalTitle">📍 결함 핀 상세 정보 등록</h3>
                 <button class="modal-close" id="btnCloseDefectModal">&times;</button>
@@ -502,6 +502,8 @@
                                 <span>부재 명칭 *</span>
                                 <button type="button" id="btnManageComponent" class="btn-option-manage" title="부재 명칭 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
+                            <label class="form-label defect-combo-sub" for="defectComponentInput">직접 입력</label>
+                            <input type="text" id="defectComponentInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
                             <select id="defectComponent" class="form-select">
                                 <option value="기둥">기둥</option>
                                 <option value="큰보">큰보</option>
@@ -518,6 +520,8 @@
                                 <span>결함 종류 *</span>
                                 <button type="button" id="btnManageDefectType" class="btn-option-manage" title="결함 종류 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
+                            <label class="form-label defect-combo-sub" for="defectTypeInput">직접 입력</label>
+                            <input type="text" id="defectTypeInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
                             <select id="defectType" class="form-select">
                                 <option value="균열">균열</option>
                                 <option value="누수">누수</option>
@@ -562,6 +566,8 @@
                                 <span>🔍 결함 원인 추정 *</span>
                                 <button type="button" id="btnManageCause" class="btn-option-manage" title="결함 원인 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
+                            <label class="form-label defect-combo-sub" for="defectCauseInput">직접 입력</label>
+                            <input type="text" id="defectCauseInput" class="form-control defect-combo-input" placeholder="바로 입력하거나 아래에서 선택">
                             <select id="defectCause" class="form-select">
                                 <option value="건조수축">건조수축</option>
                                 <option value="내력부족">내력부족</option>
@@ -630,25 +636,23 @@
                             <input type="checkbox" id="defectPriorityManage"> 🟢 중점관리 대상으로 지정
                         </label>
                     </div>
-                    <div class="form-row" style="margin-top: 0.55rem;">
-                        <div class="form-group" style="flex:1;">
-                            <label class="checkbox-chip" style="border-color:#38bdf8; color:#38bdf8;">
-                                <input type="checkbox" id="defectForceArrowDir"> ↗ 화살표 방향 8방위 강제
-                            </label>
+                    <div class="form-group" style="margin-top: 0.55rem;">
+                        <label class="checkbox-chip" style="border-color:#38bdf8; color:#38bdf8; margin-bottom: 0.55rem;">
+                            <input type="checkbox" id="defectForceArrowDir"> ↗ 화살표 방향 지정
+                        </label>
+                        <label class="form-label">지정 방향</label>
+                        <div class="arrow-octant-grid disabled" id="defectArrowOctantGrid" role="group" aria-label="화살표 지정 방향">
+                            <button type="button" class="arrow-octant-btn" data-octant="5" title="북서" aria-label="북서">↖</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="6" title="북" aria-label="북">↑</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="7" title="북동" aria-label="북동">↗</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="4" title="서" aria-label="서">←</button>
+                            <span class="arrow-octant-center" aria-hidden="true"></span>
+                            <button type="button" class="arrow-octant-btn" data-octant="0" title="동" aria-label="동">→</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="3" title="남서" aria-label="남서">↙</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="2" title="남" aria-label="남">↓</button>
+                            <button type="button" class="arrow-octant-btn" data-octant="1" title="남동" aria-label="남동">↘</button>
                         </div>
-                        <div class="form-group" style="flex:1;">
-                            <label class="form-label">강제 방향</label>
-                            <select id="defectArrowOctant" class="form-select">
-                                <option value="0">→ 동</option>
-                                <option value="1">↘ 남동</option>
-                                <option value="2">↓ 남</option>
-                                <option value="3">↙ 남서</option>
-                                <option value="4">← 서</option>
-                                <option value="5">↖ 북서</option>
-                                <option value="6">↑ 북</option>
-                                <option value="7">↗ 북동</option>
-                            </select>
-                        </div>
+                        <input type="hidden" id="defectArrowOctant" value="0">
                     </div>
                 </form>
             </div>
