@@ -9911,6 +9911,21 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!sec) throw new Error('템플릿 문서 구조(hs:sec)를 찾지 못했습니다.');
             const paraText = (p) => Array.from(p.getElementsByTagNameNS(HP_NS, 't')).map(t => t.textContent).join('');
             const secChildren = () => Array.from(sec.children).filter(c => c.localName === 'p');
+            // 한글에서 표에 새 칸을 추가만 하고 한 번도 안 채운 셀은 문단/run은 있어도 hp:t(실제 글자
+            // 요소)가 아예 없는 경우가 있다. 없으면 만들어서 항상 값을 넣을 자리를 보장한다.
+            const ensureCellTextNode = (para) => {
+                let run = para.getElementsByTagNameNS(HP_NS, 'run')[0];
+                if (!run) {
+                    run = xmlDoc.createElementNS(HP_NS, 'hp:run');
+                    para.appendChild(run);
+                }
+                let t = run.getElementsByTagNameNS(HP_NS, 't')[0];
+                if (!t) {
+                    t = xmlDoc.createElementNS(HP_NS, 'hp:t');
+                    run.appendChild(t);
+                }
+                return t;
+            };
             const removeParaRange = (fromP, toP) => {
                 const all = secChildren();
                 const start = all.indexOf(fromP);
@@ -10398,20 +10413,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         const subList = tc.getElementsByTagNameNS(HP_NS, 'subList')[0];
                         const paras = subList ? Array.from(subList.getElementsByTagNameNS(HP_NS, 'p')).filter(p => p.parentNode === subList) : [];
                         if (paras.length > 0) {
-                            const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
                             const rawVal = values[colIdx] !== undefined ? values[colIdx] : '';
                             // "점검내용"처럼 값 안에 줄바꿈(\n)이 들어있는 경우가 있다 — HWPX 셀에서
                             // 줄바꿈은 텍스트 안 개행문자가 아니라 문단을 나누는 방식으로 표현되므로,
                             // 첫 문단은 첫 줄로 채우고 나머지 줄은 첫 문단을 그대로 복제해(같은 서식
                             // 유지) 이어붙인다.
                             const lines = String(rawVal).split('\n');
-                            if (tNode) tNode.textContent = lines[0];
+                            ensureCellTextNode(paras[0]).textContent = lines[0];
                             for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
                             let refNode = paras[0];
                             for (let i = 1; i < lines.length; i++) {
                                 const clonedPara = paras[0].cloneNode(true);
-                                const clonedT = clonedPara.getElementsByTagNameNS(HP_NS, 't')[0];
-                                if (clonedT) clonedT.textContent = lines[i];
+                                ensureCellTextNode(clonedPara).textContent = lines[i];
                                 subList.insertBefore(clonedPara, refNode.nextSibling);
                                 refNode = clonedPara;
                             }
@@ -10607,14 +10620,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 // 값 안에 줄바꿈(\n)이 있으면(예: 위치+부재명 2줄) 첫 문단은 첫 줄로 채우고
                                 // 나머지 줄은 첫 문단을 복제해(같은 서식 유지) 이어붙인다.
                                 const lines = String(values[colIdx]).split('\n');
-                                const tNode = paras[0].getElementsByTagNameNS(HP_NS, 't')[0];
-                                if (tNode) tNode.textContent = lines[0];
+                                ensureCellTextNode(paras[0]).textContent = lines[0];
                                 for (let i = paras.length - 1; i >= 1; i--) subList.removeChild(paras[i]);
                                 let refNode = paras[0];
                                 for (let i = 1; i < lines.length; i++) {
                                     const clonedPara = paras[0].cloneNode(true);
-                                    const clonedT = clonedPara.getElementsByTagNameNS(HP_NS, 't')[0];
-                                    if (clonedT) clonedT.textContent = lines[i];
+                                    ensureCellTextNode(clonedPara).textContent = lines[i];
                                     subList.insertBefore(clonedPara, refNode.nextSibling);
                                     refNode = clonedPara;
                                 }
