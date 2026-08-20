@@ -9899,10 +9899,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const HP_NS = 'http://www.hancom.co.kr/hwpml/2011/paragraph';
             const HC_NS = 'http://www.hancom.co.kr/hwpml/2011/core';
-            const sectionPath = 'Contents/section1.xml';
+            // 한글에서 템플릿을 직접 열어 저장하면 섹션을 하나로 합치면서 section1.xml이 사라지고
+            // section0.xml 하나에 전체 내용이 들어가는 경우가 있다(실제로 겪음). 층별 조사표가 들어있는
+            // 실제 섹션 파일을 그때그때 찾는다.
+            const sectionPath = zip.file('Contents/section1.xml') ? 'Contents/section1.xml' : 'Contents/section0.xml';
             const xmlText = await zip.file(sectionPath).async('string');
             const xmlDoc = new DOMParser().parseFromString(xmlText, 'application/xml');
-            if (xmlDoc.querySelector('parsererror')) throw new Error('템플릿 section1.xml 파싱에 실패했습니다.');
+            if (xmlDoc.querySelector('parsererror')) throw new Error('템플릿 ' + sectionPath + ' 파싱에 실패했습니다.');
 
             const sec = xmlDoc.getElementsByTagName('hs:sec')[0];
             if (!sec) throw new Error('템플릿 문서 구조(hs:sec)를 찾지 못했습니다.');
@@ -10538,10 +10541,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const settlementGroupsHwpx = allDispGroupsForHwpx.filter(g => !g.category || g.category === '변위');
                 const memberDispGroupsHwpx = allDispGroupsForHwpx.filter(g => g.category === '부재변위');
 
-                const findTblById = (tblId) => {
+                const findTblById = (tblId, fallbackTextMarkers) => {
                     const all = xmlDoc.getElementsByTagNameNS(HP_NS, 'tbl');
                     for (let i = 0; i < all.length; i++) {
                         if (all[i].getAttribute('id') === tblId) return all[i];
+                    }
+                    // 한글에서 템플릿을 직접 열어 저장하면 표 id가 바뀌는 경우가 있어(실제로 겪음),
+                    // id로 못 찾으면 표 헤더 글자 조합으로 구조 매칭해 찾는다.
+                    if (fallbackTextMarkers && fallbackTextMarkers.length) {
+                        for (let i = 0; i < all.length; i++) {
+                            const txt = Array.from(all[i].getElementsByTagNameNS(HP_NS, 't')).map(t => t.textContent).join('');
+                            if (fallbackTextMarkers.every(m => txt.includes(m))) return all[i];
+                        }
                     }
                     return null;
                 };
@@ -10641,20 +10652,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 const MEMBER_DISP_MAP_TBL_ID = '1165079516';
 
                 {
-                    // 부재실측(단면 규격) 결과표 — 템플릿 표 열 구성: NO. / 위치(+부재명) / 설계치 / 실측치 / 마감상태.
-                    // 화면 결과표와 달리 템플릿엔 평가(c%)/등급 칸이 없어 그 둘은 넣지 않는다.
+                    // 부재실측(단면 규격) 결과표 — 템플릿 표 열 구성: NO. / 위치(+부재명) / 설계치 / 실측치 / 마감상태 / 평가(c%) / 비고(등급).
                     if (measureItemsHwpx.length > 0) {
-                        const tbl = findTblById(MEASURE_TBL_ID);
+                        const tbl = findTblById(MEASURE_TBL_ID, ['마감상태', '설계', '실측']);
                         if (tbl) fillNdtTable(tbl, MEASURE_HEADER_ROWS, measureItemsHwpx.map((item, i) => {
                             const designText = item.designWidth ? `${item.designWidth}${item.designDepth ? '×' + item.designDepth : ''}` : '-';
                             const measuredW = (item.measuredWidth !== undefined && item.measuredWidth !== null) ? item.measuredWidth : item.avgValue;
                             const measuredText = measuredW ? `${measuredW}${item.measuredDepth ? '×' + item.measuredDepth : ''}` : '-';
+                            const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? item.sectionRatio.toFixed(1) + '%' : '-';
                             return [
                                 item.no || (i + 1),
                                 `${item.location || '위치미지정'}\n(${item.component || ''})`,
                                 designText,
                                 measuredText,
-                                item.finishState || '-'
+                                item.finishState || '-',
+                                ratioText,
+                                item.sectionGrade || '-'
                             ];
                         }), true);
                     } else {
@@ -10813,7 +10826,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (manifestAdds.length > 0) {
                 let hpfText = await zip.file('Contents/content.hpf').async('string');
-                const manifestMarker = '<opf:item id="section1"';
+                // 실제 쓰인 섹션 파일(section1 또는 section0)의 매니페스트 항목 앞에 새 이미지 항목들을 끼워 넣는다.
+                const sectionItemId = sectionPath.replace('Contents/', '').replace('.xml', '');
+                const manifestMarker = `<opf:item id="${sectionItemId}"`;
                 if (hpfText.indexOf(manifestMarker) < 0) throw new Error('매니페스트 삽입 위치를 찾지 못했습니다.');
                 hpfText = hpfText.replace(manifestMarker, manifestAdds.join('') + manifestMarker);
                 zip.file('Contents/content.hpf', hpfText);
