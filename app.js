@@ -4201,17 +4201,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
         let worker;
         try {
-            // 화이트리스트(R/숫자만)와 "단일 텍스트 블록" 모드로 고정해서, 표 테두리·체크박스 때문에
-            // 자동 레이아웃 분석이 줄을 통째로 건너뛰는 문제를 줄인다.
+            // 화이트리스트(R/숫자만)로 오인식 노이즈를 줄이고, 사진마다 레이아웃이 달라
+            // 페이지 분할(PSM) 모드 하나로는 안 맞는 경우가 많아 여러 모드를 순서대로 시도한다.
             worker = await Tesseract.createWorker('eng');
-            await worker.setParameters({
-                tessedit_char_whitelist: 'R0123456789',
-                tessedit_pageseg_mode: '6'
-            });
-            const { data: { text } } = await worker.recognize(file);
-            // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
-            const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
-            const scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
+            await worker.setParameters({ tessedit_char_whitelist: 'R0123456789' });
+            const psmModesToTry = ['11', '6', '4', '3']; // 흩어진텍스트 → 단일블록 → 단일열 → 자동
+            let scanned = [];
+            for (const psm of psmModesToTry) {
+                await worker.setParameters({ tessedit_pageseg_mode: psm });
+                const { data: { text } } = await worker.recognize(file);
+                // "R 01 47" / "R01  47" 등 다양한 간격/서식을 허용해서 R번호 뒤에 오는 실제 측정값만 뽑는다
+                const matches = [...text.matchAll(/R\s*0?(\d{1,2})\D+(\d{2,3})/gi)];
+                scanned = matches.map(m => parseInt(m[2], 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
+                if (scanned.length > 0) break;
+            }
 
             if (scanned.length === 0) {
                 if (statusEl) statusEl.textContent = '❌ 숫자를 인식하지 못했습니다. 직접 입력해주세요.';
