@@ -239,6 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
+                floorMapStyleSettings: window.state.floorMapStyleSettings || null,
                 styleShapes: window.state.styleShapes || null,
                 surveyColumns: window.state.surveyColumns || null,
                 surveyColumnsGrade3: window.state.surveyColumnsGrade3 || null,
@@ -335,9 +336,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.styleSizes) {
                     window.state.styleSizes = parsed.styleSizes;
+                    window.state._globalStyleSizesFallback = parsed.styleSizes;
                 }
                 if (parsed.defectLeaderLineScale !== undefined) {
                     window.state.defectLeaderLineScale = parsed.defectLeaderLineScale;
+                    window.state._globalDefectLeaderLineScaleFallback = parsed.defectLeaderLineScale;
+                }
+                if (parsed.floorMapStyleSettings) {
+                    window.state.floorMapStyleSettings = parsed.floorMapStyleSettings;
                 }
                 if (parsed.styleShapes) {
                     window.state.styleShapes = parsed.styleShapes;
@@ -521,6 +527,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!bldg) return;
 
+        if (window.state.currentBuildingId && window.state.currentFloor) {
+            saveFloorMapStyleSettings(window.state.currentFloor, window.state.currentBuildingId);
+        }
+
         window.state.currentBuilding = bldg;
         window.state.currentBuildingId = bldg.id;
 
@@ -544,6 +554,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Populate Header Selectors
         populateFloorSelectDropdown(bldg);
+
+        applyFloorMapStyleSettings(window.state.currentFloor || '1F', bldg.id);
 
         // Switch to Map Tab & Load Drawing
         loadFloorDrawing(window.state.currentFloor || '1F');
@@ -1884,8 +1896,56 @@ document.addEventListener('DOMContentLoaded', () => {
         ndtMemberDisp: { pin: 1.0, arrow: 1.0 }
     };
 
+    // 보고서 등 다른 층 렌더 시 해당 층 스타일을 쓰기 위한 임시 컨텍스트
+    let _mapStyleRenderContext = null;
+
+    function getFloorMapStyleKey(buildingId, floorCode) {
+        const bId = buildingId || state.currentBuildingId || 'default';
+        const fCode = floorCode || state.currentFloor || '1F';
+        return `${bId}_${fCode}`;
+    }
+
+    function cloneStyleSizesMap(src) {
+        if (!src) return null;
+        const out = {};
+        Object.keys(src).forEach(k => {
+            out[k] = { ...(src[k] || {}) };
+        });
+        return out;
+    }
+
+    function snapshotMapStyleSettings() {
+        return {
+            styleSizes: cloneStyleSizesMap(state.styleSizes),
+            defectLeaderLineScale: state.defectLeaderLineScale !== undefined ? state.defectLeaderLineScale : 1.0
+        };
+    }
+
+    function getActiveStyleSizesSource() {
+        if (_mapStyleRenderContext) {
+            const saved = state.floorMapStyleSettings?.[getFloorMapStyleKey(
+                _mapStyleRenderContext.buildingId,
+                _mapStyleRenderContext.floorCode
+            )];
+            if (saved && saved.styleSizes) return saved.styleSizes;
+        }
+        return state.styleSizes;
+    }
+
+    function getActiveLeaderLineScale() {
+        if (_mapStyleRenderContext) {
+            const saved = state.floorMapStyleSettings?.[getFloorMapStyleKey(
+                _mapStyleRenderContext.buildingId,
+                _mapStyleRenderContext.floorCode
+            )];
+            if (saved && saved.defectLeaderLineScale !== undefined) return saved.defectLeaderLineScale;
+        }
+        return state.defectLeaderLineScale;
+    }
+
     function getStyleSize(key) {
-        const custom = state.styleSizes && state.styleSizes[key];
+        const sizesSource = getActiveStyleSizesSource();
+        const custom = sizesSource && sizesSource[key];
         const def = DEFAULT_STYLE_SIZES[key] || { pin: 1.0, arrow: 1.0 };
         return {
             pin: (custom && custom.pin) || def.pin,
@@ -1965,7 +2025,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getDefectLeaderLineWidth(scale, roundLineMul, isBeingDragged) {
-        const factor = Math.min(Math.max(parseFloat(state.defectLeaderLineScale || 1), 0.5), 3.0);
+        const factor = Math.min(Math.max(parseFloat(getActiveLeaderLineScale() || 1), 0.5), 3.0);
         return getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged) * factor;
     }
 
@@ -2122,24 +2182,17 @@ document.addEventListener('DOMContentLoaded', () => {
         return m ? m[1] : (rawText || '');
     }
 
-    // 결함 종류 미입력 = 도면 기본 마킹(빈 원 + 숫자만)
+    // 결함 종류 미입력 여부 (폼 기본값용 — 도면 마킹 모양은 항상 네모+NO.)
     function isUnsetDefect(defect) {
         return !defect || !String(defect.defectType || '').trim();
     }
 
     function getDefectPinShapeCfg(defect, styleKey) {
-        if (isUnsetDefect(defect)) {
-            return { shape: 'circle', fill: false, numberFormat: 'plain' };
-        }
         return getStyleShape(styleKey);
     }
 
     function formatDefectPinLabel(defect, styleKey) {
-        const shapeCfg = getDefectPinShapeCfg(defect, styleKey);
-        const raw = defect.groupNo || defect.no || 'NO.01';
-        if (shapeCfg.numberFormat !== 'plain') return raw;
-        const m = String(raw).match(/(\d+)/);
-        return m ? m[1] : raw;
+        return formatPinNumberLabel(defect.groupNo || defect.no || 'NO.01', styleKey);
     }
 
     // NDT 카테고리 → 스타일 설정 키 매핑 (색상/크기 공용)
@@ -5819,6 +5872,97 @@ document.addEventListener('DOMContentLoaded', () => {
         return { x: hits[0].x, y: hits[0].y };
     }
 
+    // 영역 마킹: 번호칸 방향의 변 **중앙**(상·하·좌·우 중 하나)에 선을 꽂음
+    function getAreaCenterBorderAttach(fromX, fromY, areaX1, areaY1, areaX2, areaY2) {
+        const x1 = Math.min(areaX1, areaX2);
+        const y1 = Math.min(areaY1, areaY2);
+        const x2 = Math.max(areaX1, areaX2);
+        const y2 = Math.max(areaY1, areaY2);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
+        const w = Math.max(x2 - x1, 1e-6);
+        const h = Math.max(y2 - y1, 1e-6);
+        const dx = fromX - cx;
+        const dy = fromY - cy;
+        if (Math.abs(dx) * h >= Math.abs(dy) * w) {
+            return dx < 0 ? { x: x1, y: cy } : { x: x2, y: cy };
+        }
+        return dy < 0 ? { x: cx, y: y1 } : { x: cx, y: y2 };
+    }
+
+    // 선분이 영역 내부(테두리 제외)를 지나는지 검사 — 지시선이 면적 안을 침범하지 않게
+    function segmentCrossesOpenRect(xa, ya, xb, yb, rx1, ry1, rx2, ry2) {
+        const eps = 1e-6;
+        const ix1 = Math.min(rx1, rx2) + eps;
+        const iy1 = Math.min(ry1, ry2) + eps;
+        const ix2 = Math.max(rx1, rx2) - eps;
+        const iy2 = Math.max(ry1, ry2) - eps;
+        if (ix2 <= ix1 || iy2 <= iy1) return false;
+        let t0 = 0;
+        let t1 = 1;
+        const dx = xb - xa;
+        const dy = yb - ya;
+        const clip = (p, q) => {
+            if (Math.abs(p) < eps) return q >= -eps;
+            const r = q / p;
+            if (p < 0) {
+                if (r > t1) return false;
+                if (r > t0) t0 = r;
+            } else {
+                if (r < t0) return false;
+                if (r < t1) t1 = r;
+            }
+            return true;
+        };
+        if (!clip(-dx, xa - ix1)) return false;
+        if (!clip(dx, ix2 - xa)) return false;
+        if (!clip(-dy, ya - iy1)) return false;
+        if (!clip(dy, iy2 - ya)) return false;
+        return t0 < t1 - eps;
+    }
+
+    // 영역 지시선: 꺾인(L) 경로로 영역 내부를 관통하지 않게 연결
+    function buildAreaLeaderRoute(anchor, attach, areaX1, areaY1, areaX2, areaY2) {
+        const midH = { x: attach.x, y: anchor.y };
+        const midV = { x: anchor.x, y: attach.y };
+        const rx1 = areaX1;
+        const ry1 = areaY1;
+        const rx2 = areaX2;
+        const ry2 = areaY2;
+        const hOk = !segmentCrossesOpenRect(anchor.x, anchor.y, midH.x, midH.y, rx1, ry1, rx2, ry2)
+            && !segmentCrossesOpenRect(midH.x, midH.y, attach.x, attach.y, rx1, ry1, rx2, ry2);
+        if (hOk) return [anchor, midH, attach];
+        const vOk = !segmentCrossesOpenRect(anchor.x, anchor.y, midV.x, midV.y, rx1, ry1, rx2, ry2)
+            && !segmentCrossesOpenRect(midV.x, midV.y, attach.x, attach.y, rx1, ry1, rx2, ry2);
+        if (vOk) return [anchor, midV, attach];
+        return [anchor, attach];
+    }
+
+    function projectPointToAreaEdgeCenter(px, py, areaX1, areaY1, areaX2, areaY2) {
+        const x1 = Math.min(areaX1, areaX2);
+        const y1 = Math.min(areaY1, areaY2);
+        const x2 = Math.max(areaX1, areaX2);
+        const y2 = Math.max(areaY1, areaY2);
+        const cx = (x1 + x2) / 2;
+        const cy = (y1 + y2) / 2;
+        const candidates = [
+            { x: cx, y: y1 },
+            { x: cx, y: y2 },
+            { x: x1, y: cy },
+            { x: x2, y: cy }
+        ];
+        let best = candidates[0];
+        let bestD = Infinity;
+        candidates.forEach(c => {
+            const d = (c.x - px) ** 2 + (c.y - py) ** 2;
+            if (d < bestD) {
+                bestD = d;
+                best = c;
+            }
+        });
+        return best;
+    }
+
     function projectPointToRectBorder(px, py, areaX1, areaY1, areaX2, areaY2) {
         const x1 = Math.min(areaX1, areaX2);
         const y1 = Math.min(areaY1, areaY2);
@@ -5864,16 +6008,17 @@ document.addEventListener('DOMContentLoaded', () => {
             || ((needsTip || atLegacyCenter) && atLegacyCorner);
 
         if (needsBox) {
-            const provX = (needsTip || atLegacyCenter) ? cx : defect.targetX;
-            const provY = (needsTip || atLegacyCenter) ? y1 : defect.targetY;
-            const pos = computePinBoxAboveTarget(provX, provY, label, scale, state.ctx, 1);
+            const attachProv = getAreaCenterBorderAttach(defect.x ?? cx, defect.y ?? y1 - 40, x1, y1, x2, y2);
+            const pos = computePinBoxAboveTarget(attachProv.x, attachProv.y, label, scale, state.ctx, 1);
             defect.x = pos.boxX;
             defect.y = pos.boxY;
         }
 
-        const attach = getRectBorderAttachPoint(defect.x, defect.y, cx, cy, x1, y1, x2, y2);
-        defect.targetX = attach.x;
-        defect.targetY = attach.y;
+        if (needsTip || atLegacyCenter || needsBox) {
+            const attach = getAreaCenterBorderAttach(defect.x, defect.y, x1, y1, x2, y2);
+            defect.targetX = attach.x;
+            defect.targetY = attach.y;
+        }
     }
 
     // defects를 groupId 기준으로 묶어서 그룹당 한 번만 drawFn(ctx, 대표결함, arrows)을 호출한다.
@@ -5921,7 +6066,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const defectStyleKey = getDefectStyleKey(defect.category, defect.defectType);
         const mainColor = getDefectColor(defect);
         const shapeCfg = getDefectPinShapeCfg(defect, defectStyleKey);
-        const useCircleTip = isUnsetDefect(defect) || state.tipShape === 'circle';
+        const useCircleTip = state.tipShape === 'circle';
 
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(drawPinSafe)는 구분 없이 그대로 둠
         const isPrevRoundDefect = isPreviousRoundDefect(defect);
@@ -5943,12 +6088,8 @@ document.addEventListener('DOMContentLoaded', () => {
             let targetX = t.targetX;
             let targetY = t.targetY;
             if (isAreaDefect) {
-                const ax1 = Math.min(defect.areaX1, defect.areaX2);
-                const ay1 = Math.min(defect.areaY1, defect.areaY2);
-                const ax2 = Math.max(defect.areaX1, defect.areaX2);
-                const ay2 = Math.max(defect.areaY1, defect.areaY2);
-                const attach = getRectBorderAttachPoint(
-                    boxX, boxY, (ax1 + ax2) / 2, (ay1 + ay2) / 2,
+                const attach = getAreaCenterBorderAttach(
+                    boxX, boxY,
                     defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
                 );
                 targetX = attach.x;
@@ -5974,7 +6115,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     headLen,
                     state.rotationAngle || 0
                 )
-                : (() => {
+                : (isAreaDefect
+                    ? (() => {
+                        const route = buildAreaLeaderRoute(
+                            anchor,
+                            { x: targetX, y: targetY },
+                            defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
+                        );
+                        const last = route[route.length - 1];
+                        const prev = route[route.length - 2] || anchor;
+                        return { route, ux: last.x - prev.x, uy: last.y - prev.y };
+                    })()
+                    : (() => {
                     const ux = targetX - anchor.x;
                     const uy = targetY - anchor.y;
                     // 영역은 화살촉 inset 없이 테두리까지 직선
@@ -5983,7 +6135,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ? getArrowStemEndPoint(targetX, targetY, ux, uy, tipBack)
                         : { x: targetX, y: targetY };
                     return { route: [anchor, stemEnd], ux, uy };
-                })();
+                })());
 
             ctx.save();
             ctx.beginPath();
@@ -6740,6 +6892,86 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
     }
 
+    function saveFloorMapStyleSettings(floorCode, buildingId) {
+        if (!floorCode || !buildingId) return;
+        if (!state.floorMapStyleSettings) state.floorMapStyleSettings = {};
+        state.floorMapStyleSettings[getFloorMapStyleKey(buildingId, floorCode)] = snapshotMapStyleSettings();
+    }
+
+    function applyFloorMapStyleSettings(floorCode, buildingId) {
+        if (!floorCode) return;
+        const saved = state.floorMapStyleSettings?.[getFloorMapStyleKey(buildingId, floorCode)];
+        if (saved) {
+            state.styleSizes = cloneStyleSizesMap(saved.styleSizes);
+            state.defectLeaderLineScale = saved.defectLeaderLineScale ?? 1.0;
+        } else {
+            state.styleSizes = cloneStyleSizesMap(state._globalStyleSizesFallback) || null;
+            state.defectLeaderLineScale = state._globalDefectLeaderLineScaleFallback ?? 1.0;
+        }
+        if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
+    }
+
+    function getBuildingFloorCodesForStyle(bldg) {
+        const codes = new Set();
+        (bldg?.floorsList || []).forEach(f => {
+            if (f && f.floorCode) codes.add(f.floorCode);
+        });
+        if (bldg?.floorDrawings && typeof bldg.floorDrawings === 'object') {
+            Object.keys(bldg.floorDrawings).forEach(code => {
+                if (code) codes.add(code);
+            });
+        }
+        if (codes.size === 0 && state.currentFloor) codes.add(state.currentFloor);
+        return [...codes];
+    }
+
+    window.applyCurrentFloorMapStyleToAllFloors = function() {
+        const bldg = state.currentBuilding;
+        const bldgId = state.currentBuildingId;
+        if (!bldg || !bldgId) {
+            if (typeof window.showToast === 'function') window.showToast('건물을 먼저 선택해 주세요.', 'warning');
+            return;
+        }
+        saveFloorMapStyleSettings(state.currentFloor, bldgId);
+        const snapshot = state.floorMapStyleSettings[getFloorMapStyleKey(bldgId, state.currentFloor)];
+        if (!state.floorMapStyleSettings) state.floorMapStyleSettings = {};
+        const floorCodes = getBuildingFloorCodesForStyle(bldg);
+        floorCodes.forEach(fc => {
+            state.floorMapStyleSettings[getFloorMapStyleKey(bldgId, fc)] = {
+                styleSizes: cloneStyleSizesMap(snapshot.styleSizes),
+                defectLeaderLineScale: snapshot.defectLeaderLineScale
+            };
+        });
+        saveStateToLocalStorage();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`핀·화살표·연결선 설정을 ${floorCodes.length}개 층에 적용했습니다.`, 'success');
+        }
+    };
+
+    window.syncBulkStyleSlidersUi = function() {
+        const pinAllInput = document.getElementById('stylePinSizeAll');
+        const pinAllLabel = document.getElementById('stylePinSizeAllLabel');
+        const arrowAllInput = document.getElementById('styleArrowSizeAll');
+        const arrowAllLabel = document.getElementById('styleArrowSizeAllLabel');
+        const leaderLineAllInput = document.getElementById('styleLeaderLineScaleAll');
+        const leaderLineAllLabel = document.getElementById('styleLeaderLineScaleAllLabel');
+        const sampleKey = 'defectStructural';
+        const sampleSize = getStyleSize(sampleKey);
+        const pinV = sampleSize.pin;
+        const arrowV = sampleSize.arrow;
+        const lineV = Math.min(Math.max(parseFloat(getActiveLeaderLineScale() || 1), 0.5), 3.0);
+        if (pinAllInput) pinAllInput.value = pinV;
+        if (pinAllLabel) pinAllLabel.textContent = `${Math.round(pinV * 100)}%`;
+        if (arrowAllInput) arrowAllInput.value = arrowV;
+        if (arrowAllLabel) arrowAllLabel.textContent = `${Math.round(arrowV * 100)}%`;
+        if (leaderLineAllInput) leaderLineAllInput.value = lineV;
+        if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(lineV * 100)}%`;
+    };
+
+    function persistCurrentFloorMapStyleFromSliders() {
+        saveFloorMapStyleSettings(state.currentFloor, state.currentBuildingId);
+    }
+
     window.openStyleColorModal = function() {
         STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
             const input = document.getElementById(inputId);
@@ -6851,7 +7083,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 refreshAllStyleColoredCanvases();
             });
-            pinAllInput.addEventListener('change', () => saveStateToLocalStorage());
+            pinAllInput.addEventListener('change', () => {
+                persistCurrentFloorMapStyleFromSliders();
+                saveStateToLocalStorage();
+            });
         }
         const arrowAllInput = document.getElementById('styleArrowSizeAll');
         const arrowAllLabel = document.getElementById('styleArrowSizeAllLabel');
@@ -6870,17 +7105,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 refreshAllStyleColoredCanvases();
             });
-            arrowAllInput.addEventListener('change', () => saveStateToLocalStorage());
+            arrowAllInput.addEventListener('change', () => {
+                persistCurrentFloorMapStyleFromSliders();
+                saveStateToLocalStorage();
+            });
+        }
+
+        const btnApplyAllFloors = document.getElementById('btnApplyMapStyleAllFloors');
+        if (btnApplyAllFloors) {
+            btnApplyAllFloors.addEventListener('click', () => window.applyCurrentFloorMapStyleToAllFloors());
         }
 
         const leaderLineAllInput = document.getElementById('styleLeaderLineScaleAll');
         const leaderLineAllLabel = document.getElementById('styleLeaderLineScaleAllLabel');
         const syncLeaderLineUi = () => {
-            const v = Math.min(Math.max(parseFloat(state.defectLeaderLineScale || 1), 0.5), 3.0);
+            const v = Math.min(Math.max(parseFloat(getActiveLeaderLineScale() || 1), 0.5), 3.0);
             if (leaderLineAllInput) leaderLineAllInput.value = v;
             if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(v * 100)}%`;
         };
         syncLeaderLineUi();
+        if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
         if (leaderLineAllInput) {
             leaderLineAllInput.addEventListener('input', () => {
                 const v = Math.min(Math.max(parseFloat(leaderLineAllInput.value || '1'), 0.5), 3.0);
@@ -6888,7 +7132,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(v * 100)}%`;
                 refreshAllStyleColoredCanvases();
             });
-            leaderLineAllInput.addEventListener('change', () => saveStateToLocalStorage());
+            leaderLineAllInput.addEventListener('change', () => {
+                persistCurrentFloorMapStyleFromSliders();
+                saveStateToLocalStorage();
+            });
         }
 
         STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
@@ -7433,7 +7680,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (activeDragPart === 'TIP') {
                 if (activeDragPin.shapeType === 'area' && activeDragPin.areaX1 !== undefined) {
-                    const snapped = projectPointToRectBorder(
+                    const snapped = projectPointToAreaEdgeCenter(
                         currentImgX, currentImgY,
                         activeDragPin.areaX1, activeDragPin.areaY1,
                         activeDragPin.areaX2, activeDragPin.areaY2
@@ -7451,11 +7698,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeDragPin.areaY1 += dy;
                 activeDragPin.areaX2 += dx;
                 activeDragPin.areaY2 += dy;
-                // 지시선 끝점도 영역과 같이 이동 (번호칸은 제자리 유지)
-                if (activeDragPin.targetX !== undefined && activeDragPin.targetY !== undefined) {
-                    activeDragPin.targetX += dx;
-                    activeDragPin.targetY += dy;
-                }
                 areaMoveLastImgX = currentImgX;
                 areaMoveLastImgY = currentImgY;
             } else if (activeDragPart === 'AREA_RESIZE') {
@@ -7739,8 +7981,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const compDefaultExisting = (DEFECT_COMPONENT_PRESET[compCatExisting] || DEFECT_COMPONENT_PRESET['구조체'])[0];
             populateDefectComponentDropdown(compCatExisting, existingPin.component || compDefaultExisting);
             if (carriedOverEl) carriedOverEl.checked = !!existingPin.isCarriedOver;
-            if (locEl) locEl.value = existingPin.location || `${state.currentFloor} ${existingPin.component || '기둥'}`;
-            if (sizeEl) sizeEl.value = existingPin.size || 'W=0.2mm';
+            if (locEl) locEl.value = extractDefectLocationDetail(existingPin.location || '');
+            if (sizeEl) sizeEl.value = existingPin.size || '';
             const crackWidthElExisting = document.getElementById('defectCrackWidth');
             const crackLengthElExisting = document.getElementById('defectCrackLength');
             if (crackWidthElExisting) crackWidthElExisting.value = (existingPin.crackWidth !== undefined && existingPin.crackWidth !== null) ? existingPin.crackWidth : '';
@@ -7783,7 +8025,7 @@ document.addEventListener('DOMContentLoaded', () => {
             updateDefectCauseDropdown(tmpl ? (tmpl.defectType || '') : '', tmpl ? (tmpl.cause || '') : '');
             populateDefectComponentDropdown(defaultCat, tmpl ? (tmpl.component || '') : '');
             if (carriedOverEl) carriedOverEl.checked = false;
-            if (locEl) locEl.value = (tmpl && tmpl.location) || '';
+            if (locEl) locEl.value = tmpl ? extractDefectLocationDetail(tmpl.location || '') : '';
             if (sizeEl) sizeEl.value = (tmpl && tmpl.size) || '';
             const crackWidthElNew = document.getElementById('defectCrackWidth');
             const crackLengthElNew = document.getElementById('defectCrackLength');
@@ -7814,7 +8056,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const areaScale = getStyleSize(areaStyleKey).pin;
                 const areaLabel = formatDefectPinLabel({ no: areaNo, defectType: tmpl ? tmpl.defectType : '' }, areaStyleKey);
                 const boxPos = computePinBoxAboveTarget(cx, ay1, areaLabel, areaScale, state.ctx, 1);
-                const attach = getRectBorderAttachPoint(boxPos.boxX, boxPos.boxY, cx, cy, ax1, ay1, ax2, ay2);
+                const attach = getAreaCenterBorderAttach(boxPos.boxX, boxPos.boxY, ax1, ay1, ax2, ay2);
                 window._pendingAreaRect = { x1: ax1, y1: ay1, x2: ax2, y2: ay2 };
                 window._pendingPinCoords = { x: boxPos.boxX, y: boxPos.boxY, targetX: attach.x, targetY: attach.y };
             } else {
@@ -8168,7 +8410,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('defectCause'),
             document.getElementById('defectCauseInput')
         ) || '';
-        const locVal = document.getElementById('defectLocation')?.value?.trim() || '';
+        const locVal = composeDefectLocation(document.getElementById('defectLocation')?.value || '');
         const isProgress = document.getElementById('defectProgressCheck')?.checked || false;
         const isLeak = document.getElementById('defectLeakCheck')?.checked || false;
         const isCarriedOver = document.getElementById('defectCarriedOver')?.checked || false;
@@ -8415,7 +8657,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Floor Select Change
     if (elements.floorSelect) {
         elements.floorSelect.addEventListener('change', (e) => {
+            const prevFloor = window.state.currentFloor;
+            if (prevFloor && state.currentBuildingId) {
+                saveFloorMapStyleSettings(prevFloor, state.currentBuildingId);
+            }
             window.state.currentFloor = e.target.value;
+            applyFloorMapStyleSettings(e.target.value, state.currentBuildingId);
             loadFloorDrawing(e.target.value);
         });
     }
@@ -8619,6 +8866,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const f = bldg && (bldg.floorsList || []).find(fl => fl.floorCode === floorCode);
         const raw = f ? f.floorLabel : (typeof window.getFloorLabelFromCode === 'function' ? window.getFloorLabelFromCode(floorCode) : floorCode);
         return stripFloorCodeSuffix(raw).replace(/\s+(?=\d)/g, '');
+    }
+
+    // 결함 상세위치: 공란이면 층수만, 입력 있으면 "지상1층 XXX"
+    function getDefectLocationFloorLabel(floorCode) {
+        return getGrade3FloorDisplayLabel(floorCode || state.currentFloor, state.currentBuilding);
+    }
+
+    function composeDefectLocation(detailText, floorCode) {
+        const floor = getDefectLocationFloorLabel(floorCode);
+        const detail = String(detailText || '').trim();
+        if (!detail) return floor;
+        if (detail === floor) return floor;
+        if (detail.startsWith(`${floor} `) || detail.startsWith(`${floor}(`)) return detail;
+        return `${floor} ${detail}`;
+    }
+
+    function extractDefectLocationDetail(fullLocation, floorCode) {
+        const floor = getDefectLocationFloorLabel(floorCode);
+        const loc = String(fullLocation || '').trim();
+        if (!loc || loc === floor) return '';
+        if (loc.startsWith(`${floor} `)) return loc.slice(floor.length).trim();
+        return loc;
     }
 
     function getActiveSurveyColumns() {
@@ -8987,7 +9256,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const safeStyleKey = getDefectStyleKey(defect.category, defect.defectType);
             const color = getDefectColor(defect);
             const safeShapeCfg = getDefectPinShapeCfg(defect, safeStyleKey);
-            const useCircleTipSafe = isUnsetDefect(defect) || state.tipShape === 'circle';
+            const useCircleTipSafe = state.tipShape === 'circle';
             // 스타일 설정(핀/화살표 크기)이 화면과 동일하게 보고서에도 반영되도록 — 기존엔 여기가 고정 크기였음
             const safeDefectSize = getStyleSize(safeStyleKey);
             const safeScale = safeDefectSize.pin;
@@ -9007,12 +9276,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 let tipX = t.targetX;
                 let tipY = t.targetY;
                 if (isAreaDefectSafe) {
-                    const ax1 = Math.min(defect.areaX1, defect.areaX2);
-                    const ay1 = Math.min(defect.areaY1, defect.areaY2);
-                    const ax2 = Math.max(defect.areaX1, defect.areaX2);
-                    const ay2 = Math.max(defect.areaY1, defect.areaY2);
-                    const attach = getRectBorderAttachPoint(
-                        boxX, boxY, (ax1 + ax2) / 2, (ay1 + ay2) / 2,
+                    const attach = getAreaCenterBorderAttach(
+                        boxX, boxY,
                         defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
                     );
                     tipX = attach.x;
@@ -9038,15 +9303,26 @@ document.addEventListener('DOMContentLoaded', () => {
                         safeHeadLen,
                         0
                     )
-                    : (() => {
+                    : (isAreaDefectSafe
+                        ? (() => {
+                            const route = buildAreaLeaderRoute(
+                                anchor,
+                                { x: tipX, y: tipY },
+                                defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
+                            );
+                            const last = route[route.length - 1];
+                            const prev = route[route.length - 2] || anchor;
+                            return { route, ux: last.x - prev.x, uy: last.y - prev.y };
+                        })()
+                        : (() => {
                         const ux = tipX - anchor.x;
                         const uy = tipY - anchor.y;
-                        const tipBack = isAreaDefectSafe ? 0 : (useCircleTipSafe ? stemInset : safeHeadLen * Math.cos(Math.PI / 6));
-                        const stemEnd = (isAreaDefectSafe || tipBack <= 0)
+                        const tipBack = useCircleTipSafe ? stemInset : safeHeadLen * Math.cos(Math.PI / 6);
+                        const stemEnd = tipBack <= 0
                             ? { x: tipX, y: tipY }
                             : getArrowStemEndPoint(tipX, tipY, ux, uy, tipBack);
                         return { route: [anchor, stemEnd], ux, uy };
-                    })();
+                    })());
                 ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(leader.route[0].x, leader.route[0].y);
@@ -9631,7 +9907,13 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.scale(scale, scale);
                     }
                     ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                    renderDefectsGrouped(ctx, defects, drawPinSafe);
+                    const prevStyleCtx = _mapStyleRenderContext;
+                    _mapStyleRenderContext = { buildingId: currentBldgId, floorCode };
+                    try {
+                        renderDefectsGrouped(ctx, defects, drawPinSafe);
+                    } finally {
+                        _mapStyleRenderContext = prevStyleCtx;
+                    }
                     drawLocationMapLegend(ctx, imgW, imgH);
                     ctx.restore();
 
@@ -13113,6 +13395,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
+                floorMapStyleSettings: window.state.floorMapStyleSettings || null,
                 styleShapes: window.state.styleShapes || null,
                 locationMapLegend: window.state.locationMapLegend || null,
                 locationMapLegendBox: window.state.locationMapLegendBox || null,
@@ -13177,6 +13460,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (data.defectLeaderLineScale !== undefined) {
                         window.state.defectLeaderLineScale = data.defectLeaderLineScale;
+                        window.state._globalDefectLeaderLineScaleFallback = data.defectLeaderLineScale;
+                        isChanged = true;
+                    }
+                    if (data.floorMapStyleSettings) {
+                        window.state.floorMapStyleSettings = data.floorMapStyleSettings;
                         isChanged = true;
                     }
                     if (data.styleShapes) {
@@ -13196,6 +13484,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         // 로컬 캐시 갱신 (공용 저장 함수 재사용 — customDefectTypes 등 다른 로컬 설정을 덮어쓰지 않도록)
                         // isRemoteSyncing이 true인 상태라 syncStateToFirebase() 내부 가드에 의해 재동기화는 발생하지 않음
                         if (typeof saveStateToLocalStorage === 'function') saveStateToLocalStorage();
+
+                        if (state.currentBuildingId && state.currentFloor) {
+                            applyFloorMapStyleSettings(state.currentFloor, state.currentBuildingId);
+                        }
 
                         // 실시간 UI 자동 업데이트
                         if (typeof renderDashboard === 'function') renderDashboard();

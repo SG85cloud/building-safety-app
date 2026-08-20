@@ -185,11 +185,13 @@
                         </div>
                     </div>
 
-                    <!-- 핀/화살표 크기 일괄 조정 (전체 항목 공통 적용, 드래그하면 바로 도면에 반영) -->
-                    <div style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:0.4rem 0.7rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.5rem;">
+                    <!-- 핀/화살표 크기 일괄 조정 (현재 층에 적용 — 전체층은 버튼으로 복사) -->
+                    <div class="map-style-toolbar" style="display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:0.4rem 0.7rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:8px; margin-bottom:0.5rem;">
+                        <span class="map-style-floor-hint" style="font-size:0.72rem; color:var(--text-muted); white-space:nowrap;">현재 층에 적용</span>
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">📍 핀(박스) 크기 <input type="range" id="stylePinSizeAll" min="0.5" max="4.4" step="0.1" value="1.0" style="width:110px;"> <span id="stylePinSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">➔ 화살표 크기 <input type="range" id="styleArrowSizeAll" min="0.5" max="5.0" step="0.1" value="1.0" style="width:110px;"> <span id="styleArrowSizeAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
                         <label style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; white-space:nowrap;">〰 연결선 굵기 <input type="range" id="styleLeaderLineScaleAll" min="0.5" max="3.0" step="0.1" value="1.0" style="width:110px;"> <span id="styleLeaderLineScaleAllLabel" style="font-weight:700; min-width:34px; display:inline-block; text-align:right;">100%</span></label>
+                        <button type="button" id="btnApplyMapStyleAllFloors" class="chip map-style-all-floors-btn" title="지금 층의 핀·화살표·연결선 설정을 이 건물 전체 층에 복사">전체층 적용</button>
                     </div>
 
                     <!-- Canvas Viewport -->
@@ -565,7 +567,7 @@
                                 <i class="fa-solid fa-microphone"></i> 음성
                             </button>
                         </div>
-                        <input type="text" id="defectLocation" class="form-control" placeholder="예: 1F 기둥 C1 하부">
+                        <input type="text" id="defectLocation" class="form-control" placeholder="비우면 층수만 · 입력 예: 기둥 C1 하부 → 지상1층 기둥 C1 하부">
                     </div>
 
                     <div class="form-group" id="defectSizeFreeGroup">

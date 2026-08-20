@@ -1,52 +1,52 @@
-/* CSS Reset & Variables (Pure Light White Theme Engine v60.0) */
+/* CSS Reset & Variables — 현장용(Field Work) 대비 테마 */
 :root {
-    --bg-primary: #f8fafc;
-    --bg-secondary: #ffffff;
+    --bg-primary: #e8edf3;
+    --bg-secondary: #f4f7fb;
     --bg-card: #ffffff;
     --bg-modal: #ffffff;
-    --text-primary: #0f172a;
-    --text-secondary: #334155;
-    --text-muted: #64748b;
+    --text-primary: #0b1220;
+    --text-secondary: #1e293b;
+    --text-muted: #475569;
     
-    --accent-blue: #0284c7;
-    --accent-indigo: #4f46e5;
-    --accent-purple: #9333ea;
-    --border-color: #e2e8f0;
-    --border-highlight: #cbd5e1;
+    --accent-blue: #0369a1;
+    --accent-indigo: #4338ca;
+    --accent-purple: #7e22ce;
+    --border-color: #94a3b8;
+    --border-highlight: #64748b;
     
     /* Structural Tag Colors */
-    --color-structural: #ef4444;    /* Red */
-    --color-nonstructural: #2563eb; /* Blue */
-    --color-finishing: #f97316;    /* Orange */
+    --color-structural: #dc2626;    /* Red */
+    --color-nonstructural: #1d4ed8; /* Blue */
+    --color-finishing: #c2410c;    /* Orange */
     
     /* Grade Colors */
-    --grade-a: #16a34a; /* Green */
-    --grade-b: #0284c7; /* Cyan */
-    --grade-c: #ca8a04; /* Amber */
-    --grade-d: #ea580c; /* Orange */
-    --grade-e: #dc2626; /* Red */
+    --grade-a: #15803d; /* Green */
+    --grade-b: #0369a1; /* Cyan */
+    --grade-c: #a16207; /* Amber */
+    --grade-d: #c2410c; /* Orange */
+    --grade-e: #b91c1c; /* Red */
 
-    --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.06);
-    --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.12);
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 16px;
+    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 6px 18px rgba(15, 23, 42, 0.16);
+    --radius-sm: 5px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
 
     --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 body.theme-light {
-    --bg-primary: #f8fafc;
-    --bg-secondary: #ffffff;
+    --bg-primary: #e8edf3;
+    --bg-secondary: #f4f7fb;
     --bg-card: #ffffff;
     --bg-modal: #ffffff;
-    --text-primary: #0f172a;
-    --text-secondary: #334155;
-    --text-muted: #64748b;
-    --border-color: #e2e8f0;
-    --border-highlight: #cbd5e1;
-    --shadow-md: 0 4px 14px rgba(15, 23, 42, 0.06);
-    --shadow-lg: 0 10px 30px rgba(15, 23, 42, 0.12);
+    --text-primary: #0b1220;
+    --text-secondary: #1e293b;
+    --text-muted: #475569;
+    --border-color: #94a3b8;
+    --border-highlight: #64748b;
+    --shadow-md: 0 2px 8px rgba(15, 23, 42, 0.12);
+    --shadow-lg: 0 6px 18px rgba(15, 23, 42, 0.16);
 }
 
 body.theme-dark {
@@ -92,8 +92,8 @@ body {
 
 /* App Header */
 .app-header {
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
+    background: #ffffff;
+    border-bottom: 2px solid var(--border-highlight);
     padding: 0.8rem 1.5rem;
     display: flex;
     justify-content: space-between;
@@ -110,8 +110,8 @@ body {
 
 .brand-icon {
     font-size: 2rem;
-    color: var(--accent-blue);
-    background: rgba(56, 189, 248, 0.1);
+    color: #ffffff;
+    background: #0369a1;
     padding: 0.5rem;
     border-radius: var(--radius-md);
 }
@@ -144,19 +144,20 @@ body {
 }
 
 .styled-select, .styled-input, .styled-textarea {
-    background: var(--bg-primary);
+    background: #ffffff;
     color: var(--text-primary);
-    border: 1px solid var(--border-color);
+    border: 1.5px solid var(--border-highlight);
     padding: 0.5rem 0.8rem;
     border-radius: var(--radius-sm);
     font-size: 0.9rem;
+    font-weight: 600;
     outline: none;
-    transition: all 0.2s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .styled-select:focus, .styled-input:focus, .styled-textarea:focus {
-    border-color: var(--accent-blue);
-    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    border-color: #0369a1;
+    box-shadow: 0 0 0 2px rgba(3, 105, 161, 0.2);
 }
 
 /* Header Action Buttons */
@@ -173,38 +174,40 @@ body {
     padding: 0.5rem 0.9rem;
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
-    font-weight: 600;
+    font-weight: 700;
     cursor: pointer;
-    border: 1px solid transparent;
-    transition: all 0.2s ease;
+    border: 1.5px solid transparent;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     white-space: nowrap;
     flex-shrink: 0;
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, var(--accent-blue), var(--accent-indigo));
+    background: #0369a1;
     color: #ffffff;
+    border-color: #0c4a6e;
 }
 
 .btn-primary:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
+    background: #075985;
+    opacity: 1;
+    transform: none;
 }
 
 .btn-secondary {
-    background: var(--bg-card);
+    background: #ffffff;
     color: var(--text-primary);
-    border-color: var(--border-color);
+    border-color: var(--border-highlight);
 }
 
 .btn-secondary:hover {
-    background: var(--border-highlight);
+    background: #e2e8f0;
 }
 
 .btn-outline {
-    background: transparent;
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
+    background: #ffffff;
+    border-color: #0369a1;
+    color: #0369a1;
 }
 
 .btn-outline:hover {
@@ -377,12 +380,43 @@ body {
     justify-content: space-between;
     align-items: center;
     gap: 0.8rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: #ffffff;
+    border: 1.5px solid var(--border-highlight);
     border-radius: var(--radius-md);
     padding: 0.6rem 0.8rem;
     margin-bottom: 0.6rem;
     flex-wrap: wrap;
+    box-shadow: var(--shadow-md);
+}
+
+.map-style-toolbar {
+    background: #ffffff !important;
+    border: 1.5px solid var(--border-highlight) !important;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-md);
+}
+
+.map-style-toolbar label {
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.map-style-toolbar .map-style-floor-hint {
+    color: var(--text-muted) !important;
+    font-weight: 700;
+}
+
+.map-style-toolbar .map-style-all-floors-btn {
+    background: #0f172a;
+    border-color: #0f172a;
+    color: #ffffff;
+    font-weight: 800;
+}
+
+.map-style-toolbar .map-style-all-floors-btn:hover {
+    background: #1e293b;
+    border-color: #1e293b;
+    color: #ffffff;
 }
 
 .toolbar-mode-group {
@@ -399,9 +433,9 @@ body {
 }
 
 .btn-rotate-hero {
-    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    background: #4338ca;
     color: #ffffff;
-    border: 1px solid #818cf8;
+    border: 1.5px solid #312e81;
     padding: 0.45rem 0.85rem;
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
@@ -410,21 +444,21 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+    box-shadow: none;
     white-space: nowrap;
-    transition: all 0.2s ease;
+    transition: background 0.15s ease;
 }
 
 .btn-rotate-hero:hover {
-    background: linear-gradient(135deg, #4f46e5, #4338ca);
-    transform: translateY(-1px);
+    background: #3730a3;
+    transform: none;
 }
 
 .zoom-pill-group {
     display: inline-flex;
     align-items: center;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: #e2e8f0;
+    border: 1.5px solid var(--border-highlight);
     border-radius: var(--radius-sm);
     padding: 0.2rem;
     gap: 0.2rem;
@@ -435,14 +469,14 @@ body {
     border: none;
     color: var(--text-primary);
     padding: 0.3rem 0.6rem;
-    font-weight: 700;
+    font-weight: 800;
     font-size: 0.85rem;
     cursor: pointer;
     border-radius: 4px;
 }
 
 .zoom-pill-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: #cbd5e1;
 }
 
 .zoom-pill-btn.text-btn {
@@ -452,8 +486,8 @@ body {
 
 .zoom-pill-badge {
     font-size: 0.8rem;
-    font-weight: 700;
-    color: var(--accent-blue);
+    font-weight: 800;
+    color: #0f172a;
     padding: 0 0.4rem;
 }
 
@@ -477,7 +511,8 @@ body {
 
 /* 도면점검 캔버스는 화이트톤 UI에 맞춰 도면 밖 여백을 연한 회색으로 (NDT 캔버스는 기존 색 유지) */
 #canvasContainer {
-    background: #e2e8f0;
+    background: #cbd5e1;
+    border-color: var(--border-highlight);
 }
 
 @media (max-width: 768px) {
@@ -501,26 +536,27 @@ body {
     flex-direction: column;
     align-items: center;
     gap: 0.25rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
+    background: #ffffff;
+    border: 1.5px solid var(--border-highlight);
     border-radius: var(--radius-md);
     padding: 0.5rem 1rem;
     min-width: 84px;
     font-size: 0.72rem;
-    font-weight: 700;
+    font-weight: 800;
     color: var(--text-secondary);
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .icon-pill-btn i {
     font-size: 1rem;
-    color: var(--accent-blue);
+    color: #0369a1;
 }
 
 .icon-pill-btn:hover:not(:disabled) {
-    border-color: var(--accent-blue);
+    border-color: #0f172a;
     color: var(--text-primary);
+    background: #f1f5f9;
 }
 
 .icon-pill-btn:disabled {
@@ -529,12 +565,13 @@ body {
 }
 
 .icon-pill-btn.icon-pill-danger i {
-    color: #ef4444;
+    color: #b91c1c;
 }
 
 .icon-pill-btn.icon-pill-danger:hover:not(:disabled) {
-    border-color: #ef4444;
-    color: #ef4444;
+    border-color: #b91c1c;
+    color: #b91c1c;
+    background: #fef2f2;
 }
 
 /* 부재명/결함종류/결함원인 항목 관리 버튼 & 모달 */
@@ -798,13 +835,13 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 0.3rem;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: 20px;
-    padding: 0.15rem 0.6rem;
+    background: #ffffff;
+    border: 1.5px solid var(--border-highlight);
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
     font-size: 0.75rem;
-    font-weight: 700;
-    color: var(--text-secondary);
+    font-weight: 800;
+    color: var(--text-primary);
     cursor: pointer;
     font-family: inherit;
     line-height: 1.2;
@@ -812,14 +849,16 @@ body {
 }
 
 .defect-summary-badge:hover {
-    border-color: var(--accent-blue);
+    border-color: #0f172a;
     color: var(--text-primary);
+    background: #f1f5f9;
 }
 
 .defect-summary-badge.is-off {
-    opacity: 0.42;
+    opacity: 0.55;
     text-decoration: line-through;
-    background: transparent;
+    background: #e2e8f0;
+    color: var(--text-muted);
 }
 
 .defect-summary-badge::before {
@@ -860,12 +899,17 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    background: #ffffff;
+    border: 1.5px solid var(--border-color);
     border-radius: var(--radius-sm);
     padding: 0.4rem 0.5rem;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.defect-list-item:hover {
+    border-color: var(--border-highlight);
+    background: #f8fafc;
 }
 
 .defect-list-section {
@@ -914,8 +958,8 @@ body {
 }
 
 .defect-list-item:hover {
-    border-color: var(--accent-blue);
-    background: rgba(56, 189, 248, 0.08);
+    border-color: var(--border-highlight);
+    background: #f1f5f9;
 }
 
 .defect-badge-no {
@@ -1119,44 +1163,46 @@ body {
 }
 
 .mode-btn {
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
+    background: #ffffff;
+    border: 1.5px solid var(--border-highlight);
     color: var(--text-secondary);
     padding: 0.45rem 0.85rem;
     border-radius: var(--radius-sm);
     font-size: 0.82rem;
-    font-weight: 700;
+    font-weight: 800;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    transition: all 0.2s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .mode-btn:hover {
-    border-color: var(--accent-blue);
+    border-color: #0f172a;
     color: var(--text-primary);
+    background: #f1f5f9;
 }
 
 .mode-btn.active {
-    background: linear-gradient(135deg, #0284c7, #2563eb);
+    background: #0369a1;
     color: #ffffff;
-    border-color: #38bdf8;
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+    border-color: #0c4a6e;
+    box-shadow: none;
 }
 
 .btn-mark-mode.active {
-    background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+    background: #b91c1c !important;
     color: #ffffff !important;
-    border-color: #f87171 !important;
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.6) !important;
-    animation: pulseMark 1.5s infinite;
+    border-color: #7f1d1d !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2) !important;
+    animation: none;
 }
 
-@keyframes pulseMark {
-    0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-    70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+.btn-area-mode.active {
+    background: #c2410c !important;
+    color: #ffffff !important;
+    border-color: #7c2d12 !important;
+    box-shadow: none !important;
 }
 
 /* Floating Canvas Zoom Controls */
@@ -1654,10 +1700,10 @@ body {
         justify-content: center;
         gap: 0.18rem;
         min-height: 3.4rem;
-        border-radius: 12px;
-        border: 1px solid var(--border-color);
-        background: var(--bg-card);
-        color: var(--text-secondary);
+        border-radius: 10px;
+        border: 1.5px solid #64748b;
+        background: #1e293b;
+        color: #e2e8f0;
         font-size: 0.68rem;
         font-weight: 800;
         cursor: pointer;
@@ -1670,22 +1716,22 @@ body {
     }
 
     .mobile-fab-btn.active {
-        border-color: #38bdf8;
-        color: #e0f2fe;
-        background: rgba(56, 189, 248, 0.2);
-        box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
+        border-color: #0c4a6e;
+        color: #ffffff;
+        background: #0369a1;
+        box-shadow: none;
     }
 
     .mobile-fab-btn.mobile-fab-mark.active {
-        border-color: #f87171;
-        background: rgba(248, 113, 113, 0.18);
-        color: #fecaca;
+        border-color: #7f1d1d;
+        background: #b91c1c;
+        color: #ffffff;
     }
 
     .mobile-fab-btn.mobile-fab-area.active {
-        border-color: #fb923c;
-        background: rgba(251, 146, 60, 0.18);
-        color: #fed7aa;
+        border-color: #7c2d12;
+        background: #c2410c;
+        color: #ffffff;
     }
 
     body.defect-modal-open .mobile-map-fab {
@@ -2002,27 +2048,28 @@ body {
 }
 
 .chip {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
+    background: #ffffff;
+    border: 1.5px solid var(--border-highlight);
     color: var(--text-secondary);
     padding: 0.4rem 0.8rem;
-    border-radius: 20px;
+    border-radius: 6px;
     font-size: 0.8rem;
-    font-weight: 500;
+    font-weight: 700;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 .chip:hover {
-    border-color: var(--accent-blue);
+    border-color: #0f172a;
     color: var(--text-primary);
+    background: #f1f5f9;
 }
 
 .chip.active {
-    background: rgba(56, 189, 248, 0.15);
-    border-color: var(--accent-blue);
-    color: var(--accent-blue);
-    font-weight: 700;
+    background: #0369a1;
+    border-color: #0c4a6e;
+    color: #ffffff;
+    font-weight: 800;
 }
 
 .custom-add-row {
