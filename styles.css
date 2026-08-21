@@ -1258,7 +1258,7 @@ body {
 
     .defect-list-item {
         flex-shrink: 0;
-        min-width: 150px;
+        min-width: 118px;
     }
 
     .inspect-tool-panel .filter-group {
@@ -2357,21 +2357,22 @@ body {
     #ndtStyleSizeToolbar {
         display: none !important;
         position: fixed !important;
-        left: 0.5rem;
-        right: 0.5rem;
-        bottom: calc(5.1rem + env(safe-area-inset-bottom, 0px));
+        left: 0.4rem;
+        right: 0.4rem;
+        bottom: calc(4.15rem + env(safe-area-inset-bottom, 0px));
         z-index: 60;
         margin: 0 !important;
-        padding: 0.7rem 0.8rem !important;
+        padding: 0.5rem 0.6rem !important;
         flex-direction: column;
         align-items: stretch;
-        gap: 0.55rem !important;
-        max-height: min(46vh, 300px);
+        gap: 0.4rem !important;
+        max-height: min(40vh, 240px);
         overflow-y: auto;
-        border-radius: 14px !important;
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
+        border-radius: 12px !important;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
         background: #ffffff !important;
         border: 1px solid #d4d4d4 !important;
+        font-size: 0.78rem;
     }
 
     #mapStyleSizeToolbar.is-mobile-sheet-open,
@@ -2395,9 +2396,9 @@ body {
     .mobile-canvas-dock {
         display: block !important;
         position: fixed;
-        left: 0.4rem;
-        right: 0.4rem;
-        bottom: max(0.2rem, env(safe-area-inset-bottom, 0px));
+        left: 0.3rem;
+        right: 0.3rem;
+        bottom: max(0.12rem, env(safe-area-inset-bottom, 0px));
         z-index: 50;
         margin: 0;
         padding: 0;
@@ -2415,18 +2416,18 @@ body {
     .mobile-side-rail {
         display: flex !important;
         flex-direction: column;
-        gap: 0.28rem;
+        gap: 0.16rem;
         position: absolute;
-        right: 0.4rem;
+        right: 0.28rem;
         top: 50%;
         transform: translateY(-50%);
         z-index: 28;
-        padding: 0.35rem 0.28rem;
+        padding: 0.22rem 0.16rem;
         background: #ffffff;
         border: 1px solid #d4d4d4;
-        border-radius: 14px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
-        max-height: calc(100% - 1rem);
+        border-radius: 10px;
+        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+        max-height: calc(100% - 0.6rem);
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -2436,22 +2437,23 @@ body {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 0.12rem;
-        width: 3.15rem;
-        min-height: 3.05rem;
+        gap: 0.06rem;
+        width: 2.45rem;
+        min-height: 2.35rem;
         border: none;
-        border-radius: 10px;
+        border-radius: 8px;
         background: transparent;
         color: #404040;
-        font-size: 0.58rem;
+        font-size: 0.48rem;
         font-weight: 800;
         cursor: pointer;
-        padding: 0.2rem 0.1rem;
+        padding: 0.12rem 0.05rem;
         -webkit-tap-highlight-color: transparent;
+        line-height: 1.05;
     }
 
     .mobile-rail-btn i {
-        font-size: 1.05rem;
+        font-size: 0.88rem;
         color: #262626;
     }
 
@@ -2482,12 +2484,12 @@ body {
     .mobile-map-fab {
         display: grid !important;
         grid-template-columns: repeat(6, 1fr);
-        gap: 0.22rem;
-        padding: 0.38rem 0.3rem;
+        gap: 0.12rem;
+        padding: 0.22rem 0.18rem;
         background: #ffffff;
         border: 1px solid #d4d4d4;
-        border-radius: 16px;
-        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+        border-radius: 12px;
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
     }
 
     .mobile-ndt-fab {
@@ -2499,21 +2501,22 @@ body {
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 0.14rem;
-        min-height: 3.2rem;
-        border-radius: 12px;
+        gap: 0.06rem;
+        min-height: 2.45rem;
+        border-radius: 8px;
         border: none;
         background: transparent;
         color: #404040;
-        font-size: 0.62rem;
+        font-size: 0.5rem;
         font-weight: 800;
         cursor: pointer;
-        padding: 0.25rem 0.08rem;
+        padding: 0.12rem 0.04rem;
         -webkit-tap-highlight-color: transparent;
+        line-height: 1.05;
     }
 
     .mobile-fab-btn i {
-        font-size: 1.05rem;
+        font-size: 0.88rem;
         color: #262626;
     }
 
@@ -2548,12 +2551,117 @@ body {
         display: none !important;
     }
 
+    /* 폰: 도면 영역을 더 크게, 크롬 UI는 촘촘하게 */
+    .app-header {
+        padding: 0.32rem 0.5rem;
+        gap: 0.35rem;
+    }
+
+    .brand-icon {
+        font-size: 1.1rem;
+        padding: 0.28rem;
+    }
+
+    .app-title {
+        font-size: 0.92rem;
+    }
+
+    .app-subtitle {
+        display: none;
+    }
+
+    .btn-action {
+        padding: 0.28rem 0.45rem;
+        font-size: 0.7rem;
+    }
+
+    .main-tabs {
+        padding: 0.08rem 0.2rem;
+        gap: 0;
+        min-height: 0;
+    }
+
+    .tab-btn {
+        padding: 0.38rem 0.5rem;
+        font-size: 0.76rem;
+    }
+
+    .app-content {
+        padding: 0.4rem 0.4rem 0.2rem;
+    }
+
+    .map-toolbar,
+    .header-selector {
+        padding: 0.35rem 0.45rem;
+        gap: 0.3rem;
+        font-size: 0.78rem;
+    }
+
+    .header-selector label,
+    .filter-label {
+        font-size: 0.72rem;
+    }
+
+    .chip {
+        padding: 0.22rem 0.45rem;
+        font-size: 0.7rem;
+    }
+
+    #tab-map .inspect-sidebar-left h4,
+    #tab-map .defect-list-header,
+    .inspect-sidebar-left h4 {
+        font-size: 0.82rem;
+        margin: 0.25rem 0 0.35rem;
+    }
+
+    .defect-list-panel {
+        padding: 0.28rem;
+        gap: 0.22rem;
+        max-height: 38vh;
+    }
+
+    .defect-list-item {
+        min-width: 118px;
+        padding: 0.08rem 0.32rem;
+        gap: 0.28rem;
+    }
+
+    .defect-list-item-component {
+        font-size: 0.68rem;
+    }
+
+    .defect-list-item-type {
+        font-size: 0.62rem;
+    }
+
+    .defect-list-item-measure {
+        font-size: 0.6rem;
+    }
+
+    .defect-badge-no {
+        width: 1.55rem;
+        height: 1.55rem;
+        font-size: 0.62rem;
+    }
+
+    .defect-list-item-edit,
+    .defect-list-item-delete {
+        width: 1.45rem;
+        height: 1.45rem;
+        font-size: 0.65rem;
+    }
+
+    .map-style-toolbar label {
+        font-size: 0.72rem !important;
+        gap: 0.28rem !important;
+    }
+
     #tab-map #canvasContainer,
     #tab-ndt #ndtCanvasContainer {
-        min-height: 48vh !important;
-        height: 48vh !important;
+        min-height: 54vh !important;
+        height: 54vh !important;
         max-height: none !important;
-        margin-bottom: 4.6rem;
+        margin-bottom: 3.5rem;
     }
 }
 
