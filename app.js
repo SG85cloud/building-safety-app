@@ -1934,6 +1934,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingNdtPinIsTouch = false;
     let pendingNdtLongPressTimer = null;
     let ndtActivePointerIsTouch = false;
+    let ndtQuickDragEnabled = false;
+    let ndtAddSelectEnabled = false;
     const NDT_TOUCH_LONG_PRESS_MS = 500;
     const NDT_TOUCH_AIM_OFFSET_CSS_PX = 56;
     let isDraggingNdtPinGroup = false;
@@ -2981,7 +2983,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnMark = document.getElementById('btnNdtModeMark');
         if (btnPan) btnPan.classList.toggle('active', mode === 'PAN');
         if (btnMark) btnMark.classList.toggle('active', mode === 'MARK');
-        document.querySelectorAll('#mobileNdtMarkSheet .mobile-fab-btn[data-ndt-mode]').forEach(btn => {
+        document.querySelectorAll('#mobileNdtSideRail .mobile-rail-btn[data-ndt-mode]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.ndtMode === mode);
         });
         const canvas = document.getElementById('ndtCanvas');
@@ -4151,7 +4153,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (hitPin) {
                     const id = hitPin.item && hitPin.item.id;
                     if (id) {
-                        if (!selectedNdtIds.has(id) || selectedNdtIds.size <= 1) {
+                        if (ndtAddSelectEnabled) {
+                            if (selectedNdtIds.has(id)) selectedNdtIds.delete(id);
+                            else selectedNdtIds.add(id);
+                        } else if (!selectedNdtIds.has(id) || selectedNdtIds.size <= 1) {
                             selectedNdtIds = new Set([id]);
                         }
                         updateNdtSelectionBar();
@@ -4164,13 +4169,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         grabY: vy
                     };
                     pendingNdtPinIsTouch = true;
-                    pendingNdtPinArmed = false;
-                    pendingNdtLongPressTimer = setTimeout(() => {
-                        if (!pendingNdtPinHit || !pendingNdtPinIsTouch) return;
-                        pendingNdtPinArmed = true;
-                        try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
-                        drawNdtCanvas();
-                    }, NDT_TOUCH_LONG_PRESS_MS);
+                    pendingNdtPinArmed = !!ndtQuickDragEnabled;
+                    if (!ndtQuickDragEnabled) {
+                        pendingNdtLongPressTimer = setTimeout(() => {
+                            if (!pendingNdtPinHit || !pendingNdtPinIsTouch) return;
+                            pendingNdtPinArmed = true;
+                            try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
+                            drawNdtCanvas();
+                        }, NDT_TOUCH_LONG_PRESS_MS);
+                    }
                     return;
                 }
 
@@ -6871,6 +6878,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnUndoEl) btnUndoEl.disabled = !canUndo;
         if (btnRedoEl) btnRedoEl.disabled = !canRedo;
         if (mobileUndo) mobileUndo.disabled = !canUndo;
+        const mobileRedo = document.getElementById('mobileBtnRedo');
+        if (mobileRedo) mobileRedo.disabled = !canRedo;
     }
 
     // 좌측 사이드바에 표시되는 "현재 층에 등록된 결함" 간단 목록 렌더링
@@ -9151,8 +9160,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let touchAimImgY = 0;
     const TOUCH_DRAG_THRESHOLD = 14; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
     const MOUSE_DRAG_THRESHOLD = 6;
-    const TOUCH_LONG_PRESS_MS = 500; // 모바일: 선택 후 이만큼 눌러야 핀 이동 가능
+    const TOUCH_LONG_PRESS_MS = 500; // 모바일: 선택 후 이만큼 눌러야 핀 이동 가능 (드래그 모드 ON이면 생략)
     const TOUCH_AIM_OFFSET_CSS_PX = 56; // 손가락 위쪽 조준점 (화면 px)
+    let mobileQuickDragEnabled = false; // 우측 레일 '드래그' — 길게 누르기 없이 이동
+    let mobileAddSelectEnabled = false; // 우측 레일 '추가' — 터치마다 선택 토글
     let isDraggingPin = false;
     let isDraggingPinGroup = false;
     let groupDragLastImgX = 0;
@@ -9663,10 +9674,11 @@ document.addEventListener('DOMContentLoaded', () => {
             pendingDragHit = { hitInfo, imgX, imgY, additive };
             pendingDragIsTouch = isTouch;
             pendingDragHitStartTime = Date.now();
-            pendingDragArmed = !isTouch; // 마우스는 기존처럼 즉시 드래그 가능
+            pendingDragArmed = !isTouch || mobileQuickDragEnabled; // 마우스·퀵드래그는 즉시, 기본 터치는 길게 누름
             if (hitInfo.defect && hitInfo.defect.id) {
                 const id = hitInfo.defect.id;
-                if (additive) {
+                const useAdditive = additive || (isTouch && mobileAddSelectEnabled);
+                if (useAdditive) {
                     if (selectedDefectIds.has(id)) selectedDefectIds.delete(id);
                     else selectedDefectIds.add(id);
                 } else if (!selectedDefectIds.has(id) || selectedDefectIds.size <= 1) {
@@ -9676,7 +9688,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateMapSelectionBar();
                 drawCanvas();
             }
-            if (isTouch) {
+            if (isTouch && !mobileQuickDragEnabled) {
                 setTouchAimFromClient(clientX, clientY, true);
                 pendingDragLongPressTimer = setTimeout(() => {
                     if (!pendingDragHit || !pendingDragIsTouch) return;
@@ -9684,6 +9696,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
                     drawCanvas();
                 }, TOUCH_LONG_PRESS_MS);
+            } else if (isTouch) {
+                setTouchAimFromClient(clientX, clientY, true);
             }
             return;
         }
@@ -11045,8 +11059,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pan) pan.classList.toggle('active', mode === 'PAN');
         if (mark) mark.classList.toggle('active', mode === 'MARK');
         if (area) area.classList.toggle('active', mode === 'AREA');
-        // 모바일 마킹 시트 버튼도 동일 상태 동기화
-        document.querySelectorAll('#mobileMapMarkSheet .mobile-fab-btn[data-mode]').forEach(btn => {
+        // 모바일 우측 레일 모드 버튼 동기화
+        document.querySelectorAll('#mobileMapSideRail .mobile-rail-btn[data-mode]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         if (elements.planCanvas) {
@@ -11128,48 +11142,22 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 모바일 하단 독: 마킹/크기 시트 토글 + 모드·줌·회전
-    function setMobileSheetOpen(sheetEl, toggleBtn, open) {
-        if (!sheetEl || !toggleBtn) return;
-        sheetEl.hidden = !open;
-        sheetEl.classList.toggle('is-open', open);
-        toggleBtn.classList.toggle('active', open);
-        toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
-    }
-
-    function closeMobileMapSheets(except) {
-        if (except !== 'mark') {
-            setMobileSheetOpen(
-                document.getElementById('mobileMapMarkSheet'),
-                document.getElementById('mobileBtnToggleMark'),
-                false
-            );
-        }
-        if (except !== 'size') {
-            document.getElementById('mapStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
-            const sizeToggle = document.getElementById('mobileBtnToggleSize');
-            if (sizeToggle) {
-                sizeToggle.classList.remove('active');
-                sizeToggle.setAttribute('aria-expanded', 'false');
-            }
+    // 모바일: 우측 레일(마킹) + 하단 액션 바
+    function closeMobileMapSheets() {
+        document.getElementById('mapStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
+        const sizeToggle = document.getElementById('mobileBtnToggleSize');
+        if (sizeToggle) {
+            sizeToggle.classList.remove('active');
+            sizeToggle.setAttribute('aria-expanded', 'false');
         }
     }
 
-    function closeMobileNdtSheets(except) {
-        if (except !== 'mark') {
-            setMobileSheetOpen(
-                document.getElementById('mobileNdtMarkSheet'),
-                document.getElementById('mobileNdtBtnToggleMark'),
-                false
-            );
-        }
-        if (except !== 'size') {
-            document.getElementById('ndtStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
-            const sizeToggle = document.getElementById('mobileNdtBtnToggleSize');
-            if (sizeToggle) {
-                sizeToggle.classList.remove('active');
-                sizeToggle.setAttribute('aria-expanded', 'false');
-            }
+    function closeMobileNdtSheets() {
+        document.getElementById('ndtStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
+        const sizeToggle = document.getElementById('mobileNdtBtnToggleSize');
+        if (sizeToggle) {
+            sizeToggle.classList.remove('active');
+            sizeToggle.setAttribute('aria-expanded', 'false');
         }
     }
 
@@ -11178,24 +11166,45 @@ document.addEventListener('DOMContentLoaded', () => {
         closeMobileNdtSheets();
     };
 
-    const mobileBtnToggleMark = document.getElementById('mobileBtnToggleMark');
-    const mobileBtnToggleSize = document.getElementById('mobileBtnToggleSize');
-    if (mobileBtnToggleMark) {
-        mobileBtnToggleMark.addEventListener('click', () => {
-            const sheet = document.getElementById('mobileMapMarkSheet');
-            const willOpen = !sheet || sheet.hidden;
-            closeMobileMapSheets('mark');
-            setMobileSheetOpen(sheet, mobileBtnToggleMark, willOpen);
-        });
+    function syncMobileToggleBtn(btn, on) {
+        if (!btn) return;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
+
+    const mobileBtnToggleSize = document.getElementById('mobileBtnToggleSize');
     if (mobileBtnToggleSize) {
         mobileBtnToggleSize.addEventListener('click', () => {
             const bar = document.getElementById('mapStyleSizeToolbar');
             const willOpen = !bar || !bar.classList.contains('is-mobile-sheet-open');
-            closeMobileMapSheets('size');
             if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
             mobileBtnToggleSize.classList.toggle('active', willOpen);
             mobileBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        });
+    }
+
+    const mobileBtnQuickDrag = document.getElementById('mobileBtnQuickDrag');
+    if (mobileBtnQuickDrag) {
+        mobileBtnQuickDrag.addEventListener('click', () => {
+            mobileQuickDragEnabled = !mobileQuickDragEnabled;
+            syncMobileToggleBtn(mobileBtnQuickDrag, mobileQuickDragEnabled);
+            window.showToast(
+                mobileQuickDragEnabled ? '드래그 모드: 바로 이동' : '드래그 모드: 0.5초 길게 눌러 이동',
+                'info',
+                2200
+            );
+        });
+    }
+    const mobileBtnAddSelect = document.getElementById('mobileBtnAddSelect');
+    if (mobileBtnAddSelect) {
+        mobileBtnAddSelect.addEventListener('click', () => {
+            mobileAddSelectEnabled = !mobileAddSelectEnabled;
+            syncMobileToggleBtn(mobileBtnAddSelect, mobileAddSelectEnabled);
+            window.showToast(
+                mobileAddSelectEnabled ? '추가 선택 ON — 터치마다 선택 토글' : '추가 선택 OFF',
+                'info',
+                2200
+            );
         });
     }
 
@@ -11221,25 +11230,49 @@ document.addEventListener('DOMContentLoaded', () => {
     if (mobileBtnUndo) {
         mobileBtnUndo.addEventListener('click', () => undoDefectChange());
     }
-
-    const mobileNdtBtnToggleMark = document.getElementById('mobileNdtBtnToggleMark');
-    const mobileNdtBtnToggleSize = document.getElementById('mobileNdtBtnToggleSize');
-    if (mobileNdtBtnToggleMark) {
-        mobileNdtBtnToggleMark.addEventListener('click', () => {
-            const sheet = document.getElementById('mobileNdtMarkSheet');
-            const willOpen = !sheet || sheet.hidden;
-            closeMobileNdtSheets('mark');
-            setMobileSheetOpen(sheet, mobileNdtBtnToggleMark, willOpen);
+    const mobileBtnRedo = document.getElementById('mobileBtnRedo');
+    if (mobileBtnRedo) {
+        mobileBtnRedo.addEventListener('click', () => redoDefectChange());
+    }
+    const mobileBtnDeleteSelected = document.getElementById('mobileBtnDeleteSelected');
+    if (mobileBtnDeleteSelected) {
+        mobileBtnDeleteSelected.addEventListener('click', () => {
+            document.getElementById('btnDeleteSelectedDefects')?.click();
         });
     }
+
+    const mobileNdtBtnToggleSize = document.getElementById('mobileNdtBtnToggleSize');
     if (mobileNdtBtnToggleSize) {
         mobileNdtBtnToggleSize.addEventListener('click', () => {
             const bar = document.getElementById('ndtStyleSizeToolbar');
             const willOpen = !bar || !bar.classList.contains('is-mobile-sheet-open');
-            closeMobileNdtSheets('size');
             if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
             mobileNdtBtnToggleSize.classList.toggle('active', willOpen);
             mobileNdtBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        });
+    }
+    const mobileNdtBtnQuickDrag = document.getElementById('mobileNdtBtnQuickDrag');
+    if (mobileNdtBtnQuickDrag) {
+        mobileNdtBtnQuickDrag.addEventListener('click', () => {
+            ndtQuickDragEnabled = !ndtQuickDragEnabled;
+            syncMobileToggleBtn(mobileNdtBtnQuickDrag, ndtQuickDragEnabled);
+            window.showToast(
+                ndtQuickDragEnabled ? '드래그 모드: 바로 이동' : '드래그 모드: 0.5초 길게 눌러 이동',
+                'info',
+                2200
+            );
+        });
+    }
+    const mobileNdtBtnAddSelect = document.getElementById('mobileNdtBtnAddSelect');
+    if (mobileNdtBtnAddSelect) {
+        mobileNdtBtnAddSelect.addEventListener('click', () => {
+            ndtAddSelectEnabled = !ndtAddSelectEnabled;
+            syncMobileToggleBtn(mobileNdtBtnAddSelect, ndtAddSelectEnabled);
+            window.showToast(
+                ndtAddSelectEnabled ? '추가 선택 ON — 터치마다 선택 토글' : '추가 선택 OFF',
+                'info',
+                2200
+            );
         });
     }
     const mobileNdtBtnModePan = document.getElementById('mobileNdtBtnModePan');
@@ -11264,6 +11297,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (mobileNdtBtnRotate) {
         mobileNdtBtnRotate.addEventListener('click', () => {
             if (typeof window.rotateNdtDrawing === 'function') window.rotateNdtDrawing();
+        });
+    }
+    const mobileNdtBtnDeleteSelected = document.getElementById('mobileNdtBtnDeleteSelected');
+    if (mobileNdtBtnDeleteSelected) {
+        mobileNdtBtnDeleteSelected.addEventListener('click', () => {
+            document.getElementById('btnDeleteSelectedNdt')?.click();
         });
     }
 

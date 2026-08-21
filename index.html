@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260821_land1">
+    <link rel="stylesheet" href="styles.css?v=20260821_rail1">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PDF 생성용: 페이지별로 직접 캡처해서 조립(큰 보고서에서 html2pdf 한방 렌더링이 캔버스 높이 한계로
@@ -214,6 +214,28 @@
                                 <span>삭제</span>
                             </button>
                         </div>
+                        <aside class="mobile-side-rail" id="mobileMapSideRail" aria-label="마킹 도구">
+                            <button type="button" class="mobile-rail-btn active" id="mobileBtnModePan" data-mode="PAN" title="선택">
+                                <i class="fa-regular fa-hand-pointer"></i>
+                                <span>선택</span>
+                            </button>
+                            <button type="button" class="mobile-rail-btn mobile-fab-mark" id="mobileBtnModeMark" data-mode="MARK" title="핀 마킹">
+                                <i class="fa-solid fa-location-dot"></i>
+                                <span>핀</span>
+                            </button>
+                            <button type="button" class="mobile-rail-btn mobile-fab-area" id="mobileBtnModeArea" data-mode="AREA" title="영역 마킹">
+                                <i class="fa-solid fa-vector-square"></i>
+                                <span>영역</span>
+                            </button>
+                            <button type="button" class="mobile-rail-btn" id="mobileBtnQuickDrag" title="켜면 길게 누르지 않고 바로 드래그" aria-pressed="false">
+                                <i class="fa-solid fa-up-down-left-right"></i>
+                                <span>드래그</span>
+                            </button>
+                            <button type="button" class="mobile-rail-btn" id="mobileBtnAddSelect" title="켜면 터치마다 선택 추가/해제" aria-pressed="false">
+                                <i class="fa-solid fa-object-ungroup"></i>
+                                <span>추가</span>
+                            </button>
+                        </aside>
                     </div>
 
                     <!-- Bottom Icon Toolbar -->
@@ -232,26 +254,20 @@
                         </button>
                     </div>
 
-                    <!-- 모바일 전용: 하단 플로팅 독 (마킹·크기 토글) -->
+                    <!-- 모바일 하단 액션 바 -->
                     <div class="mobile-canvas-dock" id="mobileMapDock">
-                        <div class="mobile-dock-sheet" id="mobileMapMarkSheet" hidden>
-                            <button type="button" class="mobile-fab-btn active" id="mobileBtnModePan" data-mode="PAN">
-                                <i class="fa-regular fa-hand-pointer"></i>
-                                <span>선택</span>
+                        <nav class="mobile-map-fab" id="mobileMapFabBar" aria-label="모바일 도면 액션">
+                            <button type="button" class="mobile-fab-btn" id="mobileBtnUndo" title="실행 취소">
+                                <i class="fa-solid fa-rotate-left"></i>
+                                <span>되돌리기</span>
                             </button>
-                            <button type="button" class="mobile-fab-btn mobile-fab-mark" id="mobileBtnModeMark" data-mode="MARK">
-                                <i class="fa-solid fa-location-dot"></i>
-                                <span>핀</span>
+                            <button type="button" class="mobile-fab-btn" id="mobileBtnRedo" title="다시 실행">
+                                <i class="fa-solid fa-rotate-right"></i>
+                                <span>다시실행</span>
                             </button>
-                            <button type="button" class="mobile-fab-btn mobile-fab-area" id="mobileBtnModeArea" data-mode="AREA">
-                                <i class="fa-solid fa-vector-square"></i>
-                                <span>영역</span>
-                            </button>
-                        </div>
-                        <nav class="mobile-map-fab" id="mobileMapFabBar" aria-label="모바일 도면 도구">
-                            <button type="button" class="mobile-fab-btn mobile-fab-toggle" id="mobileBtnToggleMark" aria-expanded="false" title="마킹 모드">
-                                <i class="fa-solid fa-location-dot"></i>
-                                <span>마킹</span>
+                            <button type="button" class="mobile-fab-btn mobile-fab-danger" id="mobileBtnDeleteSelected" title="선택한 결함 삭제">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span>삭제</span>
                             </button>
                             <button type="button" class="mobile-fab-btn mobile-fab-toggle" id="mobileBtnToggleSize" aria-expanded="false" title="핀·화살표 크기">
                                 <i class="fa-solid fa-sliders"></i>
@@ -264,10 +280,6 @@
                             <button type="button" class="mobile-fab-btn" id="mobileBtnRotate" title="도면 회전">
                                 <i class="fa-solid fa-rotate-right"></i>
                                 <span>회전</span>
-                            </button>
-                            <button type="button" class="mobile-fab-btn" id="mobileBtnUndo" title="실행 취소">
-                                <i class="fa-solid fa-rotate-left"></i>
-                                <span>되돌리기</span>
                             </button>
                         </nav>
                     </div>
@@ -510,24 +522,32 @@
                         <span>삭제</span>
                     </button>
                 </div>
-            </div>
-
-            <!-- 모바일 전용: NDT 하단 플로팅 독 -->
-            <div class="mobile-canvas-dock" id="mobileNdtDock">
-                <div class="mobile-dock-sheet" id="mobileNdtMarkSheet" hidden>
-                    <button type="button" class="mobile-fab-btn active" id="mobileNdtBtnModePan" data-ndt-mode="PAN">
+                <aside class="mobile-side-rail" id="mobileNdtSideRail" aria-label="NDT 마킹 도구">
+                    <button type="button" class="mobile-rail-btn active" id="mobileNdtBtnModePan" data-ndt-mode="PAN" title="선택">
                         <i class="fa-regular fa-hand-pointer"></i>
                         <span>선택</span>
                     </button>
-                    <button type="button" class="mobile-fab-btn mobile-fab-mark" id="mobileNdtBtnModeMark" data-ndt-mode="MARK">
+                    <button type="button" class="mobile-rail-btn mobile-fab-mark" id="mobileNdtBtnModeMark" data-ndt-mode="MARK" title="위치 마킹">
                         <i class="fa-solid fa-location-dot"></i>
                         <span>마킹</span>
                     </button>
-                </div>
-                <nav class="mobile-map-fab mobile-ndt-fab" id="mobileNdtFabBar" aria-label="모바일 비파괴 도면 도구">
-                    <button type="button" class="mobile-fab-btn mobile-fab-toggle" id="mobileNdtBtnToggleMark" aria-expanded="false" title="마킹 모드">
-                        <i class="fa-solid fa-location-dot"></i>
-                        <span>마킹</span>
+                    <button type="button" class="mobile-rail-btn" id="mobileNdtBtnQuickDrag" title="켜면 길게 누르지 않고 바로 드래그" aria-pressed="false">
+                        <i class="fa-solid fa-up-down-left-right"></i>
+                        <span>드래그</span>
+                    </button>
+                    <button type="button" class="mobile-rail-btn" id="mobileNdtBtnAddSelect" title="켜면 터치마다 선택 추가/해제" aria-pressed="false">
+                        <i class="fa-solid fa-object-ungroup"></i>
+                        <span>추가</span>
+                    </button>
+                </aside>
+            </div>
+
+            <!-- 모바일 NDT 하단 액션 바 -->
+            <div class="mobile-canvas-dock" id="mobileNdtDock">
+                <nav class="mobile-map-fab mobile-ndt-fab" id="mobileNdtFabBar" aria-label="모바일 비파괴 도면 액션">
+                    <button type="button" class="mobile-fab-btn mobile-fab-danger" id="mobileNdtBtnDeleteSelected" title="선택한 NDT 삭제">
+                        <i class="fa-solid fa-trash-can"></i>
+                        <span>삭제</span>
                     </button>
                     <button type="button" class="mobile-fab-btn mobile-fab-toggle" id="mobileNdtBtnToggleSize" aria-expanded="false" title="핀·화살표 크기">
                         <i class="fa-solid fa-sliders"></i>
@@ -1992,7 +2012,7 @@
     <script src="js/tabs/ndt.js?v=20260821_land1"></script>
     <script src="js/shared/report.js?v=20260821_land1"></script>
     <script src="js/shared/auth.js?v=20260821_land1"></script>
-    <script src="app.js?v=20260821_touch1"></script>
+    <script src="app.js?v=20260821_rail1"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const btn = document.getElementById('btnExportVectorPdf');
