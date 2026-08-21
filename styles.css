@@ -1289,7 +1289,7 @@ body {
 
 /* 가로 모드(폰·태블릿): 좌측 결함목록 + 우측 도면 — 보면서 바로 마킹 */
 @media (orientation: landscape) and (max-width: 1200px) and (max-height: 900px) {
-    body {
+    body.bsa-tab-map {
         height: 100dvh;
         height: 100vh;
         overflow: hidden;
@@ -4194,7 +4194,8 @@ body {
     opacity: 0;
     transform: translateY(-12px);
     transition: opacity 0.25s ease, transform 0.25s ease;
-    pointer-events: auto;
+    /* 알림이 버튼 클릭을 가로채지 않음 */
+    pointer-events: none;
 }
 
 .toast.show {
@@ -4255,7 +4256,11 @@ body {
 }
 
 @media (max-width: 480px) {
-    .toast-container { top: 0.6rem; width: 94vw; }
+    .toast-container {
+        top: auto;
+        bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+        width: 94vw;
+    }
 }
 
 .offline-badge {
@@ -4281,6 +4286,33 @@ body {
     .offline-badge { top: auto; bottom: 0.8rem; right: 0.7rem; left: 0.7rem; justify-content: center; }
 }
 
+@media (max-width: 1024px) {
+    /* 알림은 하단으로 — 상단 탭/도구 버튼을 가리지 않음, 클릭도 통과 */
+    .toast-container {
+        top: auto;
+        bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        width: min(94vw, 420px);
+        pointer-events: none;
+    }
+    .toast {
+        transform: translateY(12px);
+        pointer-events: none;
+        font-size: 0.78rem;
+        padding: 0.55rem 0.75rem;
+    }
+    .toast.show {
+        transform: translateY(0);
+    }
+
+    /* 비파괴 도면 안내 배너 — 도면을 가리므로 모바일에서 숨김 */
+    #ndtCanvasHintText,
+    #tab-ndt .canvas-hint {
+        display: none !important;
+    }
+}
+
 /* ============================================================
    모바일 현장점검 레이아웃 (≤1024px)
    - 전차 등록/PC 도구 숨김
@@ -4294,9 +4326,11 @@ body {
     }
 
     html, body {
-        height: 100%;
-        height: 100dvh;
-        overflow: hidden;
+        min-height: 100dvh;
+        height: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     body {
@@ -4304,23 +4338,31 @@ body {
         flex-direction: column;
     }
 
-    /* 조사표/비파괴/홈: 페이지 스크롤 허용 (위치도만 화면 고정) */
-    body.bsa-tab-survey,
-    body.bsa-tab-ndt,
-    body.bsa-tab-home {
-        height: auto;
-        min-height: 100dvh;
-        overflow-x: hidden;
-        overflow-y: auto;
+    /* 결함위치도만 화면 고정 — 그 외 탭은 페이지 스크롤 */
+    body.bsa-tab-map {
+        height: 100%;
+        height: 100dvh;
+        overflow: hidden;
+    }
+
+    body.bsa-tab-map .app-content {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow: hidden;
+        padding: 0.12rem;
+        display: flex;
+        flex-direction: column;
     }
 
     body.bsa-tab-survey .app-content,
     body.bsa-tab-ndt .app-content,
-    body.bsa-tab-home .app-content {
+    body.bsa-tab-home .app-content,
+    body:not(.bsa-tab-map) .app-content {
         overflow: visible;
         flex: none;
         min-height: auto;
         padding: 0.45rem 0.5rem 1rem;
+        -webkit-overflow-scrolling: touch;
     }
 
     /* 상단: 조그만 탭 툴바 + 층수 우측 */
@@ -4405,7 +4447,8 @@ body {
         display: none !important;
     }
 
-    .app-content {
+    /* 위치도 탭일 때만 app-content 고정 — 다른 탭 스크롤을 막지 않음 */
+    body.bsa-tab-map .app-content {
         flex: 1 1 auto;
         min-height: 0;
         padding: 0.12rem;
