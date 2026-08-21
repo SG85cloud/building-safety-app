@@ -503,9 +503,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 && typeof closeNdtDisplacementChartModal === 'function') {
                 closeNdtDisplacementChartModal();
             }
-            if (typeof closeDefectComponentCascadeModal === 'function') {
-                closeDefectComponentCascadeModal();
-            }
             if (typeof window.closeAllMobileCanvasSheets === 'function') {
                 window.closeAllMobileCanvasSheets();
             }
@@ -8045,268 +8042,12 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    // --- Dynamic Defect Component(부재 명칭) — 대·중·소분류 트리 + 플랫 프리셋 ---
-    // 대분류 = 부재 분류(구조체/비구조체/마감재), 소분류 값이 실제 부재 명칭으로 저장됨
-    const DEFECT_COMPONENT_TREE = {
-        '구조체': {
-            '기둥': ['기둥', 'RC기둥', '철골기둥', 'SRC기둥'],
-            '보': ['큰보', '작은보', '보', '캔틸레버보'],
-            '슬래브': ['슬래브', '데크슬래브'],
-            '벽체': ['RC벽체', '내력벽'],
-            '계단': ['계단', '계단참', '계단슬래브'],
-            '기초': ['기초', '독립기초', '매트기초'],
-            '기타': ['기타']
-        },
-        '비구조체': {
-            '벽체': ['조적벽체', '칸막이벽', 'ALC벽'],
-            '창호': ['창호', '문', '셔터'],
-            '천장': ['천장', '반자'],
-            '기타': ['기타']
-        },
-        '마감재': {
-            '외장': ['외장타일', '외장석재', '도장', '금속패널'],
-            '내장': ['내장타일', '수장', '내장도장'],
-            '바닥': ['바닥타일', '바닥마감'],
-            '기타': ['기타']
-        }
+    // --- Dynamic Defect Component(부재 명칭) — 분류별 플랫 프리셋 ---
+    const DEFECT_COMPONENT_PRESET = {
+        '구조체': ['기둥', 'RC기둥', '철골기둥', 'SRC기둥', '큰보', '작은보', '보', '캔틸레버보', '슬래브', '데크슬래브', 'RC벽체', '내력벽', '계단', '계단참', '계단슬래브', '기초', '독립기초', '매트기초', '기타'],
+        '비구조체': ['조적벽체', '칸막이벽', 'ALC벽', '창호', '문', '셔터', '천장', '반자', '기타'],
+        '마감재': ['외장타일', '외장석재', '도장', '금속패널', '내장타일', '수장', '내장도장', '바닥타일', '바닥마감', '기타']
     };
-
-    function buildDefectComponentPresetFromTree() {
-        const out = { '구조체': [], '비구조체': [], '마감재': [] };
-        Object.keys(DEFECT_COMPONENT_TREE).forEach((major) => {
-            const seen = new Set();
-            Object.values(DEFECT_COMPONENT_TREE[major] || {}).forEach((leaves) => {
-                (leaves || []).forEach((leaf) => {
-                    if (!seen.has(leaf)) {
-                        seen.add(leaf);
-                        out[major].push(leaf);
-                    }
-                });
-            });
-        });
-        return out;
-    }
-
-    const DEFECT_COMPONENT_PRESET = buildDefectComponentPresetFromTree();
-
-    let _componentCascade = { step: 1, major: '', mid: '' };
-
-    function findDefectComponentCascadePath(leafName, preferredMajor) {
-        const name = (leafName || '').trim();
-        if (!name) return null;
-        const majors = preferredMajor && DEFECT_COMPONENT_TREE[preferredMajor]
-            ? [preferredMajor, ...Object.keys(DEFECT_COMPONENT_TREE).filter(k => k !== preferredMajor)]
-            : Object.keys(DEFECT_COMPONENT_TREE);
-        for (const major of majors) {
-            const mids = DEFECT_COMPONENT_TREE[major] || {};
-            for (const mid of Object.keys(mids)) {
-                if ((mids[mid] || []).includes(name)) return { major, mid, leaf: name };
-            }
-        }
-        return null;
-    }
-
-    function updateDefectComponentCascadeSummary(valueOverride) {
-        const el = document.getElementById('defectComponentCascadeSummary');
-        if (!el) return;
-        const cat = document.getElementById('defectCategory')?.value || '';
-        const name = (valueOverride !== undefined)
-            ? String(valueOverride || '').trim()
-            : getDefectComboValue(
-                document.getElementById('defectComponent'),
-                document.getElementById('defectComponentInput')
-            );
-        const path = findDefectComponentCascadePath(name, cat);
-        if (path) {
-            el.textContent = `${path.major} › ${path.mid} › ${path.leaf}`;
-            return;
-        }
-        if (name) {
-            el.textContent = cat ? `${cat} › ${name}` : name;
-            return;
-        }
-        el.textContent = '대·중·소분류로 선택';
-    }
-
-    function closeDefectComponentCascadeModal() {
-        const modal = document.getElementById('defectComponentCascadeModal');
-        if (!modal) return;
-        modal.classList.remove('open');
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-    }
-
-    function renderDefectComponentCascadeGrid() {
-        const grid = document.getElementById('defectCascadeGrid');
-        const crumb = document.getElementById('defectCascadeCrumb');
-        const steps = document.getElementById('defectCascadeSteps');
-        const backBtn = document.getElementById('btnDefectCascadeBack');
-        if (!grid) return;
-
-        const { step, major, mid } = _componentCascade;
-        if (steps) {
-            steps.querySelectorAll('[data-step]').forEach((node) => {
-                const s = Number(node.getAttribute('data-step'));
-                node.classList.toggle('is-active', s === step);
-                node.classList.toggle('is-done', s < step);
-            });
-        }
-        if (backBtn) backBtn.style.visibility = step > 1 ? 'visible' : 'hidden';
-
-        let items = [];
-        let titleHint = '';
-        if (step === 1) {
-            items = Object.keys(DEFECT_COMPONENT_TREE);
-            titleHint = '대분류를 선택하세요';
-            if (crumb) crumb.textContent = titleHint;
-        } else if (step === 2) {
-            items = Object.keys(DEFECT_COMPONENT_TREE[major] || {});
-            titleHint = '중분류를 선택하세요';
-            if (crumb) crumb.textContent = `${major} › ${titleHint}`;
-        } else {
-            items = [...(DEFECT_COMPONENT_TREE[major]?.[mid] || [])];
-            // 커스텀 부재명(해당 대분류)도 소분류에 노출
-            migrateDefectComponentStateShape();
-            const custom = (window.state.customDefectComponents && window.state.customDefectComponents[major]) || [];
-            custom.forEach((c) => {
-                if (c && !items.includes(c)) items.push(c);
-            });
-            titleHint = '소분류(부재 명칭)를 선택하세요';
-            if (crumb) crumb.textContent = `${major} › ${mid} › ${titleHint}`;
-        }
-
-        const currentLeaf = getDefectComboValue(
-            document.getElementById('defectComponent'),
-            document.getElementById('defectComponentInput')
-        );
-        grid.innerHTML = '';
-        items.forEach((label) => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'defect-cascade-chip';
-            btn.textContent = label === '기타' ? '기타 부재' : label;
-            if (step === 3 && label === currentLeaf) btn.classList.add('is-selected');
-            if (step === 1 && label === (document.getElementById('defectCategory')?.value || '')) {
-                btn.classList.add('is-selected');
-            }
-            btn.addEventListener('click', () => onDefectComponentCascadePick(label));
-            grid.appendChild(btn);
-        });
-    }
-
-    function onDefectComponentCascadePick(label) {
-        if (_componentCascade.step === 1) {
-            _componentCascade.major = label;
-            _componentCascade.mid = '';
-            _componentCascade.step = 2;
-            const catEl = document.getElementById('defectCategory');
-            if (catEl && catEl.value !== label) {
-                catEl.value = label;
-                catEl.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-            renderDefectComponentCascadeGrid();
-            return;
-        }
-        if (_componentCascade.step === 2) {
-            _componentCascade.mid = label;
-            _componentCascade.step = 3;
-            renderDefectComponentCascadeGrid();
-            return;
-        }
-        applyDefectComponentCascadeSelection(label);
-    }
-
-    function applyDefectComponentCascadeSelection(leaf) {
-        const major = _componentCascade.major || document.getElementById('defectCategory')?.value || '구조체';
-        const catEl = document.getElementById('defectCategory');
-        if (catEl && catEl.value !== major) {
-            catEl.value = major;
-            catEl.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-        populateDefectComponentDropdown(major, leaf);
-        syncDefectComboFields(
-            document.getElementById('defectComponent'),
-            document.getElementById('defectComponentInput'),
-            leaf
-        );
-        updateDefectComponentCascadeSummary(leaf);
-        if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
-        closeDefectComponentCascadeModal();
-        if (typeof window.showToast === 'function') {
-            window.showToast(`부재 명칭: ${major} › ${_componentCascade.mid} › ${leaf}`, 'success', 1800);
-        }
-    }
-
-    function openDefectComponentCascadeModal() {
-        const cat = document.getElementById('defectCategory')?.value || '구조체';
-        const leaf = getDefectComboValue(
-            document.getElementById('defectComponent'),
-            document.getElementById('defectComponentInput')
-        );
-        const path = findDefectComponentCascadePath(leaf, cat);
-        if (path) {
-            _componentCascade = { step: 3, major: path.major, mid: path.mid };
-        } else if (DEFECT_COMPONENT_TREE[cat]) {
-            _componentCascade = { step: 2, major: cat, mid: '' };
-        } else {
-            _componentCascade = { step: 1, major: '', mid: '' };
-        }
-        const modal = document.getElementById('defectComponentCascadeModal');
-        if (!modal) return;
-        modal.style.display = 'flex';
-        modal.classList.add('open');
-        modal.setAttribute('aria-hidden', 'false');
-        renderDefectComponentCascadeGrid();
-    }
-
-    function setupDefectComponentCascadeEvents() {
-        const openBtn = document.getElementById('btnOpenComponentCascade');
-        if (openBtn && !openBtn.dataset.cascadeBound) {
-            openBtn.dataset.cascadeBound = '1';
-            openBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                openDefectComponentCascadeModal();
-            });
-        }
-        const closeBtn = document.getElementById('btnCloseDefectCascade');
-        if (closeBtn && !closeBtn.dataset.cascadeBound) {
-            closeBtn.dataset.cascadeBound = '1';
-            closeBtn.addEventListener('click', closeDefectComponentCascadeModal);
-        }
-        const keepBtn = document.getElementById('btnDefectCascadeCloseKeep');
-        if (keepBtn && !keepBtn.dataset.cascadeBound) {
-            keepBtn.dataset.cascadeBound = '1';
-            keepBtn.addEventListener('click', () => {
-                closeDefectComponentCascadeModal();
-                const input = document.getElementById('defectComponentInput');
-                if (input) {
-                    input.focus();
-                    input.select?.();
-                }
-            });
-        }
-        const backBtn = document.getElementById('btnDefectCascadeBack');
-        if (backBtn && !backBtn.dataset.cascadeBound) {
-            backBtn.dataset.cascadeBound = '1';
-            backBtn.addEventListener('click', () => {
-                if (_componentCascade.step === 3) {
-                    _componentCascade.step = 2;
-                    _componentCascade.mid = '';
-                } else if (_componentCascade.step === 2) {
-                    _componentCascade.step = 1;
-                    _componentCascade.major = '';
-                }
-                renderDefectComponentCascadeGrid();
-            });
-        }
-        const overlay = document.getElementById('defectComponentCascadeModal');
-        if (overlay && !overlay.dataset.cascadeBound) {
-            overlay.dataset.cascadeBound = '1';
-            overlay.addEventListener('click', (e) => {
-                if (e.target === overlay) closeDefectComponentCascadeModal();
-            });
-        }
-    }
 
     // 예전 버전(카테고리 구분 없는 배열)으로 저장된 부재 명칭 커스텀/숨김 목록을 카테고리별 객체로 변환
     function migrateDefectComponentStateShape() {
@@ -8379,7 +8120,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!v) return;
                 ensureDefectComboOption(select, v);
                 if (onChange) onChange(v);
-                if (selectId === 'defectComponent') updateDefectComponentCascadeSummary(v);
                 if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
             });
         });
@@ -8429,7 +8169,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ? currentVal
             : (isDefectComboCustomToken(select.value) ? '' : select.value);
         syncDefectComboFields(select, document.getElementById('defectComponentInput'), resolved);
-        updateDefectComponentCascadeSummary(resolved);
     }
 
     // --- Dynamic Defect Type Presets & Custom Adding ---
@@ -8628,7 +8367,6 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             updateDefectTypeDropdown(e.target.value, currentType);
             populateDefectComponentDropdown(e.target.value, currentComponent);
-            updateDefectComponentCascadeSummary(currentComponent);
         });
     }
 
@@ -8657,7 +8395,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('defectComponentInput'),
                     e.target.value
                 );
-                updateDefectComponentCascadeSummary(e.target.value);
             }
         });
     }
@@ -8725,7 +8462,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     bindDefectComboInputs();
-    setupDefectComponentCascadeEvents();
 
     function setDefectArrowOctant(octant) {
         const v = ((parseInt(octant, 10) || 0) % 8 + 8) % 8;
@@ -10749,7 +10485,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function closeDefectModal() {
         flushDefectAutoApply();
-        if (typeof closeDefectComponentCascadeModal === 'function') closeDefectComponentCascadeModal();
         window._defectMarkingTemplate = null;
         window._pendingPinCoords = null;
         window._pendingAreaRect = null;
@@ -10771,7 +10506,6 @@ document.addEventListener('DOMContentLoaded', () => {
     function shouldKeepDefectModalForTarget(target) {
         if (!target || typeof target.closest !== 'function') return false;
         if (target.closest('#defectModal .defect-drawer-card')) return true;
-        if (target.closest('#defectComponentCascadeModal')) return true;
         if (target.closest('.defect-list-item')) return true; // 목록에서 다른 결함 열기
         if (target.closest('#planCanvas')) return true; // 캔버스는 handleDragStart가 처리
         if (target.closest('#canvasContainer')) return true;
@@ -11644,11 +11378,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.state.currentTab !== 'tab-map') return;
         if (k === 'escape') {
             e.preventDefault();
-            const cascadeModal = document.getElementById('defectComponentCascadeModal');
-            if (cascadeModal && cascadeModal.classList.contains('open')) {
-                closeDefectComponentCascadeModal();
-                return;
-            }
             if (typeof isDefectModalOpen === 'function' && isDefectModalOpen()) {
                 closeDefectModal();
             }

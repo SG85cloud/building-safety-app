@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260822_landRailFix">
+    <link rel="stylesheet" href="styles.css?v=20260822_noCascade">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PDF 생성용: 페이지별로 직접 캡처해서 조립(큰 보고서에서 html2pdf 한방 렌더링이 캔버스 높이 한계로
@@ -647,13 +647,6 @@
                                 <span>부재 명칭</span>
                                 <button type="button" id="btnManageComponent" class="btn-option-manage" title="부재 명칭 항목 관리"><i class="fa-solid fa-gear"></i></button>
                             </div>
-                            <button type="button" id="btnOpenComponentCascade" class="defect-cascade-open-btn" title="대·중·소분류로 선택">
-                                <span class="defect-cascade-open-main">
-                                    <i class="fa-solid fa-layer-group"></i>
-                                    <span id="defectComponentCascadeSummary">대·중·소분류로 선택</span>
-                                </span>
-                                <i class="fa-solid fa-chevron-right defect-cascade-open-chevron"></i>
-                            </button>
                             <input type="text" id="defectComponentInput" class="form-control defect-combo-input" placeholder="직접 입력(선택)" autocomplete="off">
                             <select id="defectComponent" class="form-select defect-combo-select" title="목록에서 선택">
                                 <option value="기둥">기둥</option>
@@ -832,30 +825,6 @@
                     <button type="button" id="btnOptionManagerAdd" class="btn btn-primary btn-sm" style="white-space:nowrap;"><i class="fa-solid fa-plus"></i> 추가</button>
                 </div>
                 <div id="optionManagerList" class="option-manager-list"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 부재 명칭 대·중·소분류 선택 (모바일 탭 중심) -->
-    <div class="modal-overlay defect-cascade-overlay" id="defectComponentCascadeModal" style="display:none;" aria-hidden="true">
-        <div class="defect-cascade-sheet" role="dialog" aria-labelledby="defectCascadeTitle">
-            <div class="defect-cascade-header">
-                <button type="button" id="btnDefectCascadeBack" class="defect-cascade-icon-btn" title="이전" aria-label="이전">
-                    <i class="fa-solid fa-arrow-left"></i>
-                </button>
-                <h3 id="defectCascadeTitle">부재 명칭 선택</h3>
-                <button type="button" id="btnCloseDefectCascade" class="defect-cascade-icon-btn" title="닫기" aria-label="닫기">&times;</button>
-            </div>
-            <div class="defect-cascade-steps" id="defectCascadeSteps" aria-hidden="true">
-                <span data-step="1">대분류</span>
-                <span data-step="2">중분류</span>
-                <span data-step="3">소분류</span>
-            </div>
-            <div class="defect-cascade-crumb" id="defectCascadeCrumb"></div>
-            <div class="defect-cascade-grid" id="defectCascadeGrid"></div>
-            <div class="defect-cascade-footer">
-                <p class="defect-cascade-hint">탭으로만 선택 · 키보드 입력 최소화</p>
-                <button type="button" id="btnDefectCascadeCloseKeep" class="btn btn-outline btn-sm">닫고 직접 입력</button>
             </div>
         </div>
     </div>
@@ -2032,7 +2001,7 @@
     <script src="js/tabs/ndt.js?v=20260822_survey2dScroll"></script>
     <script src="js/shared/report.js?v=20260821_land1"></script>
     <script src="js/shared/auth.js?v=20260821_land1"></script>
-    <script src="app.js?v=20260822_defectListWrap"></script>
+    <script src="app.js?v=20260822_noCascade"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const btn = document.getElementById('btnExportVectorPdf');
