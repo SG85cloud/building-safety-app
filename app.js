@@ -1851,29 +1851,6 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.restore();
         }
 
-        // 모바일 터치 조준점 (손가락 위쪽) — 마킹/핀 이동 중
-        if (touchAimVisible || pendingDragArmed || (isDraggingPin && activePointerIsTouch) || (isMarkingDrag && activePointerIsTouch)) {
-            const ax = touchAimImgX;
-            const ay = touchAimImgY;
-            const s = Math.max(state.view.scale || 1, 0.01);
-            const r = 7 / s;
-            ctx.save();
-            ctx.strokeStyle = pendingDragArmed && !isDraggingPin ? '#16a34a' : '#2563eb';
-            ctx.fillStyle = pendingDragArmed && !isDraggingPin ? 'rgba(22,163,74,0.2)' : 'rgba(37,99,235,0.18)';
-            ctx.lineWidth = 2 / s;
-            ctx.beginPath();
-            ctx.arc(ax, ay, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(ax - r * 1.6, ay);
-            ctx.lineTo(ax + r * 1.6, ay);
-            ctx.moveTo(ax, ay - r * 1.6);
-            ctx.lineTo(ax, ay + r * 1.6);
-            ctx.stroke();
-            ctx.restore();
-        }
-
         ctx.restore(); // Restore drawing rotation matrix
 
         ctx.restore(); // Restore view offset & scale
@@ -1937,7 +1914,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let ndtQuickDragEnabled = false;
     let ndtAddSelectEnabled = false;
     const NDT_TOUCH_LONG_PRESS_MS = 500;
-    const NDT_TOUCH_AIM_OFFSET_CSS_PX = 56;
     let isDraggingNdtPinGroup = false;
     let ndtGroupDragLastX = 0;
     let ndtGroupDragLastY = 0;
@@ -1956,11 +1932,6 @@ document.addEventListener('DOMContentLoaded', () => {
             pendingNdtLongPressTimer = null;
         }
         pendingNdtPinArmed = false;
-    }
-
-    function ndtApplyTouchAim(clientX, clientY, isTouch) {
-        if (!isTouch) return { clientX, clientY };
-        return { clientX, clientY: clientY - NDT_TOUCH_AIM_OFFSET_CSS_PX };
     }
 
     function ndtClientToImg(clientX, clientY) {
@@ -3843,6 +3814,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
+            if (ndtActivePointerIsTouch) return;
             const canvas = document.getElementById('ndtCanvas');
             if (!canvas) return;
             const rect = canvas.getBoundingClientRect();
@@ -3996,6 +3968,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mouseup', (e) => {
+            if (ndtActivePointerIsTouch) return;
             if (pendingNdtPinHit && !isDraggingNdtPin && !isDraggingNdtPinGroup) {
                 const item = pendingNdtPinHit.item;
                 const wasAdditive = !!pendingNdtPinHit.additive;
@@ -4137,6 +4110,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isNdtPinching) {
+                if (e.cancelable) e.preventDefault();
                 const touch = e.touches[0];
                 const pt = ndtClientToImg(touch.clientX, touch.clientY);
                 const vx = pt.x;
@@ -4189,25 +4163,22 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (ndtMode === 'MARK') {
                         isNdtDisplacementMarking = true;
-                        const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
-                        const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
-                        window._ndtDispMarkCoords = { x: aimPt.x, y: aimPt.y };
+                        window._ndtDispMarkCoords = { x: vx, y: vy };
                         return;
                     }
                 }
 
                 if (ndtMode === 'MARK') {
                     isNdtMarkingDrag = true;
-                    const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
-                    const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
-                    window._ndtMarkStartCoords = { x: aimPt.x, y: aimPt.y };
-                    window._ndtMarkCurrentCoords = { x: aimPt.x, y: aimPt.y };
+                    window._ndtMarkStartCoords = { x: vx, y: vy };
+                    window._ndtMarkCurrentCoords = { x: vx, y: vy };
                 } else {
                     isNdtDragging = true;
                 }
             } else if (e.touches.length >= 2) {
                 isNdtDragging = false;
                 isNdtPinching = true;
+                hideTouchLoupe(NDT_LOUPE_ID);
                 const rect = canvas.getBoundingClientRect();
                 ndtPinchDist = getTouchDistance(e.touches[0], e.touches[1]);
                 ndtPinchScale = ndtView.scale;
@@ -4260,14 +4231,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
                     if (dist > 14) {
-                        const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
-                        const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
-                        isDraggingNdtPin = true;
-                        activeDragNdtPin = pendingNdtPinHit.item;
-                        dragNdtPart = pendingNdtPinHit.part;
                         const item = pendingNdtPinHit.item;
-                        const grabX = aimPt.x;
-                        const grabY = aimPt.y;
+                        isDraggingNdtPin = true;
+                        activeDragNdtPin = item;
+                        dragNdtPart = pendingNdtPinHit.part;
+                        const grabX = pendingNdtPinHit.grabX;
+                        const grabY = pendingNdtPinHit.grabY;
                         if (dragNdtPart === 'target') {
                             ndtPinDragOffsetX = grabX - (item.targetX !== undefined ? item.targetX : (item.x || 0));
                             ndtPinDragOffsetY = grabY - (item.targetY !== undefined ? item.targetY : (item.y || 0));
@@ -4285,8 +4254,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
 
-                const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
-                const pt = ndtClientToImg(aim.clientX, aim.clientY);
+                const pt = ndtClientToImg(touch.clientX, touch.clientY);
                 const vx = pt.x;
                 const vy = pt.y;
 
@@ -4309,6 +4277,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : newY) + dy;
                 }
                 drawNdtCanvas();
+                refreshNdtLoupe(touch.clientX, touch.clientY);
             } else if (!isNdtPinching && (pendingNdtDispHit || isDraggingNdtDisplacement) && e.touches.length === 1) {
                 const canvas = document.getElementById('ndtCanvas');
                 if (!canvas) return;
@@ -4357,11 +4326,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 drawNdtCanvas();
             } else if (!isNdtPinching && isNdtMarkingDrag && e.touches.length === 1) {
+                if (e.cancelable) e.preventDefault();
                 const touch = e.touches[0];
-                const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
-                const pt = ndtClientToImg(aim.clientX, aim.clientY);
+                const pt = ndtClientToImg(touch.clientX, touch.clientY);
                 window._ndtMarkCurrentCoords = { x: pt.x, y: pt.y };
                 drawNdtCanvas();
+                refreshNdtLoupe(touch.clientX, touch.clientY);
+            } else if (!isNdtPinching && isNdtDisplacementMarking && e.touches.length === 1) {
+                if (e.cancelable) e.preventDefault();
+                const touch = e.touches[0];
+                const pt = ndtClientToImg(touch.clientX, touch.clientY);
+                window._ndtDispMarkCoords = { x: pt.x, y: pt.y };
+                drawNdtCanvas();
+                refreshNdtLoupe(touch.clientX, touch.clientY);
             } else if (!isNdtPinching && isNdtDragging && e.touches.length === 1) {
                 const touch = e.touches[0];
                 const dx = touch.clientX - ndtStartMouseX;
@@ -4376,6 +4353,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isNdtPinching && e.touches.length < 2) isNdtPinching = false;
             clearPendingNdtLongPress();
             ndtActivePointerIsTouch = false;
+            hideTouchLoupe(NDT_LOUPE_ID);
             if (pendingNdtPinHit && !isDraggingNdtPin) {
                 const item = pendingNdtPinHit.item;
                 pendingNdtPinHit = null;
@@ -9154,14 +9132,14 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingDragHitStartTime = 0; // 터치로 핀을 짚은 시각(ms)
     let pendingDragArmed = false; // 길게 누름 완료 → 이후 이동 시 드래그 허용
     let pendingDragLongPressTimer = null;
-    let activePointerIsTouch = false; // 현재 제스처가 터치인지 (조준점 오프셋 적용)
-    let touchAimVisible = false;
-    let touchAimImgX = 0;
-    let touchAimImgY = 0;
+    let activePointerIsTouch = false; // 현재 제스처가 터치인지 (합성 마우스 무시·돋보기용)
     const TOUCH_DRAG_THRESHOLD = 14; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
     const MOUSE_DRAG_THRESHOLD = 6;
     const TOUCH_LONG_PRESS_MS = 500; // 모바일: 선택 후 이만큼 눌러야 핀 이동 가능 (드래그 모드 ON이면 생략)
-    const TOUCH_AIM_OFFSET_CSS_PX = 56; // 손가락 위쪽 조준점 (화면 px)
+    const MAP_LOUPE_ID = 'mapTouchLoupe';
+    const NDT_LOUPE_ID = 'ndtTouchLoupe';
+    const TOUCH_LOUPE_SIZE = 148;
+    const TOUCH_LOUPE_ZOOM = 2.4;
     let mobileQuickDragEnabled = false; // 우측 레일 '드래그' — 길게 누르기 없이 이동
     let mobileAddSelectEnabled = false; // 우측 레일 '추가' — 터치마다 선택 토글
     let isDraggingPin = false;
@@ -9591,26 +9569,99 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingDragArmed = false;
     }
 
-    function applyTouchAimClient(clientX, clientY, isTouch) {
-        if (!isTouch) return { clientX, clientY };
-        return { clientX, clientY: clientY - TOUCH_AIM_OFFSET_CSS_PX };
-    }
-
-    function setTouchAimFromClient(clientX, clientY, isTouch) {
-        if (!isTouch) {
-            touchAimVisible = false;
-            return null;
+    function ensureTouchLoupe(container, loupeId) {
+        if (!container) return null;
+        let el = document.getElementById(loupeId);
+        if (!el) {
+            el = document.createElement('canvas');
+            el.id = loupeId;
+            el.className = 'touch-loupe';
+            el.width = TOUCH_LOUPE_SIZE;
+            el.height = TOUCH_LOUPE_SIZE;
+            el.setAttribute('aria-hidden', 'true');
+            container.appendChild(el);
         }
-        const aim = applyTouchAimClient(clientX, clientY, true);
-        const coords = clientToImgCoords(aim.clientX, aim.clientY);
-        touchAimImgX = coords.x;
-        touchAimImgY = coords.y;
-        touchAimVisible = true;
-        return coords;
+        return el;
     }
 
-    function clearTouchAim() {
-        touchAimVisible = false;
+    function hideTouchLoupe(loupeId) {
+        const el = document.getElementById(loupeId);
+        if (!el) return;
+        el.classList.remove('is-visible');
+        el.hidden = true;
+    }
+
+    function updateTouchLoupe(sourceCanvas, container, clientX, clientY, loupeId) {
+        if (!sourceCanvas || !container) return;
+        const loupe = ensureTouchLoupe(container, loupeId);
+        if (!loupe) return;
+        const canvasRect = sourceCanvas.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const localX = clientX - canvasRect.left;
+        const localY = clientY - canvasRect.top;
+        const scaleX = sourceCanvas.width / Math.max(canvasRect.width, 1);
+        const scaleY = sourceCanvas.height / Math.max(canvasRect.height, 1);
+        const srcW = (TOUCH_LOUPE_SIZE / TOUCH_LOUPE_ZOOM) * scaleX;
+        const srcH = (TOUCH_LOUPE_SIZE / TOUCH_LOUPE_ZOOM) * scaleY;
+        const srcX = localX * scaleX - srcW / 2;
+        const srcY = localY * scaleY - srcH / 2;
+        const lctx = loupe.getContext('2d');
+        lctx.save();
+        lctx.clearRect(0, 0, TOUCH_LOUPE_SIZE, TOUCH_LOUPE_SIZE);
+        lctx.beginPath();
+        lctx.arc(TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE / 2 - 1.5, 0, Math.PI * 2);
+        lctx.clip();
+        try {
+            lctx.drawImage(sourceCanvas, srcX, srcY, srcW, srcH, 0, 0, TOUCH_LOUPE_SIZE, TOUCH_LOUPE_SIZE);
+        } catch (_e) { /* ignore */ }
+        lctx.strokeStyle = 'rgba(37, 99, 235, 0.95)';
+        lctx.lineWidth = 1.5;
+        lctx.beginPath();
+        lctx.moveTo(TOUCH_LOUPE_SIZE / 2, 10);
+        lctx.lineTo(TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE - 10);
+        lctx.moveTo(10, TOUCH_LOUPE_SIZE / 2);
+        lctx.lineTo(TOUCH_LOUPE_SIZE - 10, TOUCH_LOUPE_SIZE / 2);
+        lctx.stroke();
+        lctx.beginPath();
+        lctx.arc(TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE / 2, 5, 0, Math.PI * 2);
+        lctx.stroke();
+        lctx.restore();
+        lctx.beginPath();
+        lctx.arc(TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE / 2, TOUCH_LOUPE_SIZE / 2 - 1.5, 0, Math.PI * 2);
+        lctx.strokeStyle = 'rgba(15, 23, 42, 0.5)';
+        lctx.lineWidth = 3;
+        lctx.stroke();
+        lctx.strokeStyle = '#fff';
+        lctx.lineWidth = 1.5;
+        lctx.stroke();
+
+        const gap = 30;
+        let left = clientX - containerRect.left - TOUCH_LOUPE_SIZE / 2;
+        let top = clientY - containerRect.top - TOUCH_LOUPE_SIZE - gap;
+        if (top < 6) top = clientY - containerRect.top + gap;
+        left = Math.max(6, Math.min(left, containerRect.width - TOUCH_LOUPE_SIZE - 6));
+        top = Math.max(6, Math.min(top, containerRect.height - TOUCH_LOUPE_SIZE - 6));
+        loupe.style.left = Math.round(left) + "px";
+        loupe.style.top = Math.round(top) + "px";
+        loupe.hidden = false;
+        loupe.classList.add('is-visible');
+    }
+
+    function refreshMapLoupe(clientX, clientY) {
+        if (!activePointerIsTouch || !(isDraggingPin || isDraggingPinGroup || isMarkingDrag || isAreaDrag)) {
+            hideTouchLoupe(MAP_LOUPE_ID);
+            return;
+        }
+        updateTouchLoupe(elements.planCanvas, document.getElementById('canvasContainer'), clientX, clientY, MAP_LOUPE_ID);
+    }
+
+    function refreshNdtLoupe(clientX, clientY) {
+        if (!ndtActivePointerIsTouch || !(isDraggingNdtPin || isDraggingNdtPinGroup || isNdtMarkingDrag || isNdtDisplacementMarking)) {
+            hideTouchLoupe(NDT_LOUPE_ID);
+            return;
+        }
+        const canvas = document.getElementById('ndtCanvas');
+        updateTouchLoupe(canvas, document.getElementById('ndtCanvasContainer'), clientX, clientY, NDT_LOUPE_ID);
     }
 
     function handleDragStart(clientX, clientY, isTouch = false, forcePan = false, mods = {}) {
@@ -9618,7 +9669,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const additive = !!(mods.ctrlKey || mods.metaKey);
         activePointerIsTouch = !!isTouch;
         clearPendingDragLongPress();
-        if (!isTouch) clearTouchAim();
+        hideTouchLoupe(MAP_LOUPE_ID);
 
         // 중간 클릭(휠 클릭): MARK/AREA 모드에서도 도면 PAN 이동
         if (forcePan) {
@@ -9689,15 +9740,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 drawCanvas();
             }
             if (isTouch && !mobileQuickDragEnabled) {
-                setTouchAimFromClient(clientX, clientY, true);
                 pendingDragLongPressTimer = setTimeout(() => {
                     if (!pendingDragHit || !pendingDragIsTouch) return;
                     pendingDragArmed = true;
                     try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
                     drawCanvas();
                 }, TOUCH_LONG_PRESS_MS);
-            } else if (isTouch) {
-                setTouchAimFromClient(clientX, clientY, true);
             }
             return;
         }
@@ -9716,16 +9764,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.mode === 'MARK') {
             isMarkingDrag = true;
             markingHasMoved = false;
-            const aim = applyTouchAimClient(clientX, clientY, isTouch);
-            const markCoords = clientToImgCoords(aim.clientX, aim.clientY);
-            setTouchAimFromClient(clientX, clientY, isTouch);
+            const markCoords = clientToImgCoords(clientX, clientY);
             syncLiveMarkBoxAboveTarget(markCoords.x, markCoords.y);
             drawCanvas();
         } else if (state.mode === 'AREA') {
             isAreaDrag = true;
-            const aim = applyTouchAimClient(clientX, clientY, isTouch);
-            const areaCoords = clientToImgCoords(aim.clientX, aim.clientY);
-            setTouchAimFromClient(clientX, clientY, isTouch);
+            const areaCoords = clientToImgCoords(clientX, clientY);
             areaStartImgX = areaCoords.x;
             areaStartImgY = areaCoords.y;
             areaCurImgX = areaCoords.x;
@@ -9786,14 +9830,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 모바일: 길게 누르기 전에는 핀을 움직이지 않음. 그 사이 손가락이 많이 움직이면 화면 팬으로 전환.
             if (pendingDragIsTouch && !pendingDragArmed) {
-                setTouchAimFromClient(clientX, clientY, true);
                 if (dist > threshold) {
                     clearPendingDragLongPress();
                     pendingDragHit = null;
                     isDragging = true;
                     if (elements.planCanvas) elements.planCanvas.style.cursor = 'grabbing';
                 }
-                drawCanvas();
                 return;
             }
 
@@ -9805,10 +9847,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     && selectedDefectIds.size > 1
                     && selectedDefectIds.has(hitDefect.id)
                     && hitPart !== 'AREA_RESIZE';
-                const aimClient = applyTouchAimClient(clientX, clientY, pendingDragIsTouch);
-                const aimImg = clientToImgCoords(aimClient.clientX, aimClient.clientY);
-                const grabX = pendingDragIsTouch ? aimImg.x : pendingDragHit.imgX;
-                const grabY = pendingDragIsTouch ? aimImg.y : pendingDragHit.imgY;
+                const grabX = pendingDragHit.imgX;
+                const grabY = pendingDragHit.imgY;
                 clearPendingDragLongPress();
 
                 if (multiGroup) {
@@ -9850,20 +9890,14 @@ document.addEventListener('DOMContentLoaded', () => {
                         }) || 'move';
                     }
                 }
-                setTouchAimFromClient(clientX, clientY, pendingDragIsTouch || activePointerIsTouch);
+                refreshMapLoupe(clientX, clientY);
             } else {
-                if (pendingDragIsTouch) {
-                    setTouchAimFromClient(clientX, clientY, true);
-                    drawCanvas();
-                }
                 return;
             }
         }
 
         if (isDraggingPinGroup) {
-            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
-            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
-            const coords = clientToImgCoords(aim.clientX, aim.clientY);
+            const coords = clientToImgCoords(clientX, clientY);
             const dx = coords.x - groupDragLastImgX;
             const dy = coords.y - groupDragLastImgY;
             if (dx || dy) {
@@ -9873,11 +9907,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 groupDragLastImgX = coords.x;
                 groupDragLastImgY = coords.y;
                 drawCanvas();
+                refreshMapLoupe(clientX, clientY);
             }
         } else if (isDraggingPin && activeDragPin) {
-            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
-            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
-            const coords = clientToImgCoords(aim.clientX, aim.clientY);
+            const coords = clientToImgCoords(clientX, clientY);
             const currentImgX = coords.x;
             const currentImgY = coords.y;
 
@@ -9922,20 +9955,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             drawCanvas();
+            refreshMapLoupe(clientX, clientY);
         } else if (isMarkingDrag) {
             markingHasMoved = true;
-            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
-            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
-            const coords = clientToImgCoords(aim.clientX, aim.clientY);
+            const coords = clientToImgCoords(clientX, clientY);
             syncLiveMarkBoxAboveTarget(coords.x, coords.y);
             drawCanvas();
+            refreshMapLoupe(clientX, clientY);
         } else if (isAreaDrag) {
-            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
-            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
-            const coords = clientToImgCoords(aim.clientX, aim.clientY);
+            const coords = clientToImgCoords(clientX, clientY);
             areaCurImgX = coords.x;
             areaCurImgY = coords.y;
             drawCanvas();
+            refreshMapLoupe(clientX, clientY);
         } else if (isMarqueeSelecting) {
             const coords = clientToImgCoords(clientX, clientY);
             marqueeCurImgX = coords.x;
@@ -9962,8 +9994,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleDragEnd(clientX, clientY) {
         clearPendingDragLongPress();
-        clearTouchAim();
-        const endIsTouch = activePointerIsTouch;
+        hideTouchLoupe(MAP_LOUPE_ID);
         activePointerIsTouch = false;
 
         if (isResizingLegend) {
@@ -10015,8 +10046,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isMarkingDrag) {
             isMarkingDrag = false;
             if (clientX != null && clientY != null) {
-                const aim = applyTouchAimClient(clientX, clientY, endIsTouch);
-                const coords = clientToImgCoords(aim.clientX, aim.clientY);
+                const coords = clientToImgCoords(clientX, clientY);
                 markTargetImgX = coords.x;
                 markTargetImgY = coords.y;
                 syncLiveMarkBoxAboveTarget(markTargetImgX, markTargetImgY);
@@ -10085,6 +10115,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (elements.planCanvas) {
         // Mouse Events
         elements.planCanvas.addEventListener('mousedown', (e) => {
+            // 터치 제스처 중 합성 마우스 이벤트는 무시 (터치스크린 PC 오프셋 오염 방지)
+            if (activePointerIsTouch) return;
             if (e.button === 1) {
                 e.preventDefault();
                 handleDragStart(e.clientX, e.clientY, false, true);
@@ -10103,12 +10135,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
+            if (activePointerIsTouch) return;
             if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
                 handleDragMove(e.clientX, e.clientY);
             }
         });
 
         elements.planCanvas.addEventListener('mousemove', (e) => {
+            if (activePointerIsTouch) return;
             if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) return;
             updateMapHoverCursor(e.clientX, e.clientY);
         });
@@ -10119,17 +10153,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mouseup', (e) => {
+            if (activePointerIsTouch) return;
             if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) handleDragEnd(e.clientX, e.clientY);
         });
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
         elements.planCanvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isPinching) {
+                if (e.cancelable) e.preventDefault();
                 handleDragStart(e.touches[0].clientX, e.touches[0].clientY, true);
             } else if (e.touches.length >= 2) {
                 // Multi-touch detected: cancel active 1-finger mark or drag operations safely
                 clearPendingDragLongPress();
-                clearTouchAim();
+                hideTouchLoupe(MAP_LOUPE_ID);
                 pendingDragHit = null;
                 isMarkingDrag = false;
                 markingHasMoved = false;

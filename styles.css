@@ -519,6 +519,23 @@ body {
 #ndtCanvasContainer {
     background: #d0d0d0;
     border-color: var(--border-highlight);
+    position: relative;
+}
+
+/* 터치 드래그 중 돋보기 (손가락 위 확대 미리보기) */
+.touch-loupe {
+    position: absolute;
+    width: 148px;
+    height: 148px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 40;
+    display: none;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), 0 0 0 2px rgba(255, 255, 255, 0.95);
+    background: #fff;
+}
+.touch-loupe.is-visible {
+    display: block;
 }
 
 @media (max-width: 768px) {

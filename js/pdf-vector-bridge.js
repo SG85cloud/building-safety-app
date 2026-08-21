@@ -9,7 +9,7 @@
 
   window.BSA_PDF_VECTOR = {
     enabled: true,
-    version: 'main-2'
+    version: 'main-3'
   };
 
   function isPdfDataUrl(url) {
@@ -195,6 +195,56 @@
     page.drawLine({ start: { x: x2, y: y2 }, end: { x: x0, y: y0 }, thickness: 1.2, color });
   }
 
+  /**
+   * 지시선(직선·90° 꺾임)을 한 경로로 스트로크.
+   * 구간별 drawLine이면 모서리에서 끊겨 꺾인 선이 더 얇아 보이므로, 캔버스와 같이 연속 stroke 한다.
+   */
+  function drawStrokedPolyline(page, points, thickness, color) {
+    if (!points || points.length < 2) return;
+    const thick = Math.max(0.2, thickness || 1);
+    const {
+      pushGraphicsState,
+      popGraphicsState,
+      setStrokingColor,
+      setLineWidth,
+      setLineJoin,
+      setLineCap,
+      moveTo,
+      lineTo,
+      stroke,
+      LineJoinStyle,
+      LineCapStyle
+    } = PDFLib;
+
+    if (typeof page.pushOperators === 'function' && moveTo && lineTo && stroke && setLineWidth) {
+      const joinRound = (LineJoinStyle && LineJoinStyle.Round != null) ? LineJoinStyle.Round : 1;
+      const capButt = (LineCapStyle && LineCapStyle.Butt != null) ? LineCapStyle.Butt : 0;
+      const ops = [
+        pushGraphicsState(),
+        setStrokingColor(color),
+        setLineWidth(thick)
+      ];
+      if (typeof setLineJoin === 'function') ops.push(setLineJoin(joinRound));
+      if (typeof setLineCap === 'function') ops.push(setLineCap(capButt));
+      ops.push(moveTo(points[0].x, points[0].y));
+      for (let i = 1; i < points.length; i++) {
+        ops.push(lineTo(points[i].x, points[i].y));
+      }
+      ops.push(stroke(), popGraphicsState());
+      page.pushOperators(...ops);
+      return;
+    }
+
+    for (let i = 1; i < points.length; i++) {
+      page.drawLine({
+        start: points[i - 1],
+        end: points[i],
+        thickness: thick,
+        color
+      });
+    }
+  }
+
   /** Liang-Barsky: 선분을 AABB로 잘라 교점이 있으면 {x1,y1,x2,y2} */
   function clipLineToRect(x0, y0, x1, y1, minX, minY, maxX, maxY) {
     let t0 = 0;
@@ -368,14 +418,7 @@
 
       (p.leaders || []).forEach((L) => {
         const routePdf = (L.route || []).map(pt => imgToPdf(pt.x, pt.y));
-        for (let i = 1; i < routePdf.length; i++) {
-          page.drawLine({
-            start: routePdf[i - 1],
-            end: routePdf[i],
-            thickness: lineW,
-            color
-          });
-        }
+        drawStrokedPolyline(page, routePdf, lineW, color);
 
         if (L.skipArrowHead) return;
         const tip = imgToPdf(L.tipX, L.tipY);
