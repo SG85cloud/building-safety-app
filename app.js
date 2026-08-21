@@ -2073,7 +2073,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const measureCtx = state.ctx || null;
-        let bestTarget = null; // { item, dist } — 겹친 측정점은 마우스에 가까운 쪽
+        const coarsePointer = !!(ndtActivePointerIsTouch
+            || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+        let bestTarget = null; // { item, dist }
+        let bestBox = null;
 
         for (let i = filtered.length - 1; i >= 0; i--) {
             const item = filtered[i];
@@ -2094,9 +2097,8 @@ document.addEventListener('DOMContentLoaded', () => {
             noStr = formatPinNumberLabel(noStr, ndtStyleKey);
             const cat = item.category || '강도';
 
-            // 측정점(원/화살촉) — 반경 안이면 후보로 모으고, 가장 가까운 쪽을 고른다
+            const tipR = (coarsePointer ? 32 : 18) * arrowScale;
             const distTarget = Math.hypot(vx - targetX, vy - targetY);
-            const tipR = 18 * arrowScale;
             if (distTarget <= tipR && (!bestTarget || distTarget < bestTarget.dist)) {
                 bestTarget = { item, dist: distTarget };
             }
@@ -2119,11 +2121,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 boxH = boxDim.h;
             }
 
-            if (isPointInsideMarkBox(vx, vy, boxX, boxY, boxW, boxH, ndtRotationAngle || 0)) {
-                return { item, part: 'box' };
+            if (!bestBox && isPointInsideMarkBox(vx, vy, boxX, boxY, boxW, boxH, ndtRotationAngle || 0)) {
+                bestBox = { item, part: 'box' };
             }
         }
+        // 측정점(화살표)이 박스와 겹쳐도 TIP(target) 우선
         if (bestTarget) return { item: bestTarget.item, part: 'target' };
+        if (bestBox) return bestBox;
         return null;
     }
 
@@ -4216,6 +4220,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     drawNdtCanvas();
                 }
             } else if (!isNdtPinching && (pendingNdtPinHit || isDraggingNdtPin) && e.touches.length === 1) {
+                if (e.cancelable) e.preventDefault();
                 const canvas = document.getElementById('ndtCanvas');
                 if (!canvas) return;
                 const touch = e.touches[0];
@@ -9609,17 +9614,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function findHitPinPart(imgX, imgY) {
         const defects = filterMapPlacedDefects(getCurrentFloorDefects());
-        // 화살표 끝(TIP)은 여러 개가 살짝 겹칠 수 있어서, z-order 첫 히트가 아니라
-        // 클릭 지점에서 가장 가까운 화살표를 고른다.
-        let bestTip = null; // { defect, dist }
+        // 터치/조밀 배치: 화살표(TIP)가 박스 안·근처에 있어도 TIP을 잡을 수 있게
+        // 박스 즉시 return 하지 않고, TIP·BOX 후보를 모은 뒤 TIP을 우선한다.
+        const coarsePointer = !!(activePointerIsTouch
+            || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches));
+        let bestTip = null; // { defect, dist, tipR }
+        let bestBox = null; // { defect }
 
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
             const dSize = getStyleSize(getDefectStyleKey(d.category, d.defectType));
             const scale = dSize.pin;
             const arrowScale = dSize.arrow;
+            const tipR = (coarsePointer ? 32 : 18) * arrowScale;
 
-            // 0. Area(면적) 결함: 모서리/변(리사이즈) → 번호칸(BOX) → 화살표 끝(TIP) → 영역 이동
             if (d.shapeType === 'area' && d.areaX1 !== undefined) {
                 ensureAreaPinPlacement(d);
                 const pad = 10;
@@ -9627,13 +9635,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const x2 = Math.max(d.areaX1, d.areaX2);
                 const y1 = Math.min(d.areaY1, d.areaY2);
                 const y2 = Math.max(d.areaY1, d.areaY2);
-                // areaX1/areaX2 중 실제로 어느 필드가 최소/최대값을 담고 있는지는 드래그 방향에 따라 바뀌므로 매번 다시 계산
                 const minXField = d.areaX1 <= d.areaX2 ? 'areaX1' : 'areaX2';
                 const maxXField = d.areaX1 <= d.areaX2 ? 'areaX2' : 'areaX1';
                 const minYField = d.areaY1 <= d.areaY2 ? 'areaY1' : 'areaY2';
                 const maxYField = d.areaY1 <= d.areaY2 ? 'areaY2' : 'areaY1';
 
-                // 모서리 4곳: 대각선(가로+세로 동시) 리사이즈
                 const cornerR = 14;
                 const corners = [
                     { x: x1, y: y1, xField: minXField, yField: minYField },
@@ -9646,68 +9652,64 @@ document.addEventListener('DOMContentLoaded', () => {
                     return { defect: d, part: 'AREA_RESIZE', resizeXField: hitCorner.xField, resizeYField: hitCorner.yField };
                 }
 
-                // 변 4곳(모서리 구간 제외): 가로 또는 세로 한쪽만 리사이즈
                 const edgeTol = 10;
                 if (Math.abs(imgY - y1) <= edgeTol && imgX >= x1 + cornerR && imgX <= x2 - cornerR) {
-                    return { defect: d, part: 'AREA_RESIZE', resizeXField: null, resizeYField: minYField }; // TOP
+                    return { defect: d, part: 'AREA_RESIZE', resizeXField: null, resizeYField: minYField };
                 }
                 if (Math.abs(imgY - y2) <= edgeTol && imgX >= x1 + cornerR && imgX <= x2 - cornerR) {
-                    return { defect: d, part: 'AREA_RESIZE', resizeXField: null, resizeYField: maxYField }; // BOTTOM
+                    return { defect: d, part: 'AREA_RESIZE', resizeXField: null, resizeYField: maxYField };
                 }
                 if (Math.abs(imgX - x1) <= edgeTol && imgY >= y1 + cornerR && imgY <= y2 - cornerR) {
-                    return { defect: d, part: 'AREA_RESIZE', resizeXField: minXField, resizeYField: null }; // LEFT
+                    return { defect: d, part: 'AREA_RESIZE', resizeXField: minXField, resizeYField: null };
                 }
                 if (Math.abs(imgX - x2) <= edgeTol && imgY >= y1 + cornerR && imgY <= y2 - cornerR) {
-                    return { defect: d, part: 'AREA_RESIZE', resizeXField: maxXField, resizeYField: null }; // RIGHT
+                    return { defect: d, part: 'AREA_RESIZE', resizeXField: maxXField, resizeYField: null };
                 }
 
-                // 번호 칸 — 네모 박스 내부만 / 화살표 끝은 점 히트(가장 가까운 TIP 후보로 모음)
                 const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
                 const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
                 const bx = d.x || 100;
                 const by = d.y || 100;
-                if (isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
-                    return { defect: d, part: 'BOX' };
-                }
                 if (d.targetX !== undefined && d.targetY !== undefined) {
                     const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
-                    const tipR = 18 * arrowScale;
                     if (distTip <= tipR && (!bestTip || distTip < bestTip.dist)) {
-                        bestTip = { defect: d, dist: distTip };
+                        bestTip = { defect: d, dist: distTip, tipR };
                     }
                 }
+                if (!bestBox && isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
+                    bestBox = { defect: d, part: 'BOX' };
+                }
 
-                // 사각형 내부면 영역 전체 이동
                 const rx1 = x1 - pad;
                 const rx2 = x2 + pad;
                 const ry1 = y1 - pad;
                 const ry2 = y2 + pad;
                 const inRect = imgX >= rx1 && imgX <= rx2 && imgY >= ry1 && imgY <= ry2;
-                if (inRect) {
-                    return { defect: d, part: 'AREA_MOVE' };
+                if (inRect && !bestBox) {
+                    bestBox = { defect: d, part: 'AREA_MOVE' };
                 }
                 continue;
             }
 
-            // 1. 번호 박스 — 네모 내부만 드래그 (위에 그려진 박스 우선)
             const bx = d.x || 100;
             const by = d.y || 100;
             const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
             const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
-            if (isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
-                return { defect: d, part: 'BOX' };
-            }
 
-            // 2. 화살표 끝 — 반경 안 후보 중 가장 가까운 것만 나중에 선택
             if (d.targetX !== undefined && d.targetY !== undefined) {
                 const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
-                const tipR = 18 * arrowScale;
                 if (distTip <= tipR && (!bestTip || distTip < bestTip.dist)) {
-                    bestTip = { defect: d, dist: distTip };
+                    bestTip = { defect: d, dist: distTip, tipR };
                 }
             }
+            if (!bestBox && isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
+                bestBox = { defect: d, part: 'BOX' };
+            }
         }
+
+        // 화살표 반경 안이면 박스보다 TIP 우선 (근처 박스에 드래그가 뺏기던 문제 해결)
         if (bestTip) return { defect: bestTip.defect, part: 'TIP' };
+        if (bestBox) return { defect: bestBox.defect, part: bestBox.part || 'BOX' };
         return null;
     }
 
@@ -10437,6 +10439,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else if (!isPinching && e.touches.length === 1) {
                 if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
+                    // 브라우저가 스크롤/제스처로 터치 드래그를 가로채 끊지 않게
+                    if (e.cancelable) e.preventDefault();
                     handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
                 }
             }
