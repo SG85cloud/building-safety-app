@@ -1900,7 +1900,9 @@ body {
     overflow-y: hidden;
     overscroll-behavior-x: contain;
     /* pan-y를 같이 주면 세로 제스처를 이 요소가 가로채서(움직일 세로 스크롤 없음)
-       순수 세로 스와이프가 먹통이 되고, 가로→세로로 꺾어야만 부모 스크롤이 됨 */
+       순수 세로 스와이프가 먹통이 되고, 가로→세로로 꺾어야만 부모 스크롤이 됨.
+       pan-x만 쓰면 표 위 세로 스크롤이 막히므로 JS(BSA.shared.bindHScrollVerticalPassthrough)가
+       세로 우세 제스처를 .app-content로 전달한다. */
     touch-action: pan-x;
     padding: 0.5rem;
     /* overflow-x:auto makes this a scroll container, which per spec also forces overflow-y

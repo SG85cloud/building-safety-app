@@ -12,15 +12,22 @@ window.BSA.tabs['tab-ndt'] = {
         '부재 실측 · 콘크리트 강도 · 탄산화',
         '외벽 기울기 · 부동침하 · 부재변위',
         '모바일 하단 독: 마킹·크기 토글 시트',
-        '측정 결과표 · NDT 엑셀 · 벡터 PDF'
+        '측정 결과표 · NDT 엑셀 · 벡터 PDF',
+        '모바일: 결과표 횡스크롤 영역에서도 세로 페이지 스크롤'
     ],
     ownerHint: 'app.js NDT FIELD SURVEY ENGINE',
     enter: function () {
+        if (typeof window.BSA.shared.bindSurveyNdtTableScrollPassthrough === 'function') {
+            window.BSA.shared.bindSurveyNdtTableScrollPassthrough();
+        }
         setTimeout(function () {
             if (typeof window.setupNdtCanvas === 'function') window.setupNdtCanvas();
             if (typeof window.resizeNdtCanvas === 'function') window.resizeNdtCanvas();
             if (typeof window.renderNdtSummaryTable === 'function') window.renderNdtSummaryTable();
             if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
+            if (typeof window.BSA.shared.bindSurveyNdtTableScrollPassthrough === 'function') {
+                window.BSA.shared.bindSurveyNdtTableScrollPassthrough();
+            }
         }, 50);
         setTimeout(function () {
             if (typeof window.resizeNdtCanvas === 'function') window.resizeNdtCanvas();

@@ -1,8 +1,8 @@
 /* ==========================================================================
-   스마트 건축물 안전점검 시스템 Service Worker (PWA Offline Engine v61.0)
+   ?�마??건축�??�전?��? ?�스??Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v63.6';
+const CACHE_NAME = 'building-safety-v63.8';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (event) => {
                     if (accept.includes('text/html')) {
                         return caches.match('./index.html');
                     }
-                    return new Response('오프라인 상태이며 이 파일은 캐시에 없습니다.', {
+                    return new Response('?�프?�인 ?�태?�며 ???�일?� 캐시???�습?�다.', {
                         status: 503,
                         statusText: 'Offline',
                         headers: { 'Content-Type': 'text/plain; charset=utf-8' }

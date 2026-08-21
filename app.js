@@ -2153,14 +2153,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.deleteSelectedNdtMarks = deleteSelectedNdtMarks;
 
     function formatHeightValue(val) {
-        if (!val) return 'H = 3,000mm';
+        if (val == null) return '';
         const strVal = String(val).trim();
-        if (!strVal) return 'H = 3,000mm';
+        if (!strVal) return '';
         const digits = strVal.replace(/[^0-9.]/g, '');
         if (digits) {
             const num = parseFloat(digits);
             if (!isNaN(num)) {
-                return `H = ${num.toLocaleString()}mm`;
+                const prefix = /L\s*=/i.test(strVal) ? 'L' : 'H';
+                return `${prefix} = ${num.toLocaleString()}mm`;
             }
         }
         return strVal;
@@ -2837,10 +2838,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 외벽 기울기: 높이 H(mm) 대비 변위량(mm)으로 1/H 기울기 비율과 기울기 안전등급 산정
+    // H·변위가 없으면 비율/등급을 채우지 않음 (기본 H=3000 등 가정값 사용 안 함)
     function calcTiltGrade(lengthMm, deltaMm) {
-        const h = lengthMm || 3000;
-        const delta = Math.abs(deltaMm) || 0;
-        if (delta <= 0 || h <= 0) return { tiltRatio: '1/750', grade: 'a등급' };
+        const h = Number(lengthMm);
+        const delta = Math.abs(Number(deltaMm) || 0);
+        if (!Number.isFinite(h) || h <= 0 || delta <= 0) return { tiltRatio: '', grade: '' };
         const ratioInv = Math.round(h / delta);
         let grade = 'e등급';
         if (ratioInv >= 750) grade = 'a등급';
@@ -2855,10 +2857,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // 기울기(calcTiltGrade)와 달리 등급 구간이 480/240/150 3단계뿐이며 360 구간이 없음
     // hasMinorDamage: 균열 등 경미한 손상 동반 여부(육안 확인, 체크박스 입력) — 처짐비가 L/480 이내여도 손상이 있으면 a 대신 b등급
     function calcMemberDispGrade(lengthMm, deltaMm, hasMinorDamage = false) {
-        const l = lengthMm || 5000;
-        const delta = Math.abs(deltaMm) || 0;
+        const l = Number(lengthMm);
+        const delta = Math.abs(Number(deltaMm) || 0);
         const bestGrade = hasMinorDamage ? 'b등급' : 'a등급';
-        if (delta <= 0 || l <= 0) return { tiltRatio: '1/480', grade: bestGrade };
+        if (!Number.isFinite(l) || l <= 0 || delta <= 0) return { tiltRatio: '', grade: '' };
         const ratioInv = Math.round(l / delta);
         let grade = 'e등급';
         if (ratioInv >= 480) grade = bestGrade;
@@ -4765,11 +4767,11 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
                     <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
-                    <td style="font-weight:700;">${item.location || '위치미지정'}</td>
-                    <td style="font-weight:700; color:#6b6b6b;">${formatHeightValue(item.height)}</td>
+                    <td style="font-weight:700;">${item.location || '-'}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${formatHeightValue(item.height) || '-'}</td>
                     <td style="font-weight:800; color:#f8fafc;">${item.avgValue || '-'}</td>
-                    <td style="font-weight:800; color:#c084fc;">${item.tiltRatio || '1/750'}</td>
-                    <td>${gradeBadges[item.grade] || gradeBadges['a등급']}</td>
+                    <td style="font-weight:800; color:#c084fc;">${item.tiltRatio || '-'}</td>
+                    <td>${gradeBadges[item.grade] || '-'}</td>
                     <td>
                         <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
@@ -4785,8 +4787,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return `
                 <tr>
                     <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
-                    <td style="font-weight:700;">${item.location || '위치미지정'}</td>
-                    <td>${item.component || '기둥'}</td>
+                    <td style="font-weight:700;">${item.location || '-'}</td>
+                    <td>${item.component || '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${designText}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${measuredText}</td>
                     <td>${item.finishState || '-'}</td>
@@ -4802,8 +4804,8 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (currentCat === '강도') {
             tbody.innerHTML = items.map((item, idx) => {
                 const locText = Array.isArray(item.strengthSlots) && item.strengthSlots.length > 1
-                    ? item.strengthSlots.map(s => s.location || item.location || '위치미지정').join(', ')
-                    : (item.location || '위치미지정');
+                    ? item.strengthSlots.map(s => s.location || item.location || '-').join(', ')
+                    : (item.location || '-');
                 const measuredText = typeof item.strengthFinal === 'number' ? item.strengthFinal.toFixed(1) : (item.strengthFinal || '-');
                 const ratioText = item.strengthRatio != null ? `${Math.round(item.strengthRatio)}%` : '-';
                 const gradeText = item.strengthGrade === 'a_or_b' ? 'a/b' : (item.strengthGrade || '-');
@@ -4811,7 +4813,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
                     <td style="font-weight:700;">${locText}</td>
-                    <td>${item.component || '기둥'}</td>
+                    <td>${item.component || '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${item.designStrength != null ? item.designStrength : '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${measuredText}</td>
                     <td style="font-weight:800; color:#4ade80;">${ratioText}</td>
@@ -4827,8 +4829,8 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
                     <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
-                    <td style="font-weight:700;">${item.location || '위치미지정'}</td>
-                    <td>${item.component || '기둥'}</td>
+                    <td style="font-weight:700;">${item.location || '-'}</td>
+                    <td>${item.component || '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${item.carbDepth != null ? item.carbDepth : '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${item.carbCover != null ? item.carbCover : '-'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${typeof item.carbRemainMm === 'number' ? item.carbRemainMm.toFixed(2) : '-'}</td>
@@ -4945,15 +4947,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (measureItems.length > 0 || standardItems.length > 0) csvContent += "\n";
             csvContent += "조사번호,조사항목,측정위치,높이/길이(H/L),변위/처짐량(mm),비율(1/N),안전등급\n";
             tiltItems.forEach(item => {
-                const fmtH = formatHeightValue(item.height);
+                const fmtH = formatHeightValue(item.height) || '-';
                 const isMemberDisp = item.category === '부재변위';
                 const hDigits = (fmtH || '').replace(/[^0-9.]/g, '');
                 const avgDigits = (item.avgValue || '').replace(/[^0-9.-]/g, '');
-                const h = parseFloat(hDigits) || (isMemberDisp ? 5000 : 3000);
+                const h = parseFloat(hDigits);
                 const delta = Math.abs(parseFloat(avgDigits) || 0);
-                const calc = isMemberDisp ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
-                const ratioStr = item.tiltRatio || calc.tiltRatio;
-                const gradeStr = item.grade || calc.grade;
+                const calc = (Number.isFinite(h) && h > 0 && delta > 0)
+                    ? (isMemberDisp ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta))
+                    : { tiltRatio: '', grade: '' };
+                const ratioStr = item.tiltRatio || calc.tiltRatio || '-';
+                const gradeStr = item.grade || calc.grade || '-';
                 csvContent += `"${item.no}","${item.category}","${item.location}","${fmtH}","${item.avgValue || ''}","${ratioStr}","${gradeStr}"\n`;
             });
         }
@@ -5632,23 +5636,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const select = document.getElementById('ndtFinishState');
         if (!select) return;
         if (!window.state.customNdtFinishStates) window.state.customNdtFinishStates = [];
-        let html = '';
+        const cur = (currentVal || '').trim();
+        let html = `<option value="" ${!cur ? 'selected' : ''}>-</option>`;
         NDT_FINISH_STATE_PRESET.forEach(item => {
-            const sel = (currentVal === item) ? 'selected' : '';
+            const sel = (cur === item) ? 'selected' : '';
             html += `<option value="${item}" ${sel}>${item}</option>`;
         });
         window.state.customNdtFinishStates.forEach(item => {
             if (!NDT_FINISH_STATE_PRESET.includes(item)) {
-                const sel = (currentVal === item) ? 'selected' : '';
+                const sel = (cur === item) ? 'selected' : '';
                 html += `<option value="${item}" ${sel}>${item}</option>`;
             }
         });
         html += `<option value="__ADD_CUSTOM_FINISH__">➕ [마감상태 직접 추가...]</option>`;
         select.innerHTML = html;
-        if (currentVal && !NDT_FINISH_STATE_PRESET.includes(currentVal) && !window.state.customNdtFinishStates.includes(currentVal)) {
+        if (cur && !NDT_FINISH_STATE_PRESET.includes(cur) && !window.state.customNdtFinishStates.includes(cur)) {
             const customOpt = document.createElement('option');
-            customOpt.value = currentVal;
-            customOpt.textContent = currentVal;
+            customOpt.value = cur;
+            customOpt.textContent = cur;
             customOpt.selected = true;
             select.insertBefore(customOpt, select.lastElementChild);
         }
@@ -5706,17 +5711,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pinIdEl) pinIdEl.value = existingItem.id;
             if (noEl) noEl.value = existingItem.no;
             if (catEl) catEl.value = existingItem.category || '강도';
-            if (compEl) compEl.value = existingItem.component || '기둥';
+            if (compEl) compEl.value = existingItem.component || '';
             if (locEl) locEl.value = existingItem.location || '';
-            if (heightEl) heightEl.value = existingItem.height || (existingItem.category === '부재변위' ? 'L = 5,000mm' : 'H = 3,000mm');
-            setNdtDispDirection(existingItem.dispDirection || '←', { silent: true });
-            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(existingItem.dispDirection || '←');
+            if (heightEl) heightEl.value = existingItem.height || '';
+            setNdtDispDirection(existingItem.dispDirection || '-', { silent: true });
+            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(existingItem.dispDirection || '-');
             if (v1El) v1El.value = existingItem.v1 || '';
             if (v2El) v2El.value = existingItem.v2 || '';
             if (v3El) v3El.value = existingItem.v3 || '';
             if (avgEl) avgEl.value = existingItem.avgValue || '';
-            if (statusEl) statusEl.value = existingItem.status || '양호';
-            if (damageStatusEl) damageStatusEl.value = existingItem.damageStatus || '상태양호';
+            if (statusEl) statusEl.value = existingItem.status || '';
+            if (damageStatusEl) damageStatusEl.value = existingItem.damageStatus || '';
             // strengthSlots(위치별 묶음)가 있으면 그대로, 없으면(구버전 항목) location/strengthReadings
             // 하나로 슬롯 1개를 만들어서 예전과 동일하게 보이게 한다.
             if (existingItem.category === '강도') {
@@ -5727,13 +5732,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtStrengthSlots = [{ location: '', readings: [] }];
             }
             const angleElExisting = document.getElementById('ndtAngle');
-            if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '0';
+            if (angleElExisting) angleElExisting.value = (existingItem.strengthAngle !== undefined && existingItem.strengthAngle !== null) ? String(existingItem.strengthAngle) : '';
             const designStrengthElExisting = document.getElementById('ndtDesignStrength');
             if (designStrengthElExisting) designStrengthElExisting.value = (existingItem.designStrength !== undefined && existingItem.designStrength !== null) ? existingItem.designStrength : '';
             const carbDepthElExisting = document.getElementById('ndtCarbDepth');
             if (carbDepthElExisting) carbDepthElExisting.value = (existingItem.carbDepth !== undefined && existingItem.carbDepth !== null) ? existingItem.carbDepth : '';
             const carbCoverElExisting = document.getElementById('ndtCarbCover');
-            if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '40';
+            if (carbCoverElExisting) carbCoverElExisting.value = (existingItem.carbCover !== undefined && existingItem.carbCover !== null) ? existingItem.carbCover : '';
             const designWidthElExisting = document.getElementById('ndtDesignWidth');
             if (designWidthElExisting) designWidthElExisting.value = (existingItem.designWidth !== undefined && existingItem.designWidth !== null) ? existingItem.designWidth : '';
             const designDepthElExisting = document.getElementById('ndtDesignDepth');
@@ -5750,7 +5755,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     measuredWidthElExisting.value = isNaN(legacyW) ? '' : legacyW;
                 }
             }
-            populateNdtFinishStateDropdown(existingItem.finishState || NDT_FINISH_STATE_PRESET[0]);
+            populateNdtFinishStateDropdown(existingItem.finishState || '');
             const sectionRatioElExisting = document.getElementById('ndtSectionRatio');
             if (sectionRatioElExisting) sectionRatioElExisting.value = (existingItem.sectionRatio !== undefined && existingItem.sectionRatio !== null) ? `${existingItem.sectionRatio.toFixed(1)}%` : '';
             const sectionGradeElExisting = document.getElementById('ndtSectionGrade');
@@ -5772,26 +5777,26 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pinIdEl) pinIdEl.value = '';
             if (noEl) noEl.value = noStr;
             if (catEl) catEl.value = cat;
-            if (compEl) compEl.value = '기둥';
+            if (compEl) compEl.value = '';
             if (locEl) locEl.value = '';
-            if (heightEl) heightEl.value = (cat === '부재변위' ? 'L = 5,000mm' : 'H = 3,000mm');
-            setNdtDispDirection(extraOpts?.dispDirection || '←', { silent: true });
-            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(extraOpts?.dispDirection || '←');
+            if (heightEl) heightEl.value = '';
+            setNdtDispDirection(extraOpts?.dispDirection || '-', { silent: true });
+            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(extraOpts?.dispDirection || '-');
             if (v1El) v1El.value = '';
             if (v2El) v2El.value = '';
             if (v3El) v3El.value = '';
             if (avgEl) avgEl.value = '';
-            if (statusEl) statusEl.value = '양호';
-            if (damageStatusEl) damageStatusEl.value = '상태양호';
+            if (statusEl) statusEl.value = '';
+            if (damageStatusEl) damageStatusEl.value = '';
             ndtStrengthSlots = [{ location: '', readings: [] }];
             const angleElNew = document.getElementById('ndtAngle');
-            if (angleElNew) angleElNew.value = '0';
+            if (angleElNew) angleElNew.value = '';
             const designStrengthElNew = document.getElementById('ndtDesignStrength');
             if (designStrengthElNew) designStrengthElNew.value = '';
             const carbDepthElNew = document.getElementById('ndtCarbDepth');
             if (carbDepthElNew) carbDepthElNew.value = '';
             const carbCoverElNew = document.getElementById('ndtCarbCover');
-            if (carbCoverElNew) carbCoverElNew.value = '40';
+            if (carbCoverElNew) carbCoverElNew.value = '';
             const designWidthElNew = document.getElementById('ndtDesignWidth');
             if (designWidthElNew) designWidthElNew.value = '';
             const designDepthElNew = document.getElementById('ndtDesignDepth');
@@ -5800,7 +5805,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (measuredDepthElNew) measuredDepthElNew.value = '';
             const measuredWidthElNew = document.getElementById('ndtMeasuredWidth');
             if (measuredWidthElNew) measuredWidthElNew.value = '';
-            populateNdtFinishStateDropdown(NDT_FINISH_STATE_PRESET[0]);
+            populateNdtFinishStateDropdown('');
             const sectionRatioElNew = document.getElementById('ndtSectionRatio');
             if (sectionRatioElNew) sectionRatioElNew.value = '';
             const sectionGradeElNew = document.getElementById('ndtSectionGrade');
@@ -5907,21 +5912,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const pinId = document.getElementById('ndtPinId')?.value;
         const noStr = document.getElementById('ndtNo')?.value || 'NDT-01';
         const cat = document.getElementById('ndtCategory')?.value || '강도';
-        const comp = document.getElementById('ndtComponent')?.value || '기둥';
+        const comp = document.getElementById('ndtComponent')?.value || '';
         // 강도는 위치를 슬롯별로 입력받으므로(공용 위치칸은 숨겨져 비어있음), 하위호환용
         // 최상위 location은 슬롯 1(또는 값이 있는 첫 슬롯) 것을 쓴다.
         const firstStrengthSlot = (cat === '강도')
             ? (ndtStrengthSlots.find(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0) || ndtStrengthSlots[0])
             : null;
         const loc = (cat === '강도') ? (firstStrengthSlot?.location || '') : (document.getElementById('ndtLocation')?.value || '');
-        const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
-        const formattedHeight = formatHeightValue(rawHeightStr);
-        const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
+        const rawHeightStr = (document.getElementById('ndtHeight')?.value || '').trim();
+        const formattedHeight = rawHeightStr ? formatHeightValue(rawHeightStr) : '';
+        const dispDir = document.getElementById('ndtDispDirection')?.value || '';
         const v1 = document.getElementById('ndtVal1')?.value || '';
         const v2 = document.getElementById('ndtVal2')?.value || '';
         const v3 = document.getElementById('ndtVal3')?.value || '';
         let avg = document.getElementById('ndtAvgValue')?.value || '';
-        const status = document.getElementById('ndtStatus')?.value || '양호';
+        const status = document.getElementById('ndtStatus')?.value || '';
 
         let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
         let grade = document.getElementById('ndtGrade')?.value || '';
@@ -5929,11 +5934,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (cat === '기울기' || cat === '부재변위') {
             const hDigits = (formattedHeight || '').replace(/[^0-9.]/g, '');
             const avgDigits = (avg || '').replace(/[^0-9.-]/g, '');
-            const h = parseFloat(hDigits) || (cat === '부재변위' ? 5000 : 3000);
+            const h = parseFloat(hDigits);
             const delta = Math.abs(parseFloat(avgDigits) || 0);
-            const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
-            tiltRatio = calc.tiltRatio;
-            grade = calc.grade;
+            if (Number.isFinite(h) && h > 0 && delta > 0) {
+                const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
+                tiltRatio = calc.tiltRatio;
+                grade = calc.grade;
+            } else {
+                tiltRatio = '';
+                grade = '';
+            }
         }
 
         // 부재 실측(단면 규격): 설계치수/마감상태/실측치수 + 단면적비율(c%)·등급 자동 산정
@@ -5970,7 +5980,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
         const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
         const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
-        const damageStatus = (cat === '강도') ? (document.getElementById('ndtDamageStatus')?.value || '상태양호') : null;
+        const damageStatus = (cat === '강도') ? (document.getElementById('ndtDamageStatus')?.value || '') : null;
         const hasDamage = damageStatus === '균열발생';
 
         const computeSlotResult = (slot) => {
@@ -6013,7 +6023,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const strengthExtra = (cat === '강도') ? {
             strengthSlots: strengthSlotResults,
             strengthReadings: firstSlotResult ? firstSlotResult.readings : [],
-            strengthAngle: parseFloat(strengthAngle) || 0,
+            strengthAngle: parseFloat(strengthAngle) || null,
             strengthResults: firstSlotResult ? firstSlotResult.results : [],
             strengthRo: firstSlotResult ? firstSlotResult.ro : null,
             strengthAgeDays: firstSlotResult ? firstSlotResult.ageDays : null,
@@ -6231,19 +6241,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const hStr = (heightEl?.value || '').replace(/[^0-9.]/g, '');
             const deltaStr = (avgEl?.value || '').replace(/[^0-9.-]/g, '');
-            const h = parseFloat(hStr) || (cat === '부재변위' ? 5000 : 3000);
+            const h = parseFloat(hStr);
             const delta = Math.abs(parseFloat(deltaStr) || 0);
 
             const tiltRatioEl = document.getElementById('ndtTiltRatio');
             const gradeEl = document.getElementById('ndtGrade');
 
-            if (delta > 0 && h > 0) {
+            if (Number.isFinite(h) && h > 0 && delta > 0) {
                 const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
                 if (tiltRatioEl) tiltRatioEl.value = calc.tiltRatio;
                 if (gradeEl) gradeEl.value = calc.grade;
             } else {
-                if (tiltRatioEl) tiltRatioEl.value = (cat === '부재변위' ? '1/480' : '1/750');
-                if (gradeEl) gradeEl.value = 'a등급';
+                if (tiltRatioEl) tiltRatioEl.value = '';
+                if (gradeEl) gradeEl.value = '';
             }
         }
 
@@ -13888,21 +13898,24 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </thead>
                                 <tbody>
                                     ${tiltNdtItems.map(item => {
-                                        const fmtH = formatHeightValue(item.height);
+                                        const fmtH = formatHeightValue(item.height) || '-';
                                         const hDigits = (fmtH || '').replace(/[^0-9.]/g, '');
                                         const avgDigits = (item.avgValue || '').replace(/[^0-9.-]/g, '');
-                                        const h = parseFloat(hDigits) || 3000;
+                                        const h = parseFloat(hDigits);
                                         const delta = Math.abs(parseFloat(avgDigits) || 0);
-                                        const calc = calcTiltGrade(h, delta);
-                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#2a2a2a' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
+                                        const calc = (Number.isFinite(h) && h > 0 && delta > 0)
+                                            ? calcTiltGrade(h, delta)
+                                            : { tiltRatio: '', grade: '' };
+                                        const gradeLabel = item.grade || calc.grade || '-';
+                                        const gradeColor = gradeLabel === 'a등급' ? '#16a34a' : (gradeLabel === 'b등급' ? '#2a2a2a' : (gradeLabel === 'c등급' ? '#ca8a04' : '#dc2626'));
                                         return `
                                         <tr>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${item.no || 'NO.01'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '-'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#2a2a2a;">${fmtH}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${item.tiltRatio || calc.tiltRatio}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${item.grade || calc.grade}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${item.tiltRatio || calc.tiltRatio || '-'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${gradeLabel}</td>
                                         </tr>
                                     `;}).join('')}
                                 </tbody>
@@ -15152,13 +15165,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (tiltItemsHwpx.length > 0) {
                         const tbl = findTblById(TILT_TBL_ID);
                         if (tbl) fillNdtTable(tbl, TILT_HEADER_ROWS, tiltItemsHwpx.map((item, i) => {
-                            const fmtH = formatHeightValue(item.height);
+                            const fmtH = formatHeightValue(item.height) || '-';
                             const hDigits = (fmtH || '').replace(/[^0-9.]/g, '');
                             const avgDigits = (item.avgValue || '').replace(/[^0-9.-]/g, '');
-                            const h = parseFloat(hDigits) || 3000;
+                            const h = parseFloat(hDigits);
                             const delta = Math.abs(parseFloat(avgDigits) || 0);
-                            const calc = calcTiltGrade(h, delta);
-                            return [item.no || (i + 1), item.location || '-', fmtH || '-', '-', item.avgValue || '-', item.tiltRatio || calc.tiltRatio, item.grade || calc.grade];
+                            const calc = (Number.isFinite(h) && h > 0 && delta > 0)
+                                ? calcTiltGrade(h, delta)
+                                : { tiltRatio: '', grade: '' };
+                            return [item.no || (i + 1), item.location || '-', fmtH, '-', item.avgValue || '-', item.tiltRatio || calc.tiltRatio || '-', item.grade || calc.grade || '-'];
                         }));
                         await insertNdtLocationMap(TILT_MAP_TBL_ID, '기울기');
                     } else {
