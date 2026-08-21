@@ -16,6 +16,8 @@ if (!window.state) {
         mode: 'PAN', // 'PAN' | 'MARK'
         rotationAngle: 0,
         tipShape: 'arrow',  // 'arrow' | 'circle'
+        areaFillStyle: 'solid',   // 'solid' | 'hatch' | 'none' — 영역 마킹 채우기
+        areaBorderStyle: 'solid', // 'solid' | 'dashed' — 영역 마킹 테두리
         styleColors: null, // 카테고리별 사용자 지정 색상 (미지정 시 DEFAULT_STYLE_COLORS 사용)
         styleSizes: null,  // 카테고리별 사용자 지정 핀/화살표 크기 (미지정 시 DEFAULT_STYLE_SIZES 사용)
         defectLeaderLineScale: 1.0, // 결함위치도: 박스↔화살표 연결선 두께 배율 (박스 테두리 기준)
@@ -47,7 +49,7 @@ window.appState = window.state;
 // IndexedDB는 보통 수백MB~수GB까지 쓸 수 있으므로, 무거운 이미지 데이터는 여기로 옮기고
 // localStorage에는 가벼운 텍스트 데이터만 남긴다.
 const LOCAL_IMAGE_DB_NAME = 'building_safety_local_images';
-const LOCAL_IMAGE_DB_VERSION = 1;
+const LOCAL_IMAGE_DB_VERSION = 2; // v2: floorDrawingPdfs (벡터 PDF 원본 보관)
 let _localImageDbPromise = null;
 
 function openLocalImageDb() {
@@ -59,6 +61,7 @@ function openLocalImageDb() {
             const db = req.result;
             if (!db.objectStoreNames.contains('floorDrawings')) db.createObjectStore('floorDrawings');
             if (!db.objectStoreNames.contains('photos')) db.createObjectStore('photos');
+            if (!db.objectStoreNames.contains('floorDrawingPdfs')) db.createObjectStore('floorDrawingPdfs');
         };
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
@@ -290,6 +293,42 @@ window.EXT_DIRECTION_DEFS = [
     { code: 'EXT_W', label: '건축물 외부-서측 (EXT_W)', strongKeys: ['서측', '서면', '서쪽', 'WEST'], soloChar: '서' }
 ];
 
+// 옥상 / 옥탑 / 옥탑 지붕 — 파일명이 다르면 서로 다른 층으로 인식 (같은 ROOF로 합치지 않음)
+window.ROOF_FLOOR_DEFS = [
+    { code: 'PH_ROOF', label: '옥탑 지붕층 (PH_ROOF)', rank: 9992 },
+    { code: 'PH', label: '옥탑층 (PH)', rank: 9991 },
+    { code: 'ROOF', label: '옥상층 (ROOF)', rank: 9990 }
+];
+
+window.resolveRoofFloorFromText = function(rawText) {
+    const raw = String(rawText || '');
+    const c = raw.toUpperCase().trim();
+    // 1) 가장 구체적: 옥탑 지붕층
+    if (
+        c === 'PH_ROOF' ||
+        c.includes('PH_ROOF') ||
+        (raw.includes('옥탑') && raw.includes('지붕')) ||
+        raw.includes('옥탑지붕') ||
+        /PH[\s_-]*ROOF|ROOF[\s_-]*PH/.test(c)
+    ) {
+        return window.ROOF_FLOOR_DEFS[0];
+    }
+    // 2) 옥탑층 (옥상과 분리)
+    if (
+        c === 'PH' ||
+        raw.includes('옥탑') ||
+        c.includes('PENTHOUSE') ||
+        /(^|[^A-Z0-9])PH([^A-Z0-9]|$)/.test(c)
+    ) {
+        return window.ROOF_FLOOR_DEFS[1];
+    }
+    // 3) 옥상층
+    if (c === 'ROOF' || raw.includes('옥상') || c.includes('ROOF')) {
+        return window.ROOF_FLOOR_DEFS[2];
+    }
+    return null;
+};
+
 /**
  * Intelligent Floor Parser from File Names (e.g. B2.jpg -> 지하 2층)
  */
@@ -297,9 +336,10 @@ window.parseFloorInfoFromFilename = function(fileName) {
     const nameWithoutExt = fileName.replace(/\.[^/.]+$/, "");
     const cleanName = nameWithoutExt.toUpperCase();
 
-    // 옥상~옥탑(지붕)까지는 별도 층으로 나누지 않고 한 층("옥상/옥탑")으로 합쳐서 관리
-    if (cleanName.includes('ROOF') || cleanName.includes('옥상') || cleanName.includes('옥탑') || cleanName.includes('PH')) {
-        return { rank: 999, floorCode: 'ROOF', floorLabel: '옥상/옥탑 층 (ROOF)', matched: true };
+    // 옥상층 / 옥탑층 / 옥탑 지붕층은 파일명에 따라 각각 다른 층으로 인식
+    const roofInfo = window.resolveRoofFloorFromText(nameWithoutExt);
+    if (roofInfo) {
+        return { rank: roofInfo.rank, floorCode: roofInfo.code, floorLabel: roofInfo.label, matched: true };
     }
 
     if (cleanName.includes('외부') || cleanName.includes('외벽') || cleanName.includes('파사드') || cleanName.includes('입면') || cleanName.includes('FACADE') || cleanName.includes('ELEVATION') || cleanName.includes('EXTERIOR')) {
@@ -357,6 +397,8 @@ window.FLOOR_CODE_OPTION_LIST = (function() {
     for (let i = 10; i >= 1; i--) list.push(`B${i}F`);
     for (let i = 1; i <= 30; i++) list.push(`${i}F`);
     list.push('ROOF');
+    list.push('PH');
+    list.push('PH_ROOF');
     list.push('EXT');
     window.EXT_DIRECTION_DEFS.forEach(d => list.push(d.code));
     return list;
@@ -364,9 +406,11 @@ window.FLOOR_CODE_OPTION_LIST = (function() {
 
 window.getFloorRankFromCode = function(code) {
     if (!code) return 0;
-    const c = String(code).toUpperCase().trim();
-    if (c.includes('EXT') || c.includes('외부')) return 10000;
-    if (c.includes('ROOF') || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return 9999;
+    const raw = String(code).trim();
+    const c = raw.toUpperCase();
+    if (c.includes('EXT') || raw.includes('외부')) return 10000;
+    const roofInfo = window.resolveRoofFloorFromText(raw);
+    if (roofInfo) return roofInfo.rank;
     const bMatch = c.match(/B\s*([0-9]+)/);
     if (bMatch) return -parseInt(bMatch[1], 10);
     const fMatch = c.match(/([0-9]+)\s*F/);
