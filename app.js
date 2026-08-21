@@ -3062,9 +3062,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const flTitleEl = document.getElementById('ndtFloorTitle');
         const tblTitleEl = document.getElementById('lblNdtTableTitle');
-        const flLabel = state.currentFloor || '1F';
-        if (flTitleEl) flTitleEl.textContent = `지상 ${flLabel}`;
-        if (tblTitleEl) tblTitleEl.textContent = `지상 ${flLabel}`;
+        const flLabel = window.getFloorLabelFromCode(state.currentFloor);
+        if (flTitleEl) flTitleEl.textContent = flLabel;
+        if (tblTitleEl) tblTitleEl.textContent = flLabel;
     }
 
     function getNdtStrengthCarbTypeLabel(cat) {
@@ -4488,6 +4488,34 @@ document.addEventListener('DOMContentLoaded', () => {
                     <th>관리</th>
                 `;
             }
+        } else if (currentCat === '강도') {
+            items = items.filter(x => x.category === '강도');
+            if (thead) {
+                thead.innerHTML = `
+                    <th>조사번호</th>
+                    <th>측정위치</th>
+                    <th>부재명</th>
+                    <th>설계기준강도(Fck)</th>
+                    <th>측정강도(Fck)</th>
+                    <th>강도비(%)</th>
+                    <th>등급</th>
+                    <th>관리</th>
+                `;
+            }
+        } else if (currentCat === '탄산화') {
+            items = items.filter(x => x.category === '탄산화');
+            if (thead) {
+                thead.innerHTML = `
+                    <th>조사번호</th>
+                    <th>측정위치</th>
+                    <th>부재명</th>
+                    <th>탄산화깊이(mm)</th>
+                    <th>피복두께(mm)</th>
+                    <th>잔존피복(mm)</th>
+                    <th>잔존수명(년)</th>
+                    <th>관리</th>
+                `;
+            }
         } else {
             items = items.filter(x => ['강도', '탄산화'].includes(x.category));
             if (thead) {
@@ -4509,21 +4537,6 @@ document.addEventListener('DOMContentLoaded', () => {
             tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: #a3a3a3; padding: 1.5rem;">등록된 ${currentCat} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
             return;
         }
-
-        const catBadges = {
-            '실측': '<span class="badge" style="background:rgba(2,132,199,0.2); color:#6b6b6b; border:1px solid rgba(2,132,199,0.4);">📏 부재실측</span>',
-            '강도': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4);">🔨 콘크리트 강도</span>',
-            '탄산화': '<span class="badge" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4);">🧪 탄산화</span>',
-            '기울기': '<span class="badge" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📐 외벽기울기</span>',
-            '변위': '<span class="badge" style="background:rgba(16,185,129,0.2); color:#34d399; border:1px solid rgba(16,185,129,0.4);">📉 부동침하 기울기</span>',
-            '부재변위': '<span class="badge" style="background:rgba(20,184,166,0.2); color:#2dd4bf; border:1px solid rgba(20,184,166,0.4);">🏗️ 부재변위</span>'
-        };
-
-        const statusBadges = {
-            '양호': '<span class="badge badge-good">🟢 양호</span>',
-            '주의': '<span class="badge badge-warning">🟡 주의</span>',
-            '보강필요': '<span class="badge badge-danger">🔴 보강필요</span>'
-        };
 
         const gradeBadges = {
             'a등급': '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a등급 (1/750이상)</span>',
@@ -4580,16 +4593,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 </tr>
             `;
             }).join('');
-        } else {
+        } else if (currentCat === '강도') {
+            tbody.innerHTML = items.map((item, idx) => {
+                const locText = Array.isArray(item.strengthSlots) && item.strengthSlots.length > 1
+                    ? item.strengthSlots.map(s => s.location || item.location || '위치미지정').join(', ')
+                    : (item.location || '위치미지정');
+                const measuredText = typeof item.strengthFinal === 'number' ? item.strengthFinal.toFixed(1) : (item.strengthFinal || '-');
+                const ratioText = item.strengthRatio != null ? `${Math.round(item.strengthRatio)}%` : '-';
+                const gradeText = item.strengthGrade === 'a_or_b' ? 'a/b' : (item.strengthGrade || '-');
+                return `
+                <tr>
+                    <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700;">${locText}</td>
+                    <td>${item.component || '기둥'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${item.designStrength != null ? item.designStrength : '-'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${measuredText}</td>
+                    <td style="font-weight:800; color:#4ade80;">${ratioText}</td>
+                    <td>${sectionGradeBadges[item.strengthGrade] || gradeText}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
+                    </td>
+                </tr>
+            `;
+            }).join('');
+        } else if (currentCat === '탄산화') {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
                     <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
-                    <td>${catBadges[item.category] || item.category}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
                     <td>${item.component || '기둥'}</td>
-                    <td style="font-family:monospace; font-size:0.88rem;">${item.valuesText || '-'}</td>
-                    <td style="font-weight:800; color:#4ade80;">${item.avgValue || '-'}</td>
-                    <td>${statusBadges[item.status] || '🟢 양호'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${item.carbDepth != null ? item.carbDepth : '-'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${item.carbCover != null ? item.carbCover : '-'}</td>
+                    <td style="font-family:monospace; font-size:0.88rem;">${typeof item.carbRemainMm === 'number' ? item.carbRemainMm.toFixed(2) : '-'}</td>
+                    <td style="font-weight:800; color:#4ade80;">${typeof item.carbRemainingLifeYears === 'number' ? Math.round(item.carbRemainingLifeYears) : '-'}</td>
                     <td>
                         <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
