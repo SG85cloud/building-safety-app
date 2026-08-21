@@ -2,7 +2,7 @@
    ???????????????? ?????Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v64.0';
+const CACHE_NAME = 'building-safety-v64.1';
 const STATIC_ASSETS = [
     './',
     './index.html',

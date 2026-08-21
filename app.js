@@ -16521,15 +16521,35 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 구조체여부만 ○/-로 표기된 표는 비구조체/마감재 세부구분이 불가능해 '-'는 비구조체로 간주
+    // 마감재 오타·약어(마감제/마김제/마감ㅈ 등)도 마감재로 인식
+    function looksLikeFinishMaterialText(raw) {
+        const t = (raw || '').toString().trim().replace(/\s+/g, '');
+        if (!t) return false;
+        if (/마감재|마감제|마김재|마김제|마감ㅈ|마김ㅈ|마감젯|마김젯/.test(t)) return true;
+        // 마 + (감|김) + (재|제|ㅈ) 근처 — 중간 1글자 오타 허용
+        if (/마.?[감김].?[재제ㅈ]/.test(t)) return true;
+        return false;
+    }
+
     function resolveImportCategory(raw) {
         const v = (raw || '').toString().trim();
         if (!v) return '구조체';
         if (v.includes('비구조체')) return '비구조체';
-        if (v.includes('마감재')) return '마감재';
+        if (looksLikeFinishMaterialText(v) || v.includes('마감재')) return '마감재';
         if (v.includes('구조체')) return '구조체';
         if (v === '○' || v.toLowerCase() === 'o') return '구조체';
         if (v === '-') return '비구조체';
         return '구조체';
+    }
+
+    // 구분 칸이 비었거나 구조체로만 잡혀도, 결함내용·부재명에 마감재(오타 포함)가 있으면 마감재로 승격
+    function resolveImportCategoryWithContent(categoryRaw, defectTypeRaw, componentRaw) {
+        const fromCol = resolveImportCategory(categoryRaw);
+        if (fromCol === '마감재') return '마감재';
+        if (looksLikeFinishMaterialText(defectTypeRaw) || looksLikeFinishMaterialText(componentRaw)) {
+            return '마감재';
+        }
+        return fromCol;
     }
 
     function resolveImportFlag(raw) {
@@ -16620,7 +16640,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const progressRaw = getCell(row, 'progress');
                 const leakRaw = getCell(row, 'leak');
 
-                const category = resolveImportCategory(categoryRaw);
+                const category = resolveImportCategoryWithContent(categoryRaw, defectTypeRaw, componentRaw);
                 const defectType = defectTypeRaw || '기타';
                 const isGood = defectType === '상태양호';
 
