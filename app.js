@@ -16777,4 +16777,13 @@ document.addEventListener('DOMContentLoaded', () => {
         resizeCanvas();
         if (typeof resizeNdtCanvas === 'function') resizeNdtCanvas();
     });
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (typeof window.closeAllMobileCanvasSheets === 'function') window.closeAllMobileCanvasSheets();
+            resizeCanvas();
+            if (typeof resizeNdtCanvas === 'function') resizeNdtCanvas();
+            if (window.state.currentTab === 'tab-map' && typeof fitToScreen === 'function') fitToScreen();
+            if (window.state.currentTab === 'tab-ndt' && typeof window.fitNdtCanvas === 'function') window.fitNdtCanvas();
+        }, 280);
+    });
 });
