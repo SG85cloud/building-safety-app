@@ -1454,7 +1454,7 @@ body {
     }
 
     #tab-map .mobile-canvas-dock {
-        display: block;
+        display: block !important;
         flex-shrink: 0;
         margin-top: 0.3rem;
         position: relative;
@@ -1483,7 +1483,7 @@ body {
     }
 
     #tab-map .mobile-side-rail {
-        display: flex;
+        display: flex !important;
         right: 0.3rem;
         padding: 0.28rem 0.22rem;
         gap: 0.2rem;
@@ -1496,7 +1496,7 @@ body {
     }
 
     #tab-map .mobile-map-fab {
-        display: grid;
+        display: grid !important;
         grid-template-columns: repeat(6, 1fr);
         gap: 0.18rem;
         padding: 0.28rem 0.22rem;
@@ -2393,7 +2393,7 @@ body {
     }
 
     .mobile-canvas-dock {
-        display: block;
+        display: block !important;
         position: fixed;
         left: 0.4rem;
         right: 0.4rem;
@@ -2413,7 +2413,7 @@ body {
     }
 
     .mobile-side-rail {
-        display: flex;
+        display: flex !important;
         flex-direction: column;
         gap: 0.28rem;
         position: absolute;
@@ -2480,7 +2480,7 @@ body {
     }
 
     .mobile-map-fab {
-        display: grid;
+        display: grid !important;
         grid-template-columns: repeat(6, 1fr);
         gap: 0.22rem;
         padding: 0.38rem 0.3rem;
@@ -2561,16 +2561,13 @@ body {
     display: none;
 }
 
-.mobile-canvas-dock {
-    display: none;
-}
-
-.mobile-side-rail {
-    display: none;
-}
-
-.mobile-map-fab {
-    display: none;
+@media (min-width: 1025px) {
+    /* PC 와이드만 모바일 독/레일 숨김 — 769px로 두면 가로폰·태블릿에서도 툴이 전부 사라짐 */
+    .mobile-canvas-dock,
+    .mobile-side-rail,
+    .mobile-map-fab {
+        display: none !important;
+    }
 }
 
 .defect-combo-sub {

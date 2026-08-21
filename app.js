@@ -4201,7 +4201,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
                 if (ndtPinchDist > 0) {
                     const scaleFactor = currentDist / ndtPinchDist;
-                    const newScale = Math.min(Math.max(0.3, ndtPinchScale * scaleFactor), 4.0);
+                    const newScale = Math.min(Math.max(VIEW_MIN_SCALE, ndtPinchScale * scaleFactor), VIEW_MAX_SCALE);
                     const currentMid = getTouchMidpoint(e.touches[0], e.touches[1], rect);
 
                     const imgX = (ndtPinchMidX - ndtPinchOffsetX) / ndtPinchScale;
@@ -10200,7 +10200,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const currentDist = getTouchDistance(e.touches[0], e.touches[1]);
                 if (initialPinchDist > 0) {
                     const scaleFactor = currentDist / initialPinchDist;
-                    const newScale = Math.min(Math.max(0.3, initialPinchScale * scaleFactor), 4.0);
+                    const newScale = Math.min(Math.max(VIEW_MIN_SCALE, initialPinchScale * scaleFactor), VIEW_MAX_SCALE);
                     const currentMid = getTouchMidpoint(e.touches[0], e.touches[1], rect);
 
                     // Compute focal point zoom offset based on touch midpoint
