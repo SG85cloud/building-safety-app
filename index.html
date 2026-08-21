@@ -1386,6 +1386,15 @@
                             <option value="보강필요">🔴 보강필요 (Action)</option>
                         </select>
                     </div>
+                    <!-- 콘크리트 강도 전용: 강도비 100% 이상일 때 a/b등급을 가르는 건 수치가 아니라
+                         손상(균열 등) 유무라서, 상태판정 대신 이 손상 여부를 물어본다. -->
+                    <div class="form-group" id="groupNdtDamageStatus" style="flex: 1; display: none;">
+                        <label class="form-label">🩹 손상 여부</label>
+                        <select id="ndtDamageStatus" class="form-select">
+                            <option value="상태양호">🟢 상태양호</option>
+                            <option value="균열발생">🔴 균열발생</option>
+                        </select>
+                    </div>
                     <!-- 부재 실측 전용: 상태판정 대신 단면적비율(c%)+등급을 자동 표시 (시설물 안전 및 유지관리 실시 세부지침 [표 6.24]) -->
                     <div class="form-group" id="groupNdtSectionResult" style="flex: 1; display: none;">
                         <label class="form-label">📊 단면적 비율(c%) / 등급</label>

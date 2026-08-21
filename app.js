@@ -4791,10 +4791,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // R값 목록(최대 20개) → ±20% 이상 벗어난 값 제외(KS F 2732 관례) → 재평균 → 각도보정(Ro) →
     // 3개 추정식 결과까지 한 번에 계산한다.
-    // 강도비(αc, %) → 등급표. a/b는 둘 다 100% 이상이고 손상 유무로만 갈리는데(육안 확인
-    // 필요, 수치만으로는 자동 판정 불가), 그 아래(c/d/e)는 강도비 구간으로 자동 판정 가능하다.
-    function getStrengthGrade(ratioPercent) {
-        if (ratioPercent >= 100) return { label: 'a 또는 b (100% 이상 — 손상 유무 육안 확인 필요)', code: 'a_or_b' };
+    // 강도비(αc, %) → 등급표. a/b는 둘 다 100% 이상이고 손상 유무로만 갈리므로(수치만으로는
+    // 자동 판정 불가) hasDamage(손상 여부 입력)로 갈라 판정하고, 그 아래(c/d/e)는 강도비 구간으로
+    // 자동 판정 가능하다.
+    function getStrengthGrade(ratioPercent, hasDamage) {
+        if (ratioPercent >= 100) {
+            return hasDamage
+                ? { label: 'b등급 (100% 이상 — 균열 등 손상 있음)', code: 'b' }
+                : { label: 'a등급 (100% 이상 — 손상 없음)', code: 'a' };
+        }
         if (ratioPercent >= 85) return { label: 'c', code: 'c' };
         if (ratioPercent >= 70) return { label: 'd', code: 'd' };
         return { label: 'e', code: 'e' };
@@ -4886,6 +4891,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const carbGrp = document.getElementById('groupNdtCarbonationFields');
         const genericValuesGrp = document.getElementById('groupNdtGenericValues');
         const statusGrp = document.getElementById('groupNdtStatus');
+        const damageStatusGrp = document.getElementById('groupNdtDamageStatus');
         const commonLocationGrp = document.getElementById('ndtLocationFieldWrap');
         const measureGrp = document.getElementById('groupNdtMeasureFields');
         const measuredDepthGrp = document.getElementById('groupNdtMeasuredDepth');
@@ -4959,6 +4965,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v2El) v2El.placeholder = '2회 측정값';
             if (v3El) v3El.placeholder = '3회 측정값';
         }
+
+        // 콘크리트 강도는 상태판정(양호/주의/보강필요) 대신, a/b등급을 가르는 손상 여부만 물어본다.
+        // 탄산화는 둘 다 export에 반영되지 않는 미사용 필드라 같이 숨긴다.
+        if (damageStatusGrp) damageStatusGrp.style.display = (cat === '강도') ? 'flex' : 'none';
+        if (cat === '강도' || cat === '탄산화') {
+            if (statusGrp) statusGrp.style.display = 'none';
+        }
     };
 
     // --- 콘크리트 강도 위치 슬롯 UI (위치+R값 묶음, 최대 3개) ---
@@ -4967,6 +4980,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const MAX_STRENGTH_SLOTS = 3;
     const MAX_R_VALUES_PER_SLOT = 20;
     let ndtStrengthSlots = [{ location: '', readings: [] }];
+
+    // 클라우드 OCR(Gemini, Cloudflare Worker 프록시) 주소.
+    // 비워두면(빈 문자열) 클라우드 시도 없이 기존 Tesseract(로컬) 인식만 사용한다.
+    // 배포 방법: cloudflare-worker/README.md 참고.
+    const CLOUD_OCR_ENDPOINT = '';
 
     function rValueChipsHtml(slotIdx) {
         const readings = ndtStrengthSlots[slotIdx].readings;
@@ -5192,7 +5210,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const designStrength = designStrengthEl ? parseFloat(designStrengthEl.value) : NaN;
         if (!isNaN(designStrength) && designStrength > 0) {
             const ratio = (calc.finalStrength / designStrength) * 100;
-            const grade = getStrengthGrade(ratio);
+            const hasDamage = document.getElementById('ndtDamageStatus')?.value === '균열발생';
+            const grade = getStrengthGrade(ratio, hasDamage);
             resultsEl.innerHTML += `
                 <tr>
                     <td colspan="2" style="padding:0.35rem 0.4rem; border-top:1px solid rgba(2,132,199,0.4); font-weight:800;">강도비 (설계 ${designStrength} 대비)</td>
@@ -5273,14 +5292,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function scanRValuesFromImage(file, slotIdx = 0) {
-        const statusEl = document.getElementById(`rScanStatus-${slotIdx}`);
-        if (!file) return;
+    function applyScannedReadings(scanned, slotIdx, statusEl, sourceLabel) {
+        ndtStrengthSlots[slotIdx].readings = scanned.slice(0, MAX_R_VALUES_PER_SLOT);
+        const listContainer = document.getElementById(`ndtRValuesList-${slotIdx}`);
+        if (listContainer) { listContainer.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
+        recalcStrengthSlot(slotIdx);
+        scheduleNdtAutoApply();
+        if (statusEl) statusEl.textContent = `✅ ${sourceLabel}: ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
+    }
+
+    function fileToDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    // Cloudflare Worker 프록시 → Gemini Vision에 사진을 보내 R값 목록(JSON 배열)만 받는다.
+    // 실패 시 예외를 던져서, 호출부(scanRValuesFromImage)가 로컬 Tesseract로 폴백하게 한다.
+    async function scanRValuesFromImageCloud(file) {
+        const dataUrl = await fileToDataUrl(file);
+        const res = await fetch(CLOUD_OCR_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: dataUrl })
+        });
+        if (!res.ok) throw new Error(`클라우드 OCR 서버 오류 (${res.status})`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        if (!Array.isArray(data.values)) throw new Error('클라우드 OCR 응답 형식 오류');
+        return data.values.map(v => parseInt(v, 10)).filter(v => !isNaN(v) && v >= 10 && v <= 80);
+    }
+
+    // 기존 Tesseract(로컬, 오프라인 가능) 인식 — 클라우드 OCR을 안 쓰거나 실패했을 때의 폴백.
+    async function scanRValuesFromImageLocal(file, slotIdx, statusEl) {
         if (typeof Tesseract === 'undefined') {
             if (statusEl) statusEl.textContent = 'OCR 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해주세요.';
             return;
         }
-        if (statusEl) statusEl.textContent = '🔍 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
+        if (statusEl) statusEl.textContent = '🔍 (로컬) 사진에서 숫자를 인식하는 중입니다... (처음 실행 시 시간이 더 걸릴 수 있어요)';
         let worker;
         try {
             // 화이트리스트(R/숫자만)로 오인식 노이즈를 줄이고, 사진마다 레이아웃이 달라
@@ -5302,18 +5354,35 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (statusEl) statusEl.textContent = '❌ 숫자를 인식하지 못했습니다. 직접 입력해주세요.';
                 return;
             }
-            ndtStrengthSlots[slotIdx].readings = scanned.slice(0, MAX_R_VALUES_PER_SLOT);
-            const listContainer = document.getElementById(`ndtRValuesList-${slotIdx}`);
-            if (listContainer) { listContainer.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
-            recalcStrengthSlot(slotIdx);
-            scheduleNdtAutoApply();
-            if (statusEl) statusEl.textContent = `✅ ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
+            applyScannedReadings(scanned, slotIdx, statusEl, '💻 로컬 인식');
         } catch (err) {
             console.error('R값 스캔 실패:', err);
             if (statusEl) statusEl.textContent = '❌ 인식에 실패했습니다. 직접 입력해주세요.';
         } finally {
             if (worker) await worker.terminate();
         }
+    }
+
+    async function scanRValuesFromImage(file, slotIdx = 0) {
+        const statusEl = document.getElementById(`rScanStatus-${slotIdx}`);
+        if (!file) return;
+
+        if (CLOUD_OCR_ENDPOINT && navigator.onLine) {
+            if (statusEl) statusEl.textContent = '🔍 (클라우드) 사진에서 숫자를 인식하는 중입니다...';
+            try {
+                const scanned = await scanRValuesFromImageCloud(file);
+                if (scanned.length > 0) {
+                    applyScannedReadings(scanned, slotIdx, statusEl, '☁️ 클라우드 인식');
+                    return;
+                }
+                if (statusEl) statusEl.textContent = '☁️ 클라우드 인식 결과가 없어 로컬 인식으로 다시 시도합니다...';
+            } catch (err) {
+                console.error('클라우드 OCR 실패, 로컬 OCR로 대체합니다:', err);
+                if (statusEl) statusEl.textContent = '☁️ 클라우드 인식 실패, 로컬 인식으로 다시 시도합니다...';
+            }
+        }
+
+        await scanRValuesFromImageLocal(file, slotIdx, statusEl);
     }
 
     function populateNdtFinishStateDropdown(currentVal) {
@@ -5388,6 +5457,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const v3El = document.getElementById('ndtVal3');
         const avgEl = document.getElementById('ndtAvgValue');
         const statusEl = document.getElementById('ndtStatus');
+        const damageStatusEl = document.getElementById('ndtDamageStatus');
 
         if (existingItem) {
             if (pinIdEl) pinIdEl.value = existingItem.id;
@@ -5403,6 +5473,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = existingItem.v3 || '';
             if (avgEl) avgEl.value = existingItem.avgValue || '';
             if (statusEl) statusEl.value = existingItem.status || '양호';
+            if (damageStatusEl) damageStatusEl.value = existingItem.damageStatus || '상태양호';
             // strengthSlots(위치별 묶음)가 있으면 그대로, 없으면(구버전 항목) location/strengthReadings
             // 하나로 슬롯 1개를 만들어서 예전과 동일하게 보이게 한다.
             if (existingItem.category === '강도') {
@@ -5468,6 +5539,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (v3El) v3El.value = '';
             if (avgEl) avgEl.value = '';
             if (statusEl) statusEl.value = '양호';
+            if (damageStatusEl) damageStatusEl.value = '상태양호';
             ndtStrengthSlots = [{ location: '', readings: [] }];
             const angleElNew = document.getElementById('ndtAngle');
             if (angleElNew) angleElNew.value = '0';
@@ -5655,11 +5727,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
         const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
         const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
+        const damageStatus = (cat === '강도') ? (document.getElementById('ndtDamageStatus')?.value || '상태양호') : null;
+        const hasDamage = damageStatus === '균열발생';
 
         const computeSlotResult = (slot) => {
             const calc = calcConcreteStrength(slot.readings, parseFloat(strengthAngle), strengthAgeDays, enabledFormulaNames);
             const ratio = (calc && !isNaN(designStrengthVal) && designStrengthVal > 0) ? (calc.finalStrength / designStrengthVal) * 100 : null;
-            const gradeObj = ratio !== null ? getStrengthGrade(ratio) : null;
+            const gradeObj = ratio !== null ? getStrengthGrade(ratio, hasDamage) : null;
             return {
                 location: slot.location || '',
                 readings: (slot.readings || []).slice(),
@@ -5705,8 +5779,9 @@ document.addEventListener('DOMContentLoaded', () => {
             strengthFinal: firstSlotResult ? firstSlotResult.finalStrength : null,
             designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
             strengthRatio: firstSlotResult ? firstSlotResult.ratio : null,
-            strengthGrade: firstSlotResult ? firstSlotResult.grade : null
-        } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
+            strengthGrade: firstSlotResult ? firstSlotResult.grade : null,
+            damageStatus: damageStatus
+        } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null, damageStatus: null };
 
         const carbExtra = (cat === '탄산화') ? {
             carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
@@ -14655,15 +14730,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
                     if (strengthItemsHwpx.length > 0) {
                         const tbl = findTblById(STRENGTH_TBL_ID);
-                        if (tbl) fillNdtTable(tbl, STRENGTH_HEADER_ROWS, strengthItemsHwpx.map((item, i) => [
-                            item.no || (i + 1),
-                            `${item.location || ''}${item.component || ''}`,
-                            item.designStrength != null ? item.designStrength : '-',
-                            typeof item.strengthFinal === 'number' ? item.strengthFinal.toFixed(1) : (item.strengthFinal || '-'),
-                            item.strengthRatio != null ? `${Math.round(item.strengthRatio)}%` : '-',
-                            item.strengthGrade || '-',
-                            '-'
-                        ]));
+                        // strengthGrade는 내부 코드값('a_or_b' 등)이라 그대로 찍으면 표에 글자가
+                        // 깨진 것처럼 보인다 — 표시용 문구로 바꿔서 넣는다.
+                        const strengthGradeDisplay = (code) => code === 'a_or_b' ? 'a/b' : (code || '-');
+                        // 강도 항목 하나에 위치 슬롯이 여러 개(최대 3개) 붙을 수 있는데, 예전엔
+                        // item.strengthFinal 등 첫 슬롯 결과만 내보내서 2번째/3번째 위치 측정값이
+                        // 통째로 표에서 빠졌다 — 슬롯 단위로 행을 펼쳐서 채운다.
+                        const strengthRows = [];
+                        strengthItemsHwpx.forEach(item => {
+                            const slots = Array.isArray(item.strengthSlots) && item.strengthSlots.length > 0
+                                ? item.strengthSlots
+                                : [{ location: item.location, finalStrength: item.strengthFinal, ratio: item.strengthRatio, grade: item.strengthGrade }];
+                            slots.forEach(slot => {
+                                strengthRows.push([
+                                    strengthRows.length + 1,
+                                    `${slot.location || item.location || ''}${item.component || ''}`,
+                                    item.designStrength != null ? item.designStrength : '-',
+                                    typeof slot.finalStrength === 'number' ? slot.finalStrength.toFixed(1) : (slot.finalStrength || '-'),
+                                    slot.ratio != null ? `${Math.round(slot.ratio)}%` : '-',
+                                    strengthGradeDisplay(slot.grade),
+                                    item.damageStatus === '균열발생' ? '균열발생' : '-'
+                                ]);
+                            });
+                        });
+                        if (tbl) fillNdtTable(tbl, STRENGTH_HEADER_ROWS, strengthRows);
                     } else {
                         removeNdtTableById(STRENGTH_TBL_ID);
                     }
