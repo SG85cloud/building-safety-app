@@ -6718,6 +6718,79 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnExecute) btnExecute.addEventListener('click', executeSurveyRoundReassign);
     }
 
+    // 엑셀 전차 가져오기 등으로 isCarriedOver(전회차 체크)가 켜진 결함을 PC에서 일괄 해제
+    function countCarriedOverInKeys(keys) {
+        let n = 0;
+        (keys || []).forEach((k) => {
+            (state.defects[k] || []).forEach((d) => {
+                if (d && d.isCarriedOver) n++;
+            });
+        });
+        return n;
+    }
+
+    function clearCarriedOverBulk() {
+        const bldg = state.currentBuilding;
+        if (!bldg || !state.currentBuildingId) {
+            window.showToast('건물을 먼저 선택하세요.', 'warning', 3500);
+            return;
+        }
+        const floorKeys = getSurveyReassignScopeKeys(bldg, false);
+        const buildingKeys = getSurveyReassignScopeKeys(bldg, true);
+        const floorCount = countCarriedOverInKeys(floorKeys);
+        const buildingCount = countCarriedOverInKeys(buildingKeys);
+
+        if (floorCount === 0 && buildingCount === 0) {
+            window.showToast('전회차 체크가 켜진 결함이 없습니다.', 'info', 3500);
+            return;
+        }
+
+        const mode = window.prompt(
+            `전회차(이월) 체크 일괄 해제\n\n· 현재 층(${state.currentFloor}): ${floorCount}건\n· 건물 전체: ${buildingCount}건\n\n1 = 현재 층만\n2 = 건물 전체\n(취소하려면 빈칸)`,
+            '1'
+        );
+        if (mode == null) return;
+        const trimmed = String(mode).trim();
+        if (trimmed !== '1' && trimmed !== '2') {
+            window.showToast('해제 취소됨', 'info', 2000);
+            return;
+        }
+        const wholeBuilding = trimmed === '2';
+        const keys = wholeBuilding ? buildingKeys : floorKeys;
+        const count = wholeBuilding ? buildingCount : floorCount;
+        if (count === 0) {
+            window.showToast('선택한 범위에 전회차 체크 결함이 없습니다.', 'warning', 3500);
+            return;
+        }
+        const scopeLabel = wholeBuilding ? '건물 전체 층' : `현재 층(${state.currentFloor})`;
+        if (!window.confirm(`${scopeLabel}에서 전회차 체크 ${count}건을 해제할까요?\n\n결함 내용·도면 위치는 그대로 두고,「전회차」표시만 끕니다.`)) {
+            return;
+        }
+
+        if (typeof pushDefectHistory === 'function') pushDefectHistory();
+        let changed = 0;
+        keys.forEach((k) => {
+            (state.defects[k] || []).forEach((d) => {
+                if (d && d.isCarriedOver) {
+                    d.isCarriedOver = false;
+                    changed++;
+                }
+            });
+        });
+
+        saveStateToLocalStorage();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        if (typeof renderSurveyTable === 'function') renderSurveyTable();
+        if (typeof drawCanvas === 'function') drawCanvas();
+        window.showToast(`${scopeLabel} 전회차 체크 ${changed}건 해제 완료`, 'success', 4500);
+    }
+    window.clearCarriedOverBulk = clearCarriedOverBulk;
+
+    function setupClearCarriedOverBulkEvents() {
+        const btn = document.getElementById('btnClearCarriedOverBulk');
+        if (btn) btn.addEventListener('click', clearCarriedOverBulk);
+    }
+
     // 결함이 "전회차(과거 조사)" 항목인지 판정 — 수동 체크(isCarriedOver) 우선, 없으면
     // 등록 당시 회차와 건물의 "최신 회차"(latestSurveyRoundKey, 앞으로만 전진)를 비교한다.
     // 상단 드롭다운의 지금 이 순간 값과 비교하지 않으므로, 드롭다운을 잠깐 다른 회차로
@@ -17184,6 +17257,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupSurveyColumnModalEvents === 'function') setupSurveyColumnModalEvents();
         if (typeof setupLocationMapLegendModalEvents === 'function') setupLocationMapLegendModalEvents();
         if (typeof setupSurveyRoundReassignModalEvents === 'function') setupSurveyRoundReassignModalEvents();
+        if (typeof setupClearCarriedOverBulkEvents === 'function') setupClearCarriedOverBulkEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         if (typeof setupAreaMarkStyleEvents === 'function') setupAreaMarkStyleEvents();
         showLoginOverlay();
