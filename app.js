@@ -7437,19 +7437,21 @@ document.addEventListener('DOMContentLoaded', () => {
         typeLine.textContent = d.defectType || '';
         lines.appendChild(typeLine);
 
+        // 상태양호 · 균열폭/이격폭(규모) 공란이면 3번째 줄 생략해 목록 칸을 아낀다
+        const isGood = d.defectType === '상태양호';
         const measureText = formatDefectListMeasure(d);
-        const measureEl = document.createElement('span');
-        measureEl.className = 'defect-list-item-measure';
-        if (measureText) {
-            measureEl.textContent = measureText;
+        const sizeFallback = String(d.size || '').trim();
+        const measureDisplay = measureText
+            || ((sizeFallback && sizeFallback !== '-') ? sizeFallback : '');
+        if (!isGood && measureDisplay) {
+            const measureEl = document.createElement('span');
+            measureEl.className = 'defect-list-item-measure';
+            measureEl.textContent = measureDisplay;
             measureEl.title = d.size ? `규모: ${d.size}` : '균열폭/이격폭';
+            lines.appendChild(measureEl);
         } else {
-            const sizeFallback = String(d.size || '').trim();
-            measureEl.textContent = (sizeFallback && sizeFallback !== '-') ? sizeFallback : '—';
-            measureEl.classList.toggle('is-empty', measureEl.textContent === '—');
-            measureEl.title = sizeFallback ? `규모: ${sizeFallback}` : '균열폭/이격폭 없음';
+            lines.classList.add('no-measure');
         }
-        lines.appendChild(measureEl);
 
         row.appendChild(lines);
 
