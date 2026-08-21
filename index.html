@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260821_canvas1">
+    <link rel="stylesheet" href="styles.css?v=20260821_survey1">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PDF 생성용: 페이지별로 직접 캡처해서 조립(큰 보고서에서 html2pdf 한방 렌더링이 캔버스 높이 한계로
@@ -402,8 +402,8 @@
                 <div class="actions">
                     <button id="btnAddDefectDirect" class="btn btn-primary btn-sm"><i class="fa-solid fa-plus"></i> ➕ 결함 직접 등록</button>
                     <button id="btnOpenSurveyColumnModal" class="btn btn-outline btn-sm"><i class="fa-solid fa-table-columns"></i> ⚙️ 표 컬럼 설정</button>
-                    <button id="btnOpenReportPreview" class="btn btn-primary btn-sm" onclick="window.openReportPreviewModalFunc()" style="background:#2a2a2a; border-color:#2a2a2a;"><i class="fa-solid fa-file-contract"></i> 📋 6개 사진배치 보고서 출력/미리보기</button>
-                    <button id="btnExportExcel" class="btn btn-sm" style="background: #15803d; color: #ffffff; border: 1px solid #22c55e; font-weight: 700;"><i class="fa-solid fa-file-excel"></i> 🟢 엑셀 저장 (.xls)</button>
+                    <button id="btnOpenReportPreview" class="btn btn-primary btn-sm pc-only-chrome" onclick="window.openReportPreviewModalFunc()" style="background:#2a2a2a; border-color:#2a2a2a;"><i class="fa-solid fa-file-contract"></i> 📋 6개 사진배치 보고서 출력/미리보기</button>
+                    <button id="btnExportExcel" class="btn btn-sm pc-only-chrome" style="background: #15803d; color: #ffffff; border: 1px solid #22c55e; font-weight: 700;"><i class="fa-solid fa-file-excel"></i> 🟢 엑셀 저장 (.xls)</button>
                     <button id="btnImportDefectExcel" class="btn btn-outline btn-sm pc-only-chrome" style="border-color:#2a2a2a; color:#2a2a2a;"><i class="fa-solid fa-file-import"></i> 📥 외부 엑셀 결함표 가져오기</button>
                     <button id="btnDownloadImportTemplate" class="btn btn-outline btn-sm pc-only-chrome" style="border-color:#737373; color:#737373;"><i class="fa-solid fa-file-arrow-down"></i> 📄 가져오기 양식 다운로드</button>
                     <input type="file" id="inputImportDefectExcel" accept=".xlsx,.xls,.csv" style="display:none;">
@@ -411,12 +411,12 @@
             </div>
 
             <!-- Defect Statistics Chart Section -->
-            <div style="background: #2a2a2a; padding: 1rem 1.2rem; border-radius: 10px; margin-bottom: 1rem; border: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
-                <div>
-                    <h3 style="margin: 0; font-size: 1rem; color: #6b6b6b; font-weight: 800;"><i class="fa-solid fa-chart-pie"></i> 📊 현재 층 결함 손상 유형별 집계 통계</h3>
-                    <p style="margin: 0.3rem 0 0 0; font-size: 0.82rem; color: #a3a3a3;">자동 집계된 손상 유형 비율 차트입니다.</p>
+            <div class="survey-stats-panel">
+                <div class="survey-stats-copy">
+                    <h3><i class="fa-solid fa-chart-pie"></i> 현재 층 결함 손상 유형별 집계</h3>
+                    <p>자동 집계된 손상 유형 비율 차트입니다.</p>
                 </div>
-                <div style="background: #171717; padding: 0.5rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
+                <div class="survey-chart-wrap">
                     <canvas id="surveyChartCanvas" width="450" height="150"></canvas>
                 </div>
             </div>
@@ -455,7 +455,7 @@
         <section id="tab-ndt" class="tab-content">
             <div class="section-header" style="flex-wrap: wrap; gap: 0.8rem;">
                 <h2>🔬 <span id="ndtFloorTitle">지상 1층 (1F)</span> 비파괴 장비 조사 현장점검</h2>
-                <div style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
+                <div class="ndt-drawing-actions" style="display: flex; gap: 0.6rem; flex-wrap: wrap; align-items: center;">
                     <label class="btn btn-primary" style="background: linear-gradient(135deg, #2a2a2a, #1f1f1f); font-size: 0.85rem; padding: 0.4rem 0.8rem; cursor: pointer;">
                         <i class="fa-solid fa-file-image"></i> 🖼️ NDT 전용 도면 불러오기
                         <input type="file" id="inputNdtDrawing" accept="image/*" style="display: none;">

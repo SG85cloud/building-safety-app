@@ -18,8 +18,13 @@ window.BSA.tabs['tab-ndt'] = {
     enter: function () {
         setTimeout(function () {
             if (typeof window.setupNdtCanvas === 'function') window.setupNdtCanvas();
+            if (typeof window.resizeNdtCanvas === 'function') window.resizeNdtCanvas();
             if (typeof window.renderNdtSummaryTable === 'function') window.renderNdtSummaryTable();
             if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
         }, 50);
+        setTimeout(function () {
+            if (typeof window.resizeNdtCanvas === 'function') window.resizeNdtCanvas();
+            if (typeof window.fitNdtCanvas === 'function') window.fitNdtCanvas();
+        }, 220);
     }
 };

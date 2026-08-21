@@ -1887,6 +1887,47 @@ body {
     background-color: #f4f4f4 !important;
 }
 
+.survey-stats-panel {
+    background: #2a2a2a;
+    padding: 1rem 1.2rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.survey-stats-copy h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #d4d4d4;
+    font-weight: 800;
+}
+
+.survey-stats-copy p {
+    margin: 0.3rem 0 0 0;
+    font-size: 0.82rem;
+    color: #a3a3a3;
+}
+
+.survey-chart-wrap {
+    background: #171717;
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    max-width: 100%;
+    overflow: hidden;
+}
+
+#surveyChartCanvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
 /* Badges & Tag styling */
 .badge {
     display: inline-block;
@@ -4263,6 +4304,25 @@ body {
         flex-direction: column;
     }
 
+    /* 조사표/비파괴/홈: 페이지 스크롤 허용 (위치도만 화면 고정) */
+    body.bsa-tab-survey,
+    body.bsa-tab-ndt,
+    body.bsa-tab-home {
+        height: auto;
+        min-height: 100dvh;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    body.bsa-tab-survey .app-content,
+    body.bsa-tab-ndt .app-content,
+    body.bsa-tab-home .app-content {
+        overflow: visible;
+        flex: none;
+        min-height: auto;
+        padding: 0.45rem 0.5rem 1rem;
+    }
+
     /* 상단: 조그만 탭 툴바 + 층수 우측 */
     .main-tabs {
         flex-shrink: 0;
@@ -4354,13 +4414,21 @@ body {
         flex-direction: column;
     }
 
-    #tab-map.tab-content.active,
-    #tab-ndt.tab-content.active {
+    #tab-map.tab-content.active {
         display: flex !important;
         flex: 1 1 auto;
         min-height: 0;
         overflow: hidden;
         flex-direction: column;
+    }
+
+    #tab-ndt.tab-content.active,
+    #tab-survey.tab-content.active {
+        display: block !important;
+        flex: none;
+        overflow: visible;
+        min-height: 0;
+        height: auto;
     }
 
     /* 좌 1/3 결함목록 · 우 도면 */
@@ -4715,3 +4783,231 @@ body {
     }
 }
 
+
+/* ============================================================
+   모바일 조사표·비파괴 UI 복구
+   ============================================================ */
+.survey-stats-panel {
+    background: #2a2a2a;
+    padding: 1rem 1.2rem;
+    border-radius: 10px;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+.survey-stats-copy h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #d4d4d4;
+    font-weight: 800;
+}
+.survey-stats-copy p {
+    margin: 0.3rem 0 0 0;
+    font-size: 0.82rem;
+    color: #a3a3a3;
+}
+.survey-chart-wrap {
+    background: #171717;
+    padding: 0.5rem;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    max-width: 100%;
+    overflow: hidden;
+}
+#surveyChartCanvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+@media (max-width: 1024px) {
+    /* --- 조사표 --- */
+    #tab-survey .section-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.35rem;
+        margin-bottom: 0.55rem;
+    }
+    #tab-survey .section-header h2 {
+        font-size: 0.95rem;
+        margin: 0;
+    }
+    #tab-survey .section-header .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+    }
+    #tab-survey .section-header .actions .btn {
+        flex: 1 1 auto;
+        justify-content: center;
+        font-size: 0.72rem;
+        padding: 0.38rem 0.55rem;
+        white-space: nowrap;
+    }
+
+    #tab-survey .survey-stats-panel {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0.65rem 0.7rem;
+        gap: 0.55rem;
+        margin-bottom: 0.7rem;
+    }
+    #tab-survey .survey-stats-copy h3 {
+        font-size: 0.82rem;
+    }
+    #tab-survey .survey-stats-copy p {
+        font-size: 0.72rem;
+    }
+    #tab-survey .survey-chart-wrap {
+        width: 100%;
+        box-sizing: border-box;
+    }
+    #tab-survey #surveyChartCanvas {
+        width: 100% !important;
+        max-width: 100%;
+        height: auto !important;
+    }
+
+    #tab-survey .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.3rem;
+        margin-bottom: 0.8rem;
+    }
+    #tab-survey .survey-table {
+        width: max-content;
+        min-width: 100%;
+        table-layout: auto;
+        font-size: 0.78rem;
+    }
+    #tab-survey .survey-table th,
+    #tab-survey .survey-table td {
+        white-space: nowrap;
+        word-break: keep-all;
+        overflow-wrap: normal;
+        padding: 0.45rem 0.55rem;
+        vertical-align: middle;
+    }
+    /* 관리(수정/삭제) 열 숨김 */
+    #tab-survey .survey-table th:last-child,
+    #tab-survey .survey-table td:last-child {
+        display: none;
+    }
+
+    /* --- 비파괴 --- */
+    #tab-ndt .section-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.35rem;
+        margin-bottom: 0.45rem;
+    }
+    #tab-ndt .section-header h2 {
+        font-size: 0.92rem;
+        margin: 0;
+        line-height: 1.3;
+    }
+    #tab-ndt .ndt-drawing-actions {
+        gap: 0.3rem !important;
+    }
+    #tab-ndt .ndt-drawing-actions .btn,
+    #tab-ndt .ndt-drawing-actions label.btn {
+        font-size: 0.7rem !important;
+        padding: 0.32rem 0.5rem !important;
+        flex: 1 1 auto;
+        justify-content: center;
+    }
+
+    #tab-ndt .map-controls-toolbar {
+        padding: 0.4rem 0.5rem !important;
+        margin-bottom: 0.45rem !important;
+    }
+    #tab-ndt .map-controls-toolbar .filter-group {
+        flex-wrap: wrap;
+        gap: 0.28rem;
+    }
+    #tab-ndt .map-controls-toolbar .chip {
+        font-size: 0.68rem;
+        padding: 0.28rem 0.42rem;
+        white-space: nowrap;
+    }
+
+    #tab-ndt #ndtCanvasContainer {
+        min-height: 46vh !important;
+        height: 46vh !important;
+        max-height: none !important;
+        margin-bottom: 3.4rem !important;
+        border-radius: 10px;
+    }
+
+    #tab-ndt .ndt-results-section {
+        display: block !important;
+        margin-top: 0.85rem !important;
+        margin-bottom: 4.5rem;
+    }
+    #tab-ndt .ndt-results-section h3 {
+        font-size: 0.88rem !important;
+        margin: 0 !important;
+        line-height: 1.35;
+    }
+    #tab-ndt .ndt-results-section .btn {
+        font-size: 0.7rem;
+        padding: 0.3rem 0.5rem;
+    }
+
+    #tab-ndt .table-responsive {
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.35rem !important;
+    }
+    #tab-ndt #ndtSummaryTable,
+    #tab-ndt .data-table {
+        width: max-content;
+        min-width: 100%;
+        table-layout: auto;
+        border-collapse: collapse;
+        font-size: 0.78rem;
+        background: #fff;
+    }
+    #tab-ndt #ndtSummaryTable th,
+    #tab-ndt #ndtSummaryTable td,
+    #tab-ndt .data-table th,
+    #tab-ndt .data-table td {
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        overflow-wrap: normal !important;
+        padding: 0.42rem 0.55rem !important;
+        vertical-align: middle;
+        text-align: center;
+        border-bottom: 1px solid #e5e5e5;
+    }
+    #tab-ndt #ndtSummaryTable th,
+    #tab-ndt .data-table th {
+        background: #fafafa;
+        font-weight: 800;
+        color: #2a2a2a;
+    }
+    /* 관리(수정/삭제) 열 숨김 — 도면에서 핀 탭으로 수정 */
+    #tab-ndt #ndtSummaryTable th:last-child,
+    #tab-ndt #ndtSummaryTable td:last-child {
+        display: none !important;
+    }
+
+    #tab-ndt .mobile-canvas-dock {
+        display: block !important;
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        margin-top: -3.1rem;
+        margin-bottom: 0.4rem;
+        z-index: 30;
+        pointer-events: none;
+    }
+    #tab-ndt .mobile-canvas-dock .mobile-map-fab {
+        pointer-events: auto;
+    }
+}

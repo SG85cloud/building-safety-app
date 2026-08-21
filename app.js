@@ -15628,6 +15628,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.renderDefectStatisticsChart = function(canvasId, defectsArray) {
         const canvas = document.getElementById(canvasId);
         if (!canvas) return;
+        const wrap = canvas.parentElement;
+        // 모바일: 부모 폭에 맞춰 캔버스 해상도 재설정 (450px 고정으로 잘리던 문제)
+        if (wrap && wrap.clientWidth > 40) {
+            const targetW = Math.min(450, Math.floor(wrap.clientWidth));
+            const targetH = Math.max(120, Math.round(targetW * (150 / 450)));
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+                canvas.width = targetW;
+                canvas.height = targetH;
+            }
+        }
         const ctx = canvas.getContext('2d');
         const cw = canvas.width;
         const ch = canvas.height;
@@ -15688,8 +15698,11 @@ document.addEventListener('DOMContentLoaded', () => {
             startAngle += sliceAngle;
         });
 
-        const legendX = cw * 0.58;
-        let legendY = ch * 0.18;
+        const legendX = cw * 0.55;
+        let legendY = ch * 0.14;
+        const legendFont = cw < 360 ? 'bold 10px sans-serif' : 'bold 12px sans-serif';
+        const legendStep = cw < 360 ? 18 : 24;
+        const swatch = cw < 360 ? 10 : 14;
         ctx.textAlign = 'left';
 
         Object.keys(counts).forEach(type => {
@@ -15697,13 +15710,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
 
             ctx.fillStyle = colors[type];
-            ctx.fillRect(legendX, legendY, 14, 14);
+            ctx.fillRect(legendX, legendY, swatch, swatch);
 
             ctx.fillStyle = '#f8fafc';
-            ctx.font = 'bold 12px sans-serif';
-            ctx.fillText(`${type}: ${count}건 (${pct}%)`, legendX + 22, legendY + 12);
+            ctx.font = legendFont;
+            ctx.fillText(`${type}: ${count}건 (${pct}%)`, legendX + swatch + 6, legendY + swatch - 1);
 
-            legendY += 24;
+            legendY += legendStep;
         });
     };
 

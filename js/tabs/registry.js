@@ -18,6 +18,16 @@ window.BSA.applyTabChrome = function (tabId) {
     if (headerReportActions) headerReportActions.style.display = isHome ? 'none' : 'flex';
     if (navBuildingTabs) navBuildingTabs.style.display = isHome ? 'none' : 'flex';
     if (appTitle) appTitle.style.display = isHome ? 'none' : 'inline-flex';
+
+    // 모바일: 결함위치도만 화면 고정 스크롤, 조사표/비파괴는 페이지 스크롤
+    document.body.classList.remove('bsa-tab-home', 'bsa-tab-map', 'bsa-tab-survey', 'bsa-tab-ndt');
+    const cls = ({
+        'tab-home': 'bsa-tab-home',
+        'tab-map': 'bsa-tab-map',
+        'tab-survey': 'bsa-tab-survey',
+        'tab-ndt': 'bsa-tab-ndt'
+    })[tabId];
+    if (cls) document.body.classList.add(cls);
 };
 
 window.BSA.enterTab = function (tabId) {

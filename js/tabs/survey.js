@@ -15,5 +15,8 @@ window.BSA.tabs['tab-survey'] = {
     ownerHint: 'app.js SURVEY TABLE & ALBUM + Excel 엔진',
     enter: function () {
         if (typeof window.renderSurveyTable === 'function') window.renderSurveyTable();
+        setTimeout(function () {
+            if (typeof window.renderSurveyTable === 'function') window.renderSurveyTable();
+        }, 120);
     }
 };
