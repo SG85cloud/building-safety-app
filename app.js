@@ -7149,13 +7149,18 @@ document.addEventListener('DOMContentLoaded', () => {
         lines.appendChild(typeLine);
 
         const measureText = formatDefectListMeasure(d);
+        const measureEl = document.createElement('span');
+        measureEl.className = 'defect-list-item-measure';
         if (measureText) {
-            const measureEl = document.createElement('span');
-            measureEl.className = 'defect-list-item-measure';
             measureEl.textContent = measureText;
-            measureEl.title = d.size ? `규모: ${d.size}` : '균열폭/이격';
-            lines.appendChild(measureEl);
+            measureEl.title = d.size ? `규모: ${d.size}` : '균열폭/이격폭';
+        } else {
+            const sizeFallback = String(d.size || '').trim();
+            measureEl.textContent = (sizeFallback && sizeFallback !== '-') ? sizeFallback : '—';
+            measureEl.classList.toggle('is-empty', measureEl.textContent === '—');
+            measureEl.title = sizeFallback ? `규모: ${sizeFallback}` : '균열폭/이격폭 없음';
         }
+        lines.appendChild(measureEl);
 
         row.appendChild(lines);
 
