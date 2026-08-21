@@ -1426,8 +1426,27 @@ body {
     #tab-map .defect-list-item {
         min-width: 0;
         width: 100%;
-        flex-shrink: 1;
-        padding: 0.4rem 0.45rem;
+        flex-shrink: 0;
+        align-items: flex-start;
+        height: auto;
+        overflow: visible;
+        padding: 0.35rem 0.4rem;
+    }
+
+    #tab-map .defect-list-item-lines {
+        gap: 0.1rem;
+        line-height: 1.25;
+    }
+
+    #tab-map .defect-list-item-component,
+    #tab-map .defect-list-item-type,
+    #tab-map .defect-list-item-measure {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        line-height: 1.25;
+        word-break: keep-all;
+        overflow-wrap: anywhere;
     }
 
     #tab-map .inspect-canvas-col {
@@ -1455,7 +1474,7 @@ body {
         position: absolute;
         left: 0.35rem;
         right: 0.35rem;
-        bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+        bottom: calc(2.8rem + env(safe-area-inset-bottom, 0px));
         z-index: 36;
         margin: 0 !important;
         max-height: min(38vh, 200px);
@@ -1463,77 +1482,77 @@ body {
 
     #tab-map #mapStyleSizeToolbar.is-mobile-sheet-open {
         display: flex !important;
+        position: absolute !important;
     }
 
     #tab-map #canvasContainer {
         flex: 1 1 auto !important;
-        height: auto !important;
+        height: 100% !important;
         min-height: 0 !important;
         max-height: none !important;
         margin: 0;
+        margin-bottom: 0;
     }
 
+    /* 가로모드에서도 하단 독은 도면 위 오버레이 (세로 공간 확보) */
     #tab-map .mobile-canvas-dock {
         display: block !important;
-        flex-shrink: 0;
-        margin-top: 0.3rem;
-        position: relative;
-        left: auto;
-        right: auto;
-        bottom: auto;
-        z-index: 30;
+        position: absolute !important;
+        left: 0.2rem;
+        right: 0.2rem;
+        bottom: max(0.1rem, env(safe-area-inset-bottom, 0px));
+        z-index: 40;
+        margin: 0;
         padding: 0;
-        padding-bottom: env(safe-area-inset-bottom, 0px);
+        pointer-events: none;
     }
 
-    #tab-map #mapStyleSizeToolbar {
-        position: absolute !important;
-        left: 0.35rem;
-        right: 0.35rem;
-        bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
-        z-index: 36;
+    #tab-map .mobile-canvas-dock .mobile-map-fab {
+        pointer-events: auto;
+        padding: 0.12rem 0.1rem;
+        gap: 0.06rem;
+        border-radius: 10px;
     }
 
-    #tab-map #mapStyleSizeToolbar.is-mobile-sheet-open {
-        position: absolute !important;
+    #tab-map .mobile-canvas-dock .mobile-fab-btn {
+        min-height: 1.9rem;
+        font-size: 0.42rem;
+        gap: 0.02rem;
     }
 
-    #tab-map #canvasContainer {
-        margin-bottom: 0;
+    #tab-map .mobile-canvas-dock .mobile-fab-btn i {
+        font-size: 0.72rem;
     }
 
     #tab-map .mobile-side-rail {
         display: flex !important;
-        right: 0.3rem;
-        padding: 0.28rem 0.22rem;
-        gap: 0.2rem;
+        right: 0.22rem;
+        top: 50%;
+        transform: translateY(-50%);
+        padding: 0.16rem 0.12rem;
+        gap: 0.1rem;
+        max-height: calc(100% - 0.5rem);
+        overflow-y: auto;
     }
 
     #tab-map .mobile-rail-btn {
-        width: 2.75rem;
-        min-height: 2.55rem;
-        font-size: 0.52rem;
+        width: 2.2rem;
+        min-height: 1.95rem;
+        font-size: 0.42rem;
+        gap: 0.04rem;
+        padding: 0.08rem 0.04rem;
+    }
+
+    #tab-map .mobile-rail-btn i {
+        font-size: 0.75rem;
     }
 
     #tab-map .mobile-map-fab {
         display: grid !important;
         grid-template-columns: repeat(6, 1fr);
-        gap: 0.18rem;
-        padding: 0.28rem 0.22rem;
-        border-radius: 12px;
-        background: #ffffff;
+        background: rgba(255, 255, 255, 0.94);
         border: 1px solid #d4d4d4;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
-    }
-
-    #tab-map .mobile-fab-btn {
-        min-height: 2.7rem;
-        font-size: 0.55rem;
-        gap: 0.08rem;
-    }
-
-    #tab-map .mobile-fab-btn i {
-        font-size: 0.9rem;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
     }
 
     /* NDT 가로: 도면 최대화 + 하단 독 */
@@ -4405,8 +4424,10 @@ body {
     #tab-map .defect-list-item {
         min-width: 0 !important;
         width: 100%;
-        flex-shrink: 1;
+        flex-shrink: 0 !important;
         align-items: flex-start;
+        height: auto;
+        overflow: visible;
         padding: 0.32rem 0.34rem;
         gap: 0.32rem;
     }
@@ -4555,6 +4576,134 @@ body {
 
     #tab-home .hero-badge {
         display: none;
+    }
+}
+
+/* 모바일 가로모드 추가 보정 — 짧은 세로 높이에서 목록 찌그러짐·크롬 여백 최소화 */
+@media (orientation: landscape) and (max-width: 1024px) {
+    .main-tabs {
+        padding: 0.06rem 0.22rem !important;
+    }
+
+    .tab-btn {
+        padding: 0.16rem 0.34rem !important;
+        font-size: 0.6rem !important;
+    }
+
+    .tab-btn i {
+        font-size: 0.64rem !important;
+    }
+
+    #floorSelect.styled-select {
+        padding: 0.14rem 0.28rem !important;
+        font-size: 0.64rem !important;
+        min-width: 4.2rem;
+    }
+
+    .app-content {
+        padding: 0.08rem !important;
+    }
+
+    #tab-map .inspect-layout {
+        gap: 0.16rem !important;
+        height: 100%;
+    }
+
+    #tab-map .inspect-sidebar-left {
+        width: clamp(140px, 28vw, 220px) !important;
+        max-width: 32vw !important;
+        flex: 0 0 clamp(140px, 28vw, 220px) !important;
+        padding: 0.22rem 0.28rem !important;
+    }
+
+    #tab-map .inspect-sidebar-title {
+        font-size: 0.62rem !important;
+        margin: 0 0 0.12rem !important;
+    }
+
+    #tab-map .defect-list-summary {
+        margin-bottom: 0.12rem !important;
+        gap: 0.12rem !important;
+    }
+
+    #tab-map .defect-summary-badge {
+        font-size: 0.55rem !important;
+        padding: 0.06rem 0.22rem !important;
+    }
+
+    #tab-map .defect-list-section-title {
+        font-size: 0.62rem;
+        padding: 0.1rem 0.05rem;
+    }
+
+    #tab-map .defect-list-item {
+        flex-shrink: 0 !important;
+        align-items: flex-start !important;
+        height: auto !important;
+        min-height: 0 !important;
+        overflow: visible !important;
+        padding: 0.28rem 0.3rem !important;
+    }
+
+    #tab-map .defect-list-item-lines {
+        gap: 0.1rem !important;
+        line-height: 1.28 !important;
+    }
+
+    #tab-map .defect-list-item-component {
+        font-size: 0.68rem !important;
+        line-height: 1.28 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+    }
+
+    #tab-map .defect-list-item-type {
+        font-size: 0.62rem !important;
+        line-height: 1.28 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+    }
+
+    #tab-map .defect-list-item-measure {
+        font-size: 0.6rem !important;
+        line-height: 1.28 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+    }
+
+    #tab-map .defect-list-item-actions {
+        display: none !important;
+    }
+
+    #tab-map #canvasContainer {
+        height: 100% !important;
+        min-height: 0 !important;
+        max-height: none !important;
+    }
+
+    #tab-map .mobile-canvas-dock {
+        position: absolute !important;
+        left: 0.16rem !important;
+        right: 0.16rem !important;
+        bottom: max(0.08rem, env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important;
+    }
+
+    #tab-map .mobile-side-rail {
+        right: 0.16rem !important;
+        padding: 0.12rem 0.08rem !important;
+        gap: 0.08rem !important;
+        max-height: calc(100% - 0.35rem) !important;
+    }
+
+    #tab-map .mobile-rail-btn {
+        width: 2.05rem !important;
+        min-height: 1.85rem !important;
+        font-size: 0.4rem !important;
+    }
+
+    #tab-map .mobile-rail-btn i {
+        font-size: 0.7rem !important;
     }
 }
 
