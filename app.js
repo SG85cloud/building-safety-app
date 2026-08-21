@@ -506,6 +506,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (typeof closeDefectComponentCascadeModal === 'function') {
                 closeDefectComponentCascadeModal();
             }
+            if (typeof window.closeAllMobileCanvasSheets === 'function') {
+                window.closeAllMobileCanvasSheets();
+            }
         } catch (_e) { /* ignore */ }
 
         window.state.currentTab = targetTabId;
@@ -2929,6 +2932,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnMark = document.getElementById('btnNdtModeMark');
         if (btnPan) btnPan.classList.toggle('active', mode === 'PAN');
         if (btnMark) btnMark.classList.toggle('active', mode === 'MARK');
+        document.querySelectorAll('#mobileNdtMarkSheet .mobile-fab-btn[data-ndt-mode]').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.ndtMode === mode);
+        });
         const canvas = document.getElementById('ndtCanvas');
         if (canvas) canvas.style.cursor = mode === 'MARK' ? 'crosshair' : 'default';
     };
@@ -6782,10 +6788,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function updateUndoRedoButtons() {
         const h = state.currentBuildingId ? defectHistory[getDefectHistoryKey()] : null;
+        const canUndo = !!(h && h.undo.length > 0);
+        const canRedo = !!(h && h.redo.length > 0);
         const btnUndoEl = document.getElementById('btnUndo');
         const btnRedoEl = document.getElementById('btnRedo');
-        if (btnUndoEl) btnUndoEl.disabled = !h || h.undo.length === 0;
-        if (btnRedoEl) btnRedoEl.disabled = !h || h.redo.length === 0;
+        const mobileUndo = document.getElementById('mobileBtnUndo');
+        if (btnUndoEl) btnUndoEl.disabled = !canUndo;
+        if (btnRedoEl) btnRedoEl.disabled = !canRedo;
+        if (mobileUndo) mobileUndo.disabled = !canUndo;
     }
 
     // 좌측 사이드바에 표시되는 "현재 층에 등록된 결함" 간단 목록 렌더링
@@ -10884,8 +10894,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pan) pan.classList.toggle('active', mode === 'PAN');
         if (mark) mark.classList.toggle('active', mode === 'MARK');
         if (area) area.classList.toggle('active', mode === 'AREA');
-        // 모바일 하단 FAB도 동일 상태 동기화
-        document.querySelectorAll('#mobileMapFabBar .mobile-fab-btn[data-mode]').forEach(btn => {
+        // 모바일 마킹 시트 버튼도 동일 상태 동기화
+        document.querySelectorAll('#mobileMapMarkSheet .mobile-fab-btn[data-mode]').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         if (elements.planCanvas) {
@@ -10967,7 +10977,77 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 모바일 전용 하단 모드/도구 버튼
+    // 모바일 하단 독: 마킹/크기 시트 토글 + 모드·줌·회전
+    function setMobileSheetOpen(sheetEl, toggleBtn, open) {
+        if (!sheetEl || !toggleBtn) return;
+        sheetEl.hidden = !open;
+        sheetEl.classList.toggle('is-open', open);
+        toggleBtn.classList.toggle('active', open);
+        toggleBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+
+    function closeMobileMapSheets(except) {
+        if (except !== 'mark') {
+            setMobileSheetOpen(
+                document.getElementById('mobileMapMarkSheet'),
+                document.getElementById('mobileBtnToggleMark'),
+                false
+            );
+        }
+        if (except !== 'size') {
+            document.getElementById('mapStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
+            const sizeToggle = document.getElementById('mobileBtnToggleSize');
+            if (sizeToggle) {
+                sizeToggle.classList.remove('active');
+                sizeToggle.setAttribute('aria-expanded', 'false');
+            }
+        }
+    }
+
+    function closeMobileNdtSheets(except) {
+        if (except !== 'mark') {
+            setMobileSheetOpen(
+                document.getElementById('mobileNdtMarkSheet'),
+                document.getElementById('mobileNdtBtnToggleMark'),
+                false
+            );
+        }
+        if (except !== 'size') {
+            document.getElementById('ndtStyleSizeToolbar')?.classList.remove('is-mobile-sheet-open');
+            const sizeToggle = document.getElementById('mobileNdtBtnToggleSize');
+            if (sizeToggle) {
+                sizeToggle.classList.remove('active');
+                sizeToggle.setAttribute('aria-expanded', 'false');
+            }
+        }
+    }
+
+    window.closeAllMobileCanvasSheets = function () {
+        closeMobileMapSheets();
+        closeMobileNdtSheets();
+    };
+
+    const mobileBtnToggleMark = document.getElementById('mobileBtnToggleMark');
+    const mobileBtnToggleSize = document.getElementById('mobileBtnToggleSize');
+    if (mobileBtnToggleMark) {
+        mobileBtnToggleMark.addEventListener('click', () => {
+            const sheet = document.getElementById('mobileMapMarkSheet');
+            const willOpen = !sheet || sheet.hidden;
+            closeMobileMapSheets('mark');
+            setMobileSheetOpen(sheet, mobileBtnToggleMark, willOpen);
+        });
+    }
+    if (mobileBtnToggleSize) {
+        mobileBtnToggleSize.addEventListener('click', () => {
+            const bar = document.getElementById('mapStyleSizeToolbar');
+            const willOpen = !bar || !bar.classList.contains('is-mobile-sheet-open');
+            closeMobileMapSheets('size');
+            if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
+            mobileBtnToggleSize.classList.toggle('active', willOpen);
+            mobileBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        });
+    }
+
     const mobileBtnModePan = document.getElementById('mobileBtnModePan');
     const mobileBtnModeMark = document.getElementById('mobileBtnModeMark');
     const mobileBtnModeArea = document.getElementById('mobileBtnModeArea');
@@ -10984,6 +11064,55 @@ document.addEventListener('DOMContentLoaded', () => {
     if (mobileBtnRotate) {
         mobileBtnRotate.addEventListener('click', () => {
             document.getElementById('btnRotateDrawing')?.click();
+        });
+    }
+    const mobileBtnUndo = document.getElementById('mobileBtnUndo');
+    if (mobileBtnUndo) {
+        mobileBtnUndo.addEventListener('click', () => undoDefectChange());
+    }
+
+    const mobileNdtBtnToggleMark = document.getElementById('mobileNdtBtnToggleMark');
+    const mobileNdtBtnToggleSize = document.getElementById('mobileNdtBtnToggleSize');
+    if (mobileNdtBtnToggleMark) {
+        mobileNdtBtnToggleMark.addEventListener('click', () => {
+            const sheet = document.getElementById('mobileNdtMarkSheet');
+            const willOpen = !sheet || sheet.hidden;
+            closeMobileNdtSheets('mark');
+            setMobileSheetOpen(sheet, mobileNdtBtnToggleMark, willOpen);
+        });
+    }
+    if (mobileNdtBtnToggleSize) {
+        mobileNdtBtnToggleSize.addEventListener('click', () => {
+            const bar = document.getElementById('ndtStyleSizeToolbar');
+            const willOpen = !bar || !bar.classList.contains('is-mobile-sheet-open');
+            closeMobileNdtSheets('size');
+            if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
+            mobileNdtBtnToggleSize.classList.toggle('active', willOpen);
+            mobileNdtBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+        });
+    }
+    const mobileNdtBtnModePan = document.getElementById('mobileNdtBtnModePan');
+    const mobileNdtBtnModeMark = document.getElementById('mobileNdtBtnModeMark');
+    if (mobileNdtBtnModePan) {
+        mobileNdtBtnModePan.addEventListener('click', () => {
+            if (typeof window.setNdtMode === 'function') window.setNdtMode('PAN');
+        });
+    }
+    if (mobileNdtBtnModeMark) {
+        mobileNdtBtnModeMark.addEventListener('click', () => {
+            if (typeof window.setNdtMode === 'function') window.setNdtMode('MARK');
+        });
+    }
+    const mobileNdtBtnZoomFit = document.getElementById('mobileNdtBtnZoomFit');
+    if (mobileNdtBtnZoomFit) {
+        mobileNdtBtnZoomFit.addEventListener('click', () => {
+            if (typeof window.fitNdtCanvas === 'function') window.fitNdtCanvas();
+        });
+    }
+    const mobileNdtBtnRotate = document.getElementById('mobileNdtBtnRotate');
+    if (mobileNdtBtnRotate) {
+        mobileNdtBtnRotate.addEventListener('click', () => {
+            if (typeof window.rotateNdtDrawing === 'function') window.rotateNdtDrawing();
         });
     }
 

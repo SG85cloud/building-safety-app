@@ -1978,25 +1978,96 @@ body {
         background: rgba(239, 68, 68, 0.1);
     }
 
-    /* 모바일: 상단 모드 버튼은 숨기고 하단 FAB 사용 */
-    .canvas-top-toolbar .toolbar-mode-group {
+    /* 모바일: 상단/크기 툴바는 숨기고 하단 독으로 토글 */
+    #tab-map .canvas-top-toolbar,
+    #tab-ndt .canvas-top-toolbar {
         display: none;
+    }
+
+    #tab-map .canvas-bottom-toolbar {
+        display: none;
+    }
+
+    #mapStyleSizeToolbar,
+    #ndtStyleSizeToolbar {
+        display: none !important;
+        position: fixed;
+        left: 0.55rem;
+        right: 0.55rem;
+        bottom: calc(4.85rem + env(safe-area-inset-bottom, 0px));
+        z-index: 36;
+        margin: 0 !important;
+        padding: 0.65rem 0.75rem !important;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.55rem !important;
+        max-height: min(42vh, 280px);
+        overflow-y: auto;
+        border-radius: 14px !important;
+        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+        background: #ffffff !important;
+    }
+
+    #mapStyleSizeToolbar.is-mobile-sheet-open,
+    #ndtStyleSizeToolbar.is-mobile-sheet-open {
+        display: flex !important;
+    }
+
+    #mapStyleSizeToolbar > label,
+    #ndtStyleSizeToolbar > label {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    #mapStyleSizeToolbar input[type="range"],
+    #ndtStyleSizeToolbar input[type="range"] {
+        flex: 1;
+        width: auto !important;
+        min-width: 0;
+    }
+
+    .mobile-canvas-dock {
+        display: block;
+        position: sticky;
+        bottom: 0;
+        z-index: 30;
+        margin-top: 0.45rem;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .mobile-dock-sheet {
+        display: none;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.35rem;
+        margin-bottom: 0.4rem;
+        padding: 0.4rem;
+        background: #ffffff;
+        border: 1px solid #d4d4d4;
+        border-radius: 14px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    }
+
+    .mobile-dock-sheet.is-open {
+        display: grid;
+    }
+
+    #mobileNdtMarkSheet.is-open {
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .mobile-map-fab {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
-        gap: 0.35rem;
-        position: sticky;
-        bottom: 0;
-        z-index: 30;
-        margin-top: 0.45rem;
-        padding: 0.45rem 0.4rem calc(0.45rem + env(safe-area-inset-bottom, 0px));
-        background: rgba(20, 20, 20, 0.94);
-        border: 1px solid var(--border-highlight);
-        border-radius: 14px;
-        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.28);
-        backdrop-filter: blur(10px);
+        gap: 0.3rem;
+        padding: 0.4rem 0.35rem;
+        background: #ffffff;
+        border: 1px solid #d4d4d4;
+        border-radius: 16px;
+        box-shadow: 0 8px 28px rgba(0, 0, 0, 0.14);
+    }
+
+    .mobile-ndt-fab {
+        grid-template-columns: repeat(4, 1fr);
     }
 
     .mobile-fab-btn {
@@ -2005,51 +2076,75 @@ body {
         align-items: center;
         justify-content: center;
         gap: 0.18rem;
-        min-height: 3.4rem;
-        border-radius: 10px;
-        border: 1.5px solid #737373;
-        background: #2a2a2a;
-        color: #e5e5e5;
-        font-size: 0.68rem;
+        min-height: 3.35rem;
+        border-radius: 12px;
+        border: none;
+        background: transparent;
+        color: #404040;
+        font-size: 0.66rem;
         font-weight: 800;
         cursor: pointer;
-        padding: 0.3rem 0.15rem;
+        padding: 0.28rem 0.1rem;
         -webkit-tap-highlight-color: transparent;
     }
 
     .mobile-fab-btn i {
-        font-size: 1.05rem;
+        font-size: 1.1rem;
+        color: #262626;
     }
 
-    .mobile-fab-btn.active {
-        border-color: #141414;
-        color: #ffffff;
-        background: #1f1f1f;
-        box-shadow: none;
+    .mobile-fab-btn.active,
+    .mobile-fab-btn.mobile-fab-toggle[aria-expanded="true"] {
+        background: #f4f4f4;
+        color: #171717;
     }
 
     .mobile-fab-btn.mobile-fab-mark.active {
-        border-color: #7f1d1d;
-        background: #b91c1c;
-        color: #ffffff;
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+
+    .mobile-fab-btn.mobile-fab-mark.active i {
+        color: #b91c1c;
     }
 
     .mobile-fab-btn.mobile-fab-area.active {
-        border-color: #7c2d12;
-        background: #c2410c;
-        color: #ffffff;
+        background: #ffedd5;
+        color: #c2410c;
     }
 
-    body.defect-modal-open .mobile-map-fab {
+    .mobile-fab-btn.mobile-fab-area.active i {
+        color: #c2410c;
+    }
+
+    .mobile-fab-btn:disabled {
+        opacity: 0.35;
+        pointer-events: none;
+    }
+
+    body.defect-modal-open .mobile-canvas-dock,
+    body.ndt-modal-open .mobile-canvas-dock {
         display: none;
     }
 
-    #canvasContainer {
-        min-height: 48vh;
+    body.defect-modal-open #mapStyleSizeToolbar.is-mobile-sheet-open,
+    body.ndt-modal-open #ndtStyleSizeToolbar.is-mobile-sheet-open {
+        display: none !important;
+    }
+
+    #tab-map #canvasContainer,
+    #tab-ndt #ndtCanvasContainer {
+        min-height: 52vh !important;
+        height: 52vh !important;
+        max-height: none !important;
     }
 }
 
 .defect-mobile-actions {
+    display: none;
+}
+
+.mobile-canvas-dock {
     display: none;
 }
 

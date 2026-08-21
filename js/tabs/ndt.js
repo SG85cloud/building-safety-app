@@ -11,6 +11,7 @@ window.BSA.tabs['tab-ndt'] = {
         '조사 항목별 핀·화살표·연결선 크기 설정',
         '부재 실측 · 콘크리트 강도 · 탄산화',
         '외벽 기울기 · 부동침하 · 부재변위',
+        '모바일 하단 독: 마킹·크기 토글 시트',
         '측정 결과표 · NDT 엑셀 · 벡터 PDF'
     ],
     ownerHint: 'app.js NDT FIELD SURVEY ENGINE',
