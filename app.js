@@ -7037,7 +7037,10 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (defects.length === 0 && unregisteredItems.length === 0) {
+        // 전차(전회차) 미등록 마킹은 PC에서만 — 모바일은 현장 금회차 점검에 집중
+        const showPrevRoundRegister = !(window.matchMedia && window.matchMedia('(max-width: 1024px)').matches);
+
+        if (defects.length === 0 && (!showPrevRoundRegister || unregisteredItems.length === 0)) {
             if (allFloorDefects.length > 0) {
                 panel.innerHTML = '<div class="defect-list-empty">표시 중인 분류가 없습니다.<br>위 기둥·벽체 / 보·슬래브 / 비구조체 / 마감재 버튼을 켜 주세요.</div>';
             } else {
@@ -7050,8 +7053,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const previousItems = defects.filter(d => isPreviousRoundDefect(d) && !isDefectMapUnregistered(d));
         const currentItems = defects.filter(d => !isPreviousRoundDefect(d));
 
-        const unregSection = renderDefectListSection('🟣 전차 미등록', unregisteredItems, { unregistered: true });
-        if (unregSection) panel.appendChild(unregSection);
+        if (showPrevRoundRegister) {
+            const unregSection = renderDefectListSection('🟣 전차 미등록', unregisteredItems, { unregistered: true });
+            if (unregSection) panel.appendChild(unregSection);
+        }
         const prevSection = renderDefectListSection('🕐 전회차 조사항목', previousItems);
         if (prevSection) panel.appendChild(prevSection);
         const curSection = renderDefectListSection('🆕 금회차 조사항목', currentItems);
