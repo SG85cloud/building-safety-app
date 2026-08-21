@@ -2268,21 +2268,41 @@ body {
     #defectModal .defect-drawer-card {
         width: 100vw;
         max-width: 100vw;
-        height: min(78vh, 100%);
-        max-height: 78vh;
+        height: auto;
+        max-height: min(46vh, 360px);
         margin: 0;
-        border-radius: 16px 16px 0 0;
+        border-radius: 14px 14px 0 0;
         transform: translateY(110%);
+    }
+
+    #defectModal.defect-drawer-in-canvas {
+        display: flex !important;
+        flex-direction: column;
+        justify-content: flex-end;
+        align-items: stretch;
+        padding: 6px !important;
+        box-sizing: border-box;
     }
 
     #defectModal.defect-drawer-in-canvas .defect-drawer-card {
         width: 100%;
         max-width: 100%;
-        height: 100%;
-        max-height: 100%;
+        height: auto;
+        max-height: min(46%, 260px);
         margin: 0;
-        border-radius: 14px;
+        border-radius: 12px;
         transform: translateY(110%);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    #defectModal .defect-drawer-body {
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 0.55rem 0.7rem !important;
     }
 
     #defectModal.open .defect-drawer-card {

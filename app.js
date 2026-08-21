@@ -2935,7 +2935,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fy = canvas.height / 2;
         }
         if (fx != null && fy != null) {
-            applyFocalZoom(ndtView, fx, fy, factor, 0.3, 4.0);
+            applyFocalZoom(ndtView, fx, fy, factor, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         } else {
             ndtView.scale = Math.min(Math.max(0.3, ndtView.scale * factor), 4.0);
         }
@@ -9752,13 +9752,16 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // 도면 빈곳 좌클릭 → 결함 핀 수정창 닫기
-        if (!isTouch && isDefectModalOpen()) {
+        // 도면 빈곳 터치/클릭 → 입력창 닫기 + (선택 모드면) 선택 해제
+        if (isDefectModalOpen()) {
             closeDefectModal();
-            if (state.mode === 'PAN' && !additive) {
-                selectedDefectIds.clear();
-                updateMapSelectionBar();
-                drawCanvas();
+        }
+        if (state.mode === 'PAN' && !additive && selectedDefectIds.size > 0) {
+            selectedDefectIds.clear();
+            updateMapSelectionBar();
+            drawCanvas();
+            if (!isTouch) {
+                // 마우스: 빈곳 클릭은 선택 해제만 (마퀴는 드래그로)
                 return;
             }
         }
@@ -10250,7 +10253,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
             const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-            applyFocalZoom(state.view, mouseX, mouseY, zoomFactor, 0.3, 4.0);
+            applyFocalZoom(state.view, mouseX, mouseY, zoomFactor, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
             if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
             drawCanvas();
         }, { passive: false });
@@ -10300,6 +10303,23 @@ document.addEventListener('DOMContentLoaded', () => {
         drawCanvas();
     }
     window.closeDefectModal = closeDefectModal;
+
+    // 도면 밖(목록·헤더 등) 터치/클릭 시에도 결함 입력창 닫기
+    function shouldKeepDefectModalForTarget(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        if (target.closest('#defectModal .defect-drawer-card')) return true;
+        if (target.closest('#defectComponentCascadeModal')) return true;
+        if (target.closest('.defect-list-item')) return true; // 목록에서 다른 결함 열기
+        if (target.closest('#planCanvas')) return true; // 캔버스는 handleDragStart가 처리
+        if (target.closest('#canvasContainer')) return true;
+        return false;
+    }
+
+    document.addEventListener('pointerdown', (e) => {
+        if (!isDefectModalOpen()) return;
+        if (shouldKeepDefectModalForTarget(e.target)) return;
+        closeDefectModal();
+    }, true);
 
     function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
         window._defectFormHydrating = true;
@@ -11432,7 +11452,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = elements.planCanvas || state.canvas;
         const cx = canvas ? canvas.width / 2 : 0;
         const cy = canvas ? canvas.height / 2 : 0;
-        applyFocalZoom(state.view, cx, cy, 1.2, 0.3, 4.0);
+        applyFocalZoom(state.view, cx, cy, 1.2, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
     });
@@ -11442,7 +11462,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = elements.planCanvas || state.canvas;
         const cx = canvas ? canvas.width / 2 : 0;
         const cy = canvas ? canvas.height / 2 : 0;
-        applyFocalZoom(state.view, cx, cy, 1 / 1.2, 0.3, 4.0);
+        applyFocalZoom(state.view, cx, cy, 1 / 1.2, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
     });
