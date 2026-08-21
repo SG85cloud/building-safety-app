@@ -559,9 +559,10 @@ body {
 
 @media (max-width: 768px) {
     .canvas-container, #canvasContainer {
-        min-height: 340px !important;
-        height: 45vh !important;
-        max-height: 380px !important;
+        /* 높이 상한 제거 — 현장 레이아웃에서 flex로 채움 (구 45vh/380px는 도면이 너무 납작해짐) */
+        min-height: 0;
+        height: auto;
+        max-height: none;
     }
 }
 
@@ -2695,10 +2696,10 @@ body {
 
     #tab-map #canvasContainer,
     #tab-ndt #ndtCanvasContainer {
-        min-height: 54vh !important;
-        height: 54vh !important;
+        min-height: 0 !important;
+        height: auto !important;
         max-height: none !important;
-        margin-bottom: 3.5rem;
+        margin-bottom: 0;
     }
 }
 
@@ -4320,7 +4321,7 @@ body {
     .app-content {
         flex: 1 1 auto;
         min-height: 0;
-        padding: 0.28rem;
+        padding: 0.12rem;
         overflow: hidden;
         display: flex;
         flex-direction: column;
@@ -4341,7 +4342,8 @@ body {
         align-items: stretch !important;
         flex: 1 1 auto;
         min-height: 0;
-        gap: 0.35rem;
+        height: 100%;
+        gap: 0.22rem;
         overflow: hidden;
     }
 
@@ -4473,6 +4475,7 @@ body {
         width: auto !important;
         min-width: 0;
         min-height: 0;
+        height: 100%;
         position: relative;
         display: flex;
         flex-direction: column;
@@ -4488,35 +4491,56 @@ body {
         display: none !important;
     }
 
+    /* 도면이 우측 열 세로를 거의 전부 사용 (하단 독은 오버레이) */
     #tab-map #canvasContainer {
         flex: 1 1 auto !important;
-        height: auto !important;
+        height: 100% !important;
         min-height: 0 !important;
         max-height: none !important;
         margin: 0 !important;
         margin-bottom: 0 !important;
+        border-radius: 10px;
     }
 
-    /* 하단 독은 도면 열 안에 붙여서 전체 화면 fixed 대신 레이아웃에 맞춤 */
+    /* 하단 독: 레이아웃 높이 안 먹고 도면 위에 올림 */
     #tab-map .mobile-canvas-dock {
         display: block !important;
-        position: relative !important;
-        left: auto !important;
-        right: auto !important;
-        bottom: auto !important;
+        position: absolute !important;
+        left: 0.2rem !important;
+        right: 0.2rem !important;
+        bottom: max(0.12rem, env(safe-area-inset-bottom, 0px)) !important;
+        z-index: 40;
         flex-shrink: 0;
-        margin-top: 0.25rem;
-        z-index: 30;
+        margin: 0 !important;
         padding: 0;
-        padding-bottom: env(safe-area-inset-bottom, 0px);
+        pointer-events: none;
+    }
+
+    #tab-map .mobile-canvas-dock .mobile-map-fab {
+        pointer-events: auto;
+        padding: 0.14rem 0.12rem !important;
+        gap: 0.08rem !important;
+        border-radius: 10px !important;
+        background: rgba(255, 255, 255, 0.94) !important;
+    }
+
+    #tab-map .mobile-canvas-dock .mobile-fab-btn {
+        min-height: 2.05rem !important;
+        font-size: 0.45rem !important;
+        padding: 0.08rem 0.02rem !important;
+        gap: 0.04rem !important;
+    }
+
+    #tab-map .mobile-canvas-dock .mobile-fab-btn i {
+        font-size: 0.78rem !important;
     }
 
     #tab-map #mapStyleSizeToolbar {
         position: absolute !important;
         left: 0.3rem;
         right: 0.3rem;
-        bottom: calc(3.6rem + env(safe-area-inset-bottom, 0px));
-        z-index: 36;
+        bottom: calc(2.7rem + env(safe-area-inset-bottom, 0px));
+        z-index: 41;
         margin: 0 !important;
     }
 
