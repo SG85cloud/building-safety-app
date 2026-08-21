@@ -1509,18 +1509,18 @@ document.addEventListener('DOMContentLoaded', () => {
         let w = container ? (container.clientWidth || container.offsetWidth) : 0;
         let h = container ? (container.clientHeight || container.offsetHeight) : 0;
 
-        const isMobile = window.innerWidth <= 768;
-        if (w <= 50) w = window.innerWidth - (isMobile ? 24 : 40);
+        // 컨테이너 실측이 아직 없으면 뷰포트로 추정 — 예전 모바일 380px 상한은 도면이 회색 여백에 잘리게 만듦
+        if (w <= 50) w = Math.max(200, window.innerWidth - 24);
         if (h <= 50) {
-            h = Math.max(isMobile ? 340 : 400, window.innerHeight - (isMobile ? 260 : 220));
+            h = Math.max(280, Math.floor(window.innerHeight * 0.62));
         }
 
-        if (isMobile && h > 380) {
-            h = 380;
+        const nextW = Math.max(1, Math.floor(w));
+        const nextH = Math.max(1, Math.floor(h));
+        if (canvas.width !== nextW || canvas.height !== nextH) {
+            canvas.width = nextW;
+            canvas.height = nextH;
         }
-
-        canvas.width = w;
-        canvas.height = h;
         drawCanvas();
     }
 
@@ -17190,6 +17190,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     init();
+    // 도면창이 레이아웃으로 커진 뒤에도 캔버스 해상도를 컨테이너에 맞춤
+    if (typeof ResizeObserver !== 'undefined') {
+        const mapBox = document.getElementById('canvasContainer');
+        if (mapBox) {
+            const ro = new ResizeObserver(() => {
+                if (window.state && window.state.currentTab === 'tab-map') resizeCanvas();
+            });
+            ro.observe(mapBox);
+        }
+        const ndtBox = document.getElementById('ndtCanvasContainer');
+        if (ndtBox) {
+            const ndtRo = new ResizeObserver(() => {
+                if (window.state && window.state.currentTab === 'tab-ndt' && typeof resizeNdtCanvas === 'function') {
+                    resizeNdtCanvas();
+                }
+            });
+            ndtRo.observe(ndtBox);
+        }
+    }
+
     window.addEventListener('resize', () => {
         resizeCanvas();
         if (typeof resizeNdtCanvas === 'function') resizeNdtCanvas();

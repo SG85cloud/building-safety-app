@@ -27,5 +27,11 @@ window.BSA.tabs['tab-map'] = {
             if (typeof window.fitToScreen === 'function') window.fitToScreen();
             if (typeof window.drawCanvas === 'function') window.drawCanvas();
         }, 50);
+        // 세로/가로 전환·플렉스 높이 확정 후 한 번 더 맞춤 (380px 잘림·회색 여백 방지)
+        setTimeout(function () {
+            if (typeof window.resizeCanvas === 'function') window.resizeCanvas();
+            if (typeof window.fitToScreen === 'function') window.fitToScreen();
+            if (typeof window.drawCanvas === 'function') window.drawCanvas();
+        }, 220);
     }
 };
