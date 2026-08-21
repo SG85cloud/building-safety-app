@@ -2937,7 +2937,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (fx != null && fy != null) {
             applyFocalZoom(ndtView, fx, fy, factor, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         } else {
-            ndtView.scale = Math.min(Math.max(0.3, ndtView.scale * factor), 4.0);
+            ndtView.scale = Math.min(Math.max(VIEW_MIN_SCALE, ndtView.scale * factor), VIEW_MAX_SCALE);
         }
         const zoomTxt = document.getElementById('ndtZoomScaleText');
         if (zoomTxt) zoomTxt.textContent = `${Math.round(ndtView.scale * 100)}%`;
