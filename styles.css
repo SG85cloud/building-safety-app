@@ -1458,9 +1458,28 @@ body {
         flex-shrink: 0;
         margin-top: 0.3rem;
         position: relative;
+        left: auto;
+        right: auto;
         bottom: auto;
         z-index: 30;
+        padding: 0;
         padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    #tab-map #mapStyleSizeToolbar {
+        position: absolute !important;
+        left: 0.35rem;
+        right: 0.35rem;
+        bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+        z-index: 36;
+    }
+
+    #tab-map #mapStyleSizeToolbar.is-mobile-sheet-open {
+        position: absolute !important;
+    }
+
+    #tab-map #canvasContainer {
+        margin-bottom: 0;
     }
 
     #tab-map .mobile-side-rail {
@@ -1545,6 +1564,25 @@ body {
         display: block;
         flex-shrink: 0;
         margin-top: 0.3rem;
+        position: relative;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        z-index: 30;
+        padding: 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    #tab-ndt #ndtStyleSizeToolbar {
+        position: absolute !important;
+        left: 0.35rem;
+        right: 0.35rem;
+        bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
+        z-index: 36;
+    }
+
+    #tab-ndt #ndtCanvasContainer {
+        margin-bottom: 0;
     }
 
     #tab-ndt .mobile-side-rail {
@@ -2305,7 +2343,7 @@ body {
         background: rgba(239, 68, 68, 0.1);
     }
 
-    /* 모바일: 상단/크기 툴바는 숨기고 하단 독으로 토글 */
+    /* 모바일: PC 툴바 숨김 · 하단 독/크기 시트는 화면 하단에 고정 */
     #tab-map .canvas-top-toolbar,
     #tab-ndt .canvas-top-toolbar {
         display: none;
@@ -2318,25 +2356,22 @@ body {
     #mapStyleSizeToolbar,
     #ndtStyleSizeToolbar {
         display: none !important;
-        position: absolute;
-        left: 0.45rem;
-        right: 0.45rem;
-        bottom: calc(4.85rem + env(safe-area-inset-bottom, 0px));
-        z-index: 36;
+        position: fixed !important;
+        left: 0.5rem;
+        right: 0.5rem;
+        bottom: calc(5.1rem + env(safe-area-inset-bottom, 0px));
+        z-index: 60;
         margin: 0 !important;
-        padding: 0.65rem 0.75rem !important;
+        padding: 0.7rem 0.8rem !important;
         flex-direction: column;
         align-items: stretch;
         gap: 0.55rem !important;
-        max-height: min(42vh, 280px);
+        max-height: min(46vh, 300px);
         overflow-y: auto;
         border-radius: 14px !important;
-        box-shadow: 0 10px 32px rgba(0, 0, 0, 0.18);
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.22);
         background: #ffffff !important;
-    }
-
-    #ndtStyleSizeToolbar {
-        position: fixed;
+        border: 1px solid #d4d4d4 !important;
     }
 
     #mapStyleSizeToolbar.is-mobile-sheet-open,
@@ -2359,11 +2394,13 @@ body {
 
     .mobile-canvas-dock {
         display: block;
-        position: sticky;
-        bottom: 0;
-        z-index: 30;
-        margin-top: 0.45rem;
-        padding-bottom: env(safe-area-inset-bottom, 0px);
+        position: fixed;
+        left: 0.4rem;
+        right: 0.4rem;
+        bottom: max(0.2rem, env(safe-area-inset-bottom, 0px));
+        z-index: 50;
+        margin: 0;
+        padding: 0;
     }
 
     .mobile-dock-sheet {
@@ -2513,9 +2550,10 @@ body {
 
     #tab-map #canvasContainer,
     #tab-ndt #ndtCanvasContainer {
-        min-height: 52vh !important;
-        height: 52vh !important;
+        min-height: 48vh !important;
+        height: 48vh !important;
         max-height: none !important;
+        margin-bottom: 4.6rem;
     }
 }
 

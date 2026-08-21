@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    스마트 건축물 안전점검 현장점검 시스템 — UI 부트스트랩
    전역 상태·IndexedDB·이미지 헬퍼: js/core/state.js
    탭 진입점: js/tabs/*.js
@@ -1552,7 +1552,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 마우스(또는 터치) 위치를 기준으로 확대/축소 — 좌상단 고정 줌 방지
-    function applyFocalZoom(view, focalX, focalY, zoomFactor, minScale = 0.3, maxScale = 4.0) {
+    const VIEW_MIN_SCALE = 0.1; // 10%까지 축소 가능 (기존 30%는 큰 도면에서 부족)
+    const VIEW_MAX_SCALE = 4.0;
+    function applyFocalZoom(view, focalX, focalY, zoomFactor, minScale = VIEW_MIN_SCALE, maxScale = VIEW_MAX_SCALE) {
         const oldScale = view.scale;
         const newScale = Math.min(Math.max(minScale, oldScale * zoomFactor), maxScale);
         if (Math.abs(newScale - oldScale) < 1e-6) return newScale;
@@ -11216,6 +11218,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
             mobileBtnToggleSize.classList.toggle('active', willOpen);
             mobileBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) {
+                // 모바일에서 열면 바로 조절 가능하도록 잠금 해제
+                window.state.styleSizeBarLockedMap = false;
+                if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
+            }
         });
     }
 
@@ -11285,6 +11292,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bar) bar.classList.toggle('is-mobile-sheet-open', willOpen);
             mobileNdtBtnToggleSize.classList.toggle('active', willOpen);
             mobileNdtBtnToggleSize.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+            if (willOpen) {
+                window.state.styleSizeBarLockedNdt = false;
+                if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
+            }
         });
     }
     const mobileNdtBtnQuickDrag = document.getElementById('mobileNdtBtnQuickDrag');
