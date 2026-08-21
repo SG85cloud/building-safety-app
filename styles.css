@@ -529,13 +529,17 @@ body {
     height: 148px;
     border-radius: 50%;
     pointer-events: none;
-    z-index: 40;
+    z-index: 80;
     display: none;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28), 0 0 0 2px rgba(255, 255, 255, 0.95);
     background: #fff;
 }
 .touch-loupe.is-visible {
     display: block;
+}
+.touch-loupe.is-fixed {
+    position: fixed;
+    z-index: 10050;
 }
 
 @media (max-width: 768px) {

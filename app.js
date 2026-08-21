@@ -9571,8 +9571,8 @@ document.addEventListener('DOMContentLoaded', () => {
         pendingDragArmed = false;
     }
 
-    function ensureTouchLoupe(container, loupeId) {
-        if (!container) return null;
+    function ensureTouchLoupe(host, loupeId) {
+        if (!host) return null;
         let el = document.getElementById(loupeId);
         if (!el) {
             el = document.createElement('canvas');
@@ -9581,7 +9581,9 @@ document.addEventListener('DOMContentLoaded', () => {
             el.width = TOUCH_LOUPE_SIZE;
             el.height = TOUCH_LOUPE_SIZE;
             el.setAttribute('aria-hidden', 'true');
-            container.appendChild(el);
+            host.appendChild(el);
+        } else if (el.parentElement !== host) {
+            host.appendChild(el);
         }
         return el;
     }
@@ -9589,14 +9591,12 @@ document.addEventListener('DOMContentLoaded', () => {
     function hideTouchLoupe(loupeId) {
         const el = document.getElementById(loupeId);
         if (!el) return;
-        el.classList.remove('is-visible');
+        el.classList.remove('is-visible', 'is-fixed');
         el.hidden = true;
     }
 
     function updateTouchLoupe(sourceCanvas, container, clientX, clientY, loupeId) {
         if (!sourceCanvas || !container) return;
-        const loupe = ensureTouchLoupe(container, loupeId);
-        if (!loupe) return;
         const canvasRect = sourceCanvas.getBoundingClientRect();
         const containerRect = container.getBoundingClientRect();
         const localX = clientX - canvasRect.left;
@@ -9607,6 +9607,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const srcH = (TOUCH_LOUPE_SIZE / TOUCH_LOUPE_ZOOM) * scaleY;
         const srcX = localX * scaleX - srcW / 2;
         const srcY = localY * scaleY - srcH / 2;
+
+        const gap = 28;
+        // 항상 손가락 위쪽 (아래로 뒤집지 않음)
+        const desiredTopVp = clientY - TOUCH_LOUPE_SIZE - gap;
+        // 도면 컨테이너 안에서 위쪽에 온전히 들어갈 수 있는지
+        const fitsAboveInContainer = desiredTopVp >= containerRect.top + 4;
+        const useFixed = !fitsAboveInContainer;
+
+        const host = useFixed ? document.body : container;
+        const loupe = ensureTouchLoupe(host, loupeId);
+        if (!loupe) return;
+
         const lctx = loupe.getContext('2d');
         lctx.save();
         lctx.clearRect(0, 0, TOUCH_LOUPE_SIZE, TOUCH_LOUPE_SIZE);
@@ -9637,14 +9649,25 @@ document.addEventListener('DOMContentLoaded', () => {
         lctx.lineWidth = 1.5;
         lctx.stroke();
 
-        const gap = 30;
-        let left = clientX - containerRect.left - TOUCH_LOUPE_SIZE / 2;
-        let top = clientY - containerRect.top - TOUCH_LOUPE_SIZE - gap;
-        if (top < 6) top = clientY - containerRect.top + gap;
-        left = Math.max(6, Math.min(left, containerRect.width - TOUCH_LOUPE_SIZE - 6));
-        top = Math.max(6, Math.min(top, containerRect.height - TOUCH_LOUPE_SIZE - 6));
-        loupe.style.left = Math.round(left) + "px";
-        loupe.style.top = Math.round(top) + "px";
+        let left;
+        let top;
+        if (useFixed) {
+            // 화면 전체 기준 — 손가락 위쪽 유지 (잘리면 화면 상단에 붙임)
+            left = clientX - TOUCH_LOUPE_SIZE / 2;
+            top = desiredTopVp;
+            left = Math.max(6, Math.min(left, window.innerWidth - TOUCH_LOUPE_SIZE - 6));
+            top = Math.max(6, Math.min(top, window.innerHeight - TOUCH_LOUPE_SIZE - 6));
+            loupe.classList.add('is-fixed');
+        } else {
+            left = clientX - containerRect.left - TOUCH_LOUPE_SIZE / 2;
+            top = clientY - containerRect.top - TOUCH_LOUPE_SIZE - gap;
+            left = Math.max(4, Math.min(left, containerRect.width - TOUCH_LOUPE_SIZE - 4));
+            // 위쪽만 — 아래로 내리지 않음
+            top = Math.max(4, top);
+            loupe.classList.remove('is-fixed');
+        }
+        loupe.style.left = Math.round(left) + 'px';
+        loupe.style.top = Math.round(top) + 'px';
         loupe.hidden = false;
         loupe.classList.add('is-visible');
     }
