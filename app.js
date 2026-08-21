@@ -1851,6 +1851,29 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.restore();
         }
 
+        // 모바일 터치 조준점 (손가락 위쪽) — 마킹/핀 이동 중
+        if (touchAimVisible || pendingDragArmed || (isDraggingPin && activePointerIsTouch) || (isMarkingDrag && activePointerIsTouch)) {
+            const ax = touchAimImgX;
+            const ay = touchAimImgY;
+            const s = Math.max(state.view.scale || 1, 0.01);
+            const r = 7 / s;
+            ctx.save();
+            ctx.strokeStyle = pendingDragArmed && !isDraggingPin ? '#16a34a' : '#2563eb';
+            ctx.fillStyle = pendingDragArmed && !isDraggingPin ? 'rgba(22,163,74,0.2)' : 'rgba(37,99,235,0.18)';
+            ctx.lineWidth = 2 / s;
+            ctx.beginPath();
+            ctx.arc(ax, ay, r, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(ax - r * 1.6, ay);
+            ctx.lineTo(ax + r * 1.6, ay);
+            ctx.moveTo(ax, ay - r * 1.6);
+            ctx.lineTo(ax, ay + r * 1.6);
+            ctx.stroke();
+            ctx.restore();
+        }
+
         ctx.restore(); // Restore drawing rotation matrix
 
         ctx.restore(); // Restore view offset & scale
@@ -1907,6 +1930,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let ndtDispDragOffsetX = 0;
     let ndtDispDragOffsetY = 0;
     let pendingNdtPinHit = null; // 클릭=수정창 / 드래그=이동 구분
+    let pendingNdtPinArmed = false;
+    let pendingNdtPinIsTouch = false;
+    let pendingNdtLongPressTimer = null;
+    let ndtActivePointerIsTouch = false;
+    const NDT_TOUCH_LONG_PRESS_MS = 500;
+    const NDT_TOUCH_AIM_OFFSET_CSS_PX = 56;
     let isDraggingNdtPinGroup = false;
     let ndtGroupDragLastX = 0;
     let ndtGroupDragLastY = 0;
@@ -1919,8 +1948,28 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedNdtIds = new Set(); // pin id 또는 disp_<groupId>
     window.getSelectedNdtIds = () => selectedNdtIds;
 
-    function ndtDispSelKey(groupId) {
-        return `disp_${groupId}`;
+    function clearPendingNdtLongPress() {
+        if (pendingNdtLongPressTimer) {
+            clearTimeout(pendingNdtLongPressTimer);
+            pendingNdtLongPressTimer = null;
+        }
+        pendingNdtPinArmed = false;
+    }
+
+    function ndtApplyTouchAim(clientX, clientY, isTouch) {
+        if (!isTouch) return { clientX, clientY };
+        return { clientX, clientY: clientY - NDT_TOUCH_AIM_OFFSET_CSS_PX };
+    }
+
+    function ndtClientToImg(clientX, clientY) {
+        const canvas = document.getElementById('ndtCanvas');
+        if (!canvas) return { x: 0, y: 0 };
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = clientX - rect.left;
+        const mouseY = clientY - rect.top;
+        const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
+        const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
+        return viewToNdtImgCoords(rawVx, rawVy);
     }
 
     function updateNdtSelectionBar() {
@@ -3730,6 +3779,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     grabY: vy,
                     additive
                 };
+                pendingNdtPinIsTouch = false;
+                pendingNdtPinArmed = true;
+                ndtActivePointerIsTouch = false;
+                clearPendingNdtLongPress();
                 return;
             }
 
@@ -3802,7 +3855,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (pendingNdtPinHit && !isDraggingNdtPin && !isDraggingNdtPinGroup) {
                 const dx = e.clientX - ndtStartMouseX;
                 const dy = e.clientY - ndtStartMouseY;
-                if (Math.hypot(dx, dy) > 6) {
+                if (Math.hypot(dx, dy) > 6 && (pendingNdtPinArmed || !pendingNdtPinIsTouch)) {
                     const item = pendingNdtPinHit.item;
                     const grabX = pendingNdtPinHit.grabX;
                     const grabY = pendingNdtPinHit.grabY;
@@ -3810,6 +3863,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         && selectedNdtIds.size > 1
                         && selectedNdtIds.has(item.id)
                         && pendingNdtPinHit.part === 'box';
+                    clearPendingNdtLongPress();
                     if (multiGroup) {
                         isDraggingNdtPinGroup = true;
                         ndtGroupDragLastX = grabX;
@@ -4081,13 +4135,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isNdtPinching) {
-                const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
-                const mouseX = touch.clientX - rect.left;
-                const mouseY = touch.clientY - rect.top;
-                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
-                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
-                const pt = viewToNdtImgCoords(rawVx, rawVy);
+                const pt = ndtClientToImg(touch.clientX, touch.clientY);
                 const vx = pt.x;
                 const vy = pt.y;
 
@@ -4095,15 +4144,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtStartMouseY = touch.clientY;
                 ndtInitialOffsetX = ndtView.offsetX;
                 ndtInitialOffsetY = ndtView.offsetY;
+                ndtActivePointerIsTouch = true;
+                clearPendingNdtLongPress();
 
                 const hitPin = findNdtPinAt(vx, vy);
                 if (hitPin) {
+                    const id = hitPin.item && hitPin.item.id;
+                    if (id) {
+                        if (!selectedNdtIds.has(id) || selectedNdtIds.size <= 1) {
+                            selectedNdtIds = new Set([id]);
+                        }
+                        updateNdtSelectionBar();
+                        drawNdtCanvas();
+                    }
                     pendingNdtPinHit = {
                         item: hitPin.item,
                         part: hitPin.part,
                         grabX: vx,
                         grabY: vy
                     };
+                    pendingNdtPinIsTouch = true;
+                    pendingNdtPinArmed = false;
+                    pendingNdtLongPressTimer = setTimeout(() => {
+                        if (!pendingNdtPinHit || !pendingNdtPinIsTouch) return;
+                        pendingNdtPinArmed = true;
+                        try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
+                        drawNdtCanvas();
+                    }, NDT_TOUCH_LONG_PRESS_MS);
                     return;
                 }
 
@@ -4115,15 +4182,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (ndtMode === 'MARK') {
                         isNdtDisplacementMarking = true;
-                        window._ndtDispMarkCoords = { x: vx, y: vy };
+                        const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
+                        const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
+                        window._ndtDispMarkCoords = { x: aimPt.x, y: aimPt.y };
                         return;
                     }
                 }
 
                 if (ndtMode === 'MARK') {
                     isNdtMarkingDrag = true;
-                    window._ndtMarkStartCoords = { x: vx, y: vy };
-                    window._ndtMarkCurrentCoords = { x: vx, y: vy };
+                    const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
+                    const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
+                    window._ndtMarkStartCoords = { x: aimPt.x, y: aimPt.y };
+                    window._ndtMarkCurrentCoords = { x: aimPt.x, y: aimPt.y };
                 } else {
                     isNdtDragging = true;
                 }
@@ -4172,13 +4243,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (pendingNdtPinHit && !isDraggingNdtPin) {
                     const dx = touch.clientX - ndtStartMouseX;
                     const dy = touch.clientY - ndtStartMouseY;
-                    if (Math.hypot(dx, dy) > 6) {
+                    const dist = Math.hypot(dx, dy);
+                    if (!pendingNdtPinArmed) {
+                        if (dist > 14) {
+                            clearPendingNdtLongPress();
+                            pendingNdtPinHit = null;
+                            isNdtDragging = true;
+                        }
+                        return;
+                    }
+                    if (dist > 14) {
+                        const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
+                        const aimPt = ndtClientToImg(aim.clientX, aim.clientY);
                         isDraggingNdtPin = true;
                         activeDragNdtPin = pendingNdtPinHit.item;
                         dragNdtPart = pendingNdtPinHit.part;
                         const item = pendingNdtPinHit.item;
-                        const grabX = pendingNdtPinHit.grabX;
-                        const grabY = pendingNdtPinHit.grabY;
+                        const grabX = aimPt.x;
+                        const grabY = aimPt.y;
                         if (dragNdtPart === 'target') {
                             ndtPinDragOffsetX = grabX - (item.targetX !== undefined ? item.targetX : (item.x || 0));
                             ndtPinDragOffsetY = grabY - (item.targetY !== undefined ? item.targetY : (item.y || 0));
@@ -4189,18 +4271,15 @@ document.addEventListener('DOMContentLoaded', () => {
                             ndtPinDragOffsetX = grabX - (item.x || 0);
                             ndtPinDragOffsetY = grabY - (item.y || 0);
                         }
+                        clearPendingNdtLongPress();
                         pendingNdtPinHit = null;
                     } else {
                         return;
                     }
                 }
 
-                const rect = canvas.getBoundingClientRect();
-                const mouseX = touch.clientX - rect.left;
-                const mouseY = touch.clientY - rect.top;
-                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
-                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
-                const pt = viewToNdtImgCoords(rawVx, rawVy);
+                const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
+                const pt = ndtClientToImg(aim.clientX, aim.clientY);
                 const vx = pt.x;
                 const vy = pt.y;
 
@@ -4271,15 +4350,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 drawNdtCanvas();
             } else if (!isNdtPinching && isNdtMarkingDrag && e.touches.length === 1) {
-                const canvas = document.getElementById('ndtCanvas');
-                if (!canvas) return;
-                const rect = canvas.getBoundingClientRect();
                 const touch = e.touches[0];
-                const mouseX = touch.clientX - rect.left;
-                const mouseY = touch.clientY - rect.top;
-                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
-                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
-                const pt = viewToNdtImgCoords(rawVx, rawVy);
+                const aim = ndtApplyTouchAim(touch.clientX, touch.clientY, true);
+                const pt = ndtClientToImg(aim.clientX, aim.clientY);
                 window._ndtMarkCurrentCoords = { x: pt.x, y: pt.y };
                 drawNdtCanvas();
             } else if (!isNdtPinching && isNdtDragging && e.touches.length === 1) {
@@ -4294,6 +4367,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         window.addEventListener('touchend', (e) => {
             if (isNdtPinching && e.touches.length < 2) isNdtPinching = false;
+            clearPendingNdtLongPress();
+            ndtActivePointerIsTouch = false;
             if (pendingNdtPinHit && !isDraggingNdtPin) {
                 const item = pendingNdtPinHit.item;
                 pendingNdtPinHit = null;
@@ -9067,10 +9142,17 @@ document.addEventListener('DOMContentLoaded', () => {
     let isMarkingDrag = false;
     let pendingDragHit = null; // 눌렀지만 아직 이동임계값을 넘지 않아 드래그 시작을 보류 중인 히트 정보
     let pendingDragIsTouch = false; // pendingDragHit이 터치로 시작됐는지 (임계값/유예시간을 마우스와 다르게 적용)
-    let pendingDragHitStartTime = 0; // 터치로 핀을 짚은 시각(ms) — 핀치줌 시작과 구분하는 유예시간 계산용
-    const TOUCH_DRAG_THRESHOLD = 16; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
+    let pendingDragHitStartTime = 0; // 터치로 핀을 짚은 시각(ms)
+    let pendingDragArmed = false; // 길게 누름 완료 → 이후 이동 시 드래그 허용
+    let pendingDragLongPressTimer = null;
+    let activePointerIsTouch = false; // 현재 제스처가 터치인지 (조준점 오프셋 적용)
+    let touchAimVisible = false;
+    let touchAimImgX = 0;
+    let touchAimImgY = 0;
+    const TOUCH_DRAG_THRESHOLD = 14; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
     const MOUSE_DRAG_THRESHOLD = 6;
-    const TOUCH_DRAG_GRACE_MS = 150; // 이 시간 안에 두 번째 손가락이 닿으면 핀치줌으로 판정하고 드래그 취소
+    const TOUCH_LONG_PRESS_MS = 500; // 모바일: 선택 후 이만큼 눌러야 핀 이동 가능
+    const TOUCH_AIM_OFFSET_CSS_PX = 56; // 손가락 위쪽 조준점 (화면 px)
     let isDraggingPin = false;
     let isDraggingPinGroup = false;
     let groupDragLastImgX = 0;
@@ -9490,9 +9572,42 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.planCanvas.style.cursor = getCursorForHitInfo(hit) || getMapCanvasCursor();
     }
 
+    function clearPendingDragLongPress() {
+        if (pendingDragLongPressTimer) {
+            clearTimeout(pendingDragLongPressTimer);
+            pendingDragLongPressTimer = null;
+        }
+        pendingDragArmed = false;
+    }
+
+    function applyTouchAimClient(clientX, clientY, isTouch) {
+        if (!isTouch) return { clientX, clientY };
+        return { clientX, clientY: clientY - TOUCH_AIM_OFFSET_CSS_PX };
+    }
+
+    function setTouchAimFromClient(clientX, clientY, isTouch) {
+        if (!isTouch) {
+            touchAimVisible = false;
+            return null;
+        }
+        const aim = applyTouchAimClient(clientX, clientY, true);
+        const coords = clientToImgCoords(aim.clientX, aim.clientY);
+        touchAimImgX = coords.x;
+        touchAimImgY = coords.y;
+        touchAimVisible = true;
+        return coords;
+    }
+
+    function clearTouchAim() {
+        touchAimVisible = false;
+    }
+
     function handleDragStart(clientX, clientY, isTouch = false, forcePan = false, mods = {}) {
         if (!elements.planCanvas) return;
         const additive = !!(mods.ctrlKey || mods.metaKey);
+        activePointerIsTouch = !!isTouch;
+        clearPendingDragLongPress();
+        if (!isTouch) clearTouchAim();
 
         // 중간 클릭(휠 클릭): MARK/AREA 모드에서도 도면 PAN 이동
         if (forcePan) {
@@ -9542,12 +9657,13 @@ document.addEventListener('DOMContentLoaded', () => {
         initialOffsetY = state.view.offsetY;
 
         // Check if existing pin box, arrowhead tip, or area handle was clicked.
-        // 실제 이동 시작 여부는 handleDragMove에서 이동임계값을 넘는 순간 판정한다(길게 누를 필요 없음).
+        // 터치: 즉시 선택만 하고, 약 0.5초 길게 누른 뒤에야 드래그 시작.
         const hitInfo = findHitPinPart(imgX, imgY);
         if (hitInfo) {
             pendingDragHit = { hitInfo, imgX, imgY, additive };
             pendingDragIsTouch = isTouch;
-            pendingDragHitStartTime = isTouch ? Date.now() : 0;
+            pendingDragHitStartTime = Date.now();
+            pendingDragArmed = !isTouch; // 마우스는 기존처럼 즉시 드래그 가능
             if (hitInfo.defect && hitInfo.defect.id) {
                 const id = hitInfo.defect.id;
                 if (additive) {
@@ -9559,6 +9675,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 이미 다중 선택된 핀을 다시 누르면 선택 유지 → 그룹 드래그용
                 updateMapSelectionBar();
                 drawCanvas();
+            }
+            if (isTouch) {
+                setTouchAimFromClient(clientX, clientY, true);
+                pendingDragLongPressTimer = setTimeout(() => {
+                    if (!pendingDragHit || !pendingDragIsTouch) return;
+                    pendingDragArmed = true;
+                    try { if (navigator.vibrate) navigator.vibrate(12); } catch (_e) { /* ignore */ }
+                    drawCanvas();
+                }, TOUCH_LONG_PRESS_MS);
             }
             return;
         }
@@ -9577,15 +9702,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.mode === 'MARK') {
             isMarkingDrag = true;
             markingHasMoved = false;
-            const coords = clientToImgCoords(clientX, clientY);
-            syncLiveMarkBoxAboveTarget(coords.x, coords.y);
+            const aim = applyTouchAimClient(clientX, clientY, isTouch);
+            const markCoords = clientToImgCoords(aim.clientX, aim.clientY);
+            setTouchAimFromClient(clientX, clientY, isTouch);
+            syncLiveMarkBoxAboveTarget(markCoords.x, markCoords.y);
             drawCanvas();
         } else if (state.mode === 'AREA') {
             isAreaDrag = true;
-            areaStartImgX = imgX;
-            areaStartImgY = imgY;
-            areaCurImgX = imgX;
-            areaCurImgY = imgY;
+            const aim = applyTouchAimClient(clientX, clientY, isTouch);
+            const areaCoords = clientToImgCoords(aim.clientX, aim.clientY);
+            setTouchAimFromClient(clientX, clientY, isTouch);
+            areaStartImgX = areaCoords.x;
+            areaStartImgY = areaCoords.y;
+            areaCurImgX = areaCoords.x;
+            areaCurImgY = areaCoords.y;
             drawCanvas();
         } else if (isTouch) {
             // 터치(태블릿): 한 손가락으로 도면 이동 유지
@@ -9637,14 +9767,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pendingDragHit && !isDraggingPin) {
             const dx = clientX - startMouseX;
             const dy = clientY - startMouseY;
+            const dist = Math.hypot(dx, dy);
             const threshold = pendingDragIsTouch ? TOUCH_DRAG_THRESHOLD : MOUSE_DRAG_THRESHOLD;
-            // 터치로 짚은 경우, 짚은 직후 짧은 유예시간 안에는 이동거리가 임계값을 넘어도 드래그를
-            // 시작하지 않는다 — 핀치줌을 하려고 두 번째 손가락을 마저 대는 순간(첫 손가락이 살짝
-            // 먼저 움직이는) 핀이 먼저 딸려가버리는 걸 막기 위함. 그 사이 두 번째 손가락이 닿으면
-            // touchstart 핸들러가 pendingDragHit을 통째로 취소하므로 여기까지 오지 않는다.
-            const withinTouchGrace = pendingDragIsTouch && (Date.now() - pendingDragHitStartTime < TOUCH_DRAG_GRACE_MS);
-            if (!withinTouchGrace && Math.hypot(dx, dy) > threshold) {
-                // 이동임계값을 넘는 순간 바로 드래그 시작(더 이상 길게 누르고 기다릴 필요 없음)
+
+            // 모바일: 길게 누르기 전에는 핀을 움직이지 않음. 그 사이 손가락이 많이 움직이면 화면 팬으로 전환.
+            if (pendingDragIsTouch && !pendingDragArmed) {
+                setTouchAimFromClient(clientX, clientY, true);
+                if (dist > threshold) {
+                    clearPendingDragLongPress();
+                    pendingDragHit = null;
+                    isDragging = true;
+                    if (elements.planCanvas) elements.planCanvas.style.cursor = 'grabbing';
+                }
+                drawCanvas();
+                return;
+            }
+
+            if (dist > threshold) {
                 pushDefectHistory();
                 const hitDefect = pendingDragHit.hitInfo.defect;
                 const hitPart = pendingDragHit.hitInfo.part;
@@ -9652,14 +9791,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     && selectedDefectIds.size > 1
                     && selectedDefectIds.has(hitDefect.id)
                     && hitPart !== 'AREA_RESIZE';
+                const aimClient = applyTouchAimClient(clientX, clientY, pendingDragIsTouch);
+                const aimImg = clientToImgCoords(aimClient.clientX, aimClient.clientY);
+                const grabX = pendingDragIsTouch ? aimImg.x : pendingDragHit.imgX;
+                const grabY = pendingDragIsTouch ? aimImg.y : pendingDragHit.imgY;
+                clearPendingDragLongPress();
 
                 if (multiGroup) {
                     isDraggingPinGroup = true;
                     isDraggingPin = true;
                     activeDragPin = hitDefect;
                     activeDragPart = 'GROUP';
-                    groupDragLastImgX = pendingDragHit.imgX;
-                    groupDragLastImgY = pendingDragHit.imgY;
+                    groupDragLastImgX = grabX;
+                    groupDragLastImgY = grabY;
                     pendingDragHit = null;
                     if (elements.planCanvas) elements.planCanvas.style.cursor = 'move';
                 } else {
@@ -9668,9 +9812,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     activeDragPart = hitPart;
                     activeResizeXField = pendingDragHit.hitInfo.resizeXField || null;
                     activeResizeYField = pendingDragHit.hitInfo.resizeYField || null;
-                    // 누른 순간 좌표 기준으로 오프셋 고정 (임계값 넘긴 뒤 마우스 위치가 아님)
-                    const grabX = pendingDragHit.imgX;
-                    const grabY = pendingDragHit.imgY;
                     if (hitPart === 'TIP') {
                         pinDragOffsetX = grabX - (hitDefect.targetX !== undefined ? hitDefect.targetX : hitDefect.x);
                         pinDragOffsetY = grabY - (hitDefect.targetY !== undefined ? hitDefect.targetY : hitDefect.y);
@@ -9682,8 +9823,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         pinDragOffsetY = 0;
                     }
                     if (activeDragPart === 'AREA_MOVE') {
-                        areaMoveLastImgX = pendingDragHit.imgX;
-                        areaMoveLastImgY = pendingDragHit.imgY;
+                        areaMoveLastImgX = grabX;
+                        areaMoveLastImgY = grabY;
                     }
                     pendingDragHit = null;
                     if (elements.planCanvas) {
@@ -9695,17 +9836,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         }) || 'move';
                     }
                 }
+                setTouchAimFromClient(clientX, clientY, pendingDragIsTouch || activePointerIsTouch);
             } else {
+                if (pendingDragIsTouch) {
+                    setTouchAimFromClient(clientX, clientY, true);
+                    drawCanvas();
+                }
                 return;
             }
         }
 
         if (isDraggingPinGroup) {
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            const vx = (mouseX - state.view.offsetX) / state.view.scale;
-            const vy = (mouseY - state.view.offsetY) / state.view.scale;
-            const coords = viewToImgCoords(vx, vy);
+            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
+            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
+            const coords = clientToImgCoords(aim.clientX, aim.clientY);
             const dx = coords.x - groupDragLastImgX;
             const dy = coords.y - groupDragLastImgY;
             if (dx || dy) {
@@ -9717,11 +9861,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 drawCanvas();
             }
         } else if (isDraggingPin && activeDragPin) {
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            const vx = (mouseX - state.view.offsetX) / state.view.scale;
-            const vy = (mouseY - state.view.offsetY) / state.view.scale;
-            const coords = viewToImgCoords(vx, vy);
+            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
+            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
+            const coords = clientToImgCoords(aim.clientX, aim.clientY);
             const currentImgX = coords.x;
             const currentImgY = coords.y;
 
@@ -9768,15 +9910,15 @@ document.addEventListener('DOMContentLoaded', () => {
             drawCanvas();
         } else if (isMarkingDrag) {
             markingHasMoved = true;
-            const coords = clientToImgCoords(clientX, clientY);
+            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
+            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
+            const coords = clientToImgCoords(aim.clientX, aim.clientY);
             syncLiveMarkBoxAboveTarget(coords.x, coords.y);
             drawCanvas();
         } else if (isAreaDrag) {
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            const vx = (mouseX - state.view.offsetX) / state.view.scale;
-            const vy = (mouseY - state.view.offsetY) / state.view.scale;
-            const coords = viewToImgCoords(vx, vy);
+            const aim = applyTouchAimClient(clientX, clientY, activePointerIsTouch);
+            setTouchAimFromClient(clientX, clientY, activePointerIsTouch);
+            const coords = clientToImgCoords(aim.clientX, aim.clientY);
             areaCurImgX = coords.x;
             areaCurImgY = coords.y;
             drawCanvas();
@@ -9805,6 +9947,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function handleDragEnd(clientX, clientY) {
+        clearPendingDragLongPress();
+        clearTouchAim();
+        const endIsTouch = activePointerIsTouch;
+        activePointerIsTouch = false;
+
         if (isResizingLegend) {
             isResizingLegend = false;
             saveStateToLocalStorage();
@@ -9854,7 +10001,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isMarkingDrag) {
             isMarkingDrag = false;
             if (clientX != null && clientY != null) {
-                const coords = clientToImgCoords(clientX, clientY);
+                const aim = applyTouchAimClient(clientX, clientY, endIsTouch);
+                const coords = clientToImgCoords(aim.clientX, aim.clientY);
                 markTargetImgX = coords.x;
                 markTargetImgY = coords.y;
                 syncLiveMarkBoxAboveTarget(markTargetImgX, markTargetImgY);
@@ -9966,6 +10114,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 handleDragStart(e.touches[0].clientX, e.touches[0].clientY, true);
             } else if (e.touches.length >= 2) {
                 // Multi-touch detected: cancel active 1-finger mark or drag operations safely
+                clearPendingDragLongPress();
+                clearTouchAim();
                 pendingDragHit = null;
                 isMarkingDrag = false;
                 markingHasMoved = false;
@@ -9977,6 +10127,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeDragPin = null;
                 isDraggingLegend = false;
                 isResizingLegend = false;
+                activePointerIsTouch = false;
 
                 isPinching = true;
                 const rect = elements.planCanvas.getBoundingClientRect();
