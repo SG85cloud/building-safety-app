@@ -132,10 +132,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // (saveStateToLocalStorage는 아주 자주 호출되므로, 안 그러면 같은 이미지를 계속 다시 쓰게 된다)
     const _idbPersistedDrawingKeys = new Set();
     const _idbPersistedPhotoKeys = new Set();
+    const _idbPersistedPdfKeys = new Set();
     // 저장이 아직 끝나지 않은 키(진행 중). 실제 저장이 성공하기 전까지는 "저장됨"으로
     // 표시하지 않아서, 실패 시 다음 saveStateToLocalStorage 호출 때 재시도되게 한다.
     const _idbPendingDrawingKeys = new Set();
     const _idbPendingPhotoKeys = new Set();
+    const _idbPendingPdfKeys = new Set();
     let _idbSaveFailedNotified = false;
 
     function notifyIndexedDbSaveFailure() {
@@ -178,6 +180,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             });
+
+            // PDF 원본도 IndexedDB에 보관 (새로고침 후에도 벡터 출력 가능)
+            const pdfs = b.floorDrawingPdfs || {};
+            Object.entries(pdfs).forEach(([floorCode, pdfDataUrl]) => {
+                if (!pdfDataUrl) return;
+                const key = `${b.id}_${floorCode}`;
+                if (_idbPersistedPdfKeys.has(key) || _idbPendingPdfKeys.has(key)) return;
+                _idbPendingPdfKeys.add(key);
+                idbSet('floorDrawingPdfs', key, pdfDataUrl).then(ok => {
+                    _idbPendingPdfKeys.delete(key);
+                    if (ok) {
+                        _idbPersistedPdfKeys.add(key);
+                        _idbSaveFailedNotified = false;
+                    } else {
+                        notifyIndexedDbSaveFailure();
+                    }
+                });
+            });
         });
         Object.values(defectsMap || {}).forEach(arr => {
             (arr || []).forEach(d => {
@@ -211,7 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
             persistLocalImagesToIndexedDb(rawBuildings, rawDefects);
 
             const sanitizedBuildings = rawBuildings.map(b => {
-                const { floorDrawings, ...rest } = b;
+                const { floorDrawings, floorDrawingPdfs, ...rest } = b;
                 return rest;
             });
             const sanitizedDefects = {};
@@ -239,6 +259,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
+                ndtLeaderLineScale: (window.state.ndtLeaderLineScale !== undefined ? window.state.ndtLeaderLineScale : 1.0),
+                styleSizeBarLockedMap: window.state.styleSizeBarLockedMap !== false,
+                styleSizeBarLockedNdt: window.state.styleSizeBarLockedNdt !== false,
                 floorMapStyleSettings: window.state.floorMapStyleSettings || null,
                 styleShapes: window.state.styleShapes || null,
                 surveyColumns: window.state.surveyColumns || null,
@@ -246,7 +269,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 locationMapLegend: window.state.locationMapLegend || null,
                 locationMapLegendBox: window.state.locationMapLegendBox || null,
                 defectSizeMode: window.state.defectSizeMode || 'combined',
-                tipShape: window.state.tipShape || 'arrow'
+                tipShape: window.state.tipShape || 'arrow',
+                areaFillStyle: window.state.areaFillStyle || 'solid',
+                areaBorderStyle: window.state.areaBorderStyle || 'solid'
             };
             localStorage.setItem('building_safety_app_state_v2', JSON.stringify(dataToSave));
             _localStorageSaveFailedNotified = false;
@@ -342,6 +367,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     window.state.defectLeaderLineScale = parsed.defectLeaderLineScale;
                     window.state._globalDefectLeaderLineScaleFallback = parsed.defectLeaderLineScale;
                 }
+                if (parsed.ndtLeaderLineScale !== undefined) {
+                    window.state.ndtLeaderLineScale = parsed.ndtLeaderLineScale;
+                }
+                if (parsed.styleSizeBarLockedMap !== undefined) {
+                    window.state.styleSizeBarLockedMap = !!parsed.styleSizeBarLockedMap;
+                }
+                if (parsed.styleSizeBarLockedNdt !== undefined) {
+                    window.state.styleSizeBarLockedNdt = !!parsed.styleSizeBarLockedNdt;
+                }
                 if (parsed.floorMapStyleSettings) {
                     window.state.floorMapStyleSettings = parsed.floorMapStyleSettings;
                 }
@@ -365,6 +399,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 if (parsed.tipShape) {
                     window.state.tipShape = parsed.tipShape;
+                }
+                if (parsed.areaFillStyle) {
+                    window.state.areaFillStyle = parsed.areaFillStyle;
+                }
+                if (parsed.areaBorderStyle) {
+                    window.state.areaBorderStyle = parsed.areaBorderStyle;
                 }
             }
 
@@ -395,13 +435,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
             await Promise.all(buildings.map(async (b) => {
                 if (!b.floorDrawings) b.floorDrawings = {};
+                if (!b.floorDrawingPdfs) b.floorDrawingPdfs = {};
                 const floors = (b.floorsList || []).map(f => f.floorCode);
                 await Promise.all(floors.map(async (floorCode) => {
-                    if (b.floorDrawings[floorCode]) return;
-                    const cached = await idbGet('floorDrawings', `${b.id}_${floorCode}`);
-                    if (cached) {
-                        b.floorDrawings[floorCode] = cached;
-                        anyHydrated = true;
+                    if (!b.floorDrawings[floorCode]) {
+                        const cached = await idbGet('floorDrawings', `${b.id}_${floorCode}`);
+                        if (cached) {
+                            b.floorDrawings[floorCode] = cached;
+                            anyHydrated = true;
+                        }
+                    }
+                    if (!b.floorDrawingPdfs[floorCode]) {
+                        const cachedPdf = await idbGet('floorDrawingPdfs', `${b.id}_${floorCode}`);
+                        if (cachedPdf) {
+                            b.floorDrawingPdfs[floorCode] = cachedPdf;
+                            _idbPersistedPdfKeys.add(`${b.id}_${floorCode}`);
+                            anyHydrated = true;
+                        }
                     }
                 }));
             }));
@@ -430,6 +480,34 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 5. TAB MANAGER (진입 로직은 js/tabs/*.js) ---
     window.switchTab = function(targetTabId = 'tab-home') {
+        // 탭 전환 시 결함/NDT 드로어·관련 모달이 다른 도면 위에 남지 않도록 닫기
+        try {
+            if (typeof isDefectModalOpen === 'function' && isDefectModalOpen() && typeof closeDefectModal === 'function') {
+                closeDefectModal();
+            }
+            if (typeof isNdtModalOpen === 'function' && isNdtModalOpen() && typeof closeNdtModal === 'function') {
+                closeNdtModal();
+            }
+            const dispModal = document.getElementById('ndtDisplacementModal');
+            if (dispModal && (dispModal.classList.contains('open') || dispModal.style.display === 'flex')
+                && typeof closeNdtDisplacementModal === 'function') {
+                closeNdtDisplacementModal();
+            }
+            const dispEditModal = document.getElementById('ndtDisplacementGroupEditModal');
+            if (dispEditModal && (dispEditModal.classList.contains('open') || dispEditModal.style.display === 'flex')
+                && typeof closeNdtDisplacementGroupEditModal === 'function') {
+                closeNdtDisplacementGroupEditModal();
+            }
+            const dispChartModal = document.getElementById('ndtDisplacementChartModal');
+            if (dispChartModal && (dispChartModal.classList.contains('open') || dispChartModal.style.display === 'flex')
+                && typeof closeNdtDisplacementChartModal === 'function') {
+                closeNdtDisplacementChartModal();
+            }
+            if (typeof closeDefectComponentCascadeModal === 'function') {
+                closeDefectComponentCascadeModal();
+            }
+        } catch (_e) { /* ignore */ }
+
         window.state.currentTab = targetTabId;
 
         document.querySelectorAll('.tab-content').forEach(content => {
@@ -568,7 +646,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const dirDef = window.EXT_DIRECTION_DEFS.find(d => d.code === c);
         if (dirDef) return dirDef.label;
         if (c === 'EXT' || c.includes('외부')) return '건축물 외부 (EXT)';
-        if (c === 'ROOF' || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return '옥상/옥탑 층 (ROOF)';
+        const roofInfo = typeof window.resolveRoofFloorFromText === 'function' ? window.resolveRoofFloorFromText(code) : null;
+        if (roofInfo) return roofInfo.label;
         const bMatch = c.match(/B\s*([0-9]+)/);
         if (bMatch) return `지하 ${bMatch[1]}층 (${c})`;
         const fMatch = c.match(/([0-9]+)\s*F/);
@@ -635,7 +714,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 <option value="B1F">지하 1층 (B1F)</option>
                 <option value="1F" selected>지상 1층 (1F)</option>
                 <option value="2F">지상 2층 (2F)</option>
-                <option value="ROOF">옥상/옥탑 층 (ROOF)</option>
+                <option value="ROOF">옥상층 (ROOF)</option>
+                <option value="PH">옥탑층 (PH)</option>
+                <option value="PH_ROOF">옥탑 지붕층 (PH_ROOF)</option>
                 <option value="EXT">건축물 외부 (EXT)</option>
             `;
             window.state.currentFloor = '1F';
@@ -743,7 +824,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const singleRowHtml = (item, idx) => `
             <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${item.matched === false ? 'rgba(217,119,6,0.1)' : 'rgba(255,255,255,0.06)'}; border:1px solid ${item.matched === false ? '#d97706' : 'transparent'}; padding:0.4rem 0.7rem; border-radius:6px; font-size:0.8rem;">
-                <span style="color:#94a3b8; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(item.fileName)}">${escapeHtml(item.fileName)}</span>
+                <span style="color:#a3a3a3; font-size:0.75rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(item.fileName)}">${escapeHtml(item.fileName)}</span>
                 <select class="form-control drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem;">
                     ${window.buildFloorCodeOptionsHtml(item.floorCode)}
                 </select>
@@ -762,7 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             const isFinal = i === g.entries.length - 1;
                             return `
                             <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
-                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${escapeHtml(item.fileName)}">
+                                <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#a3a3a3'};" title="${escapeHtml(item.fileName)}">
                                     ${isFinal ? '✅' : '⬜'} ${escapeHtml(item.fileName)}${isFinal ? ' <b>(저장됨)</b>' : ''}
                                 </span>
                                 ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
@@ -776,7 +857,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         preview.innerHTML = `
-            <div style="font-size:0.82rem; font-weight:700; color:#38bdf8; margin-bottom:0.2rem;">
+            <div style="font-size:0.82rem; font-weight:700; color:#6b6b6b; margin-bottom:0.2rem;">
                 ✅ 총 ${items.length}개 도면 파일이 선택되었습니다. 층을 확인해 주세요:
             </div>
             ${warningHtml}
@@ -889,6 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const floorDrawingsMap = {};
+            const floorDrawingPdfsMap = {};
             const floorsList = [];
 
             if (safeUploadedDrawings.length > 0) {
@@ -903,10 +985,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         if (item.file) {
                             try {
-                                const compressedDataUrl = await window.compressDrawingImage(item.file);
-                                if (compressedDataUrl) {
-                                    floorDrawingsMap[item.floorCode] = compressedDataUrl;
-                                    await uploadFloorDrawing(newBuildingId, item.floorCode, compressedDataUrl);
+                                const prepared = (typeof window.prepareFloorDrawingUpload === 'function')
+                                    ? await window.prepareFloorDrawingUpload(item.file)
+                                    : { rasterDataUrl: await window.compressDrawingImage(item.file), pdfDataUrl: null };
+                                if (prepared && prepared.rasterDataUrl) {
+                                    floorDrawingsMap[item.floorCode] = prepared.rasterDataUrl;
+                                    await uploadFloorDrawing(newBuildingId, item.floorCode, prepared.rasterDataUrl);
+                                }
+                                if (prepared && prepared.pdfDataUrl) {
+                                    floorDrawingPdfsMap[item.floorCode] = prepared.pdfDataUrl;
                                 }
                             } catch (err) {
                                 console.error('Drawing compression error:', err);
@@ -933,6 +1020,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 completionDate: completionDate,
                 floorsList: floorsList.length > 0 ? floorsList : null,
                 floorDrawings: floorDrawingsMap,
+                floorDrawingPdfs: floorDrawingPdfsMap,
                 notes: notes
             };
 
@@ -948,14 +1036,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 7-B. BUILDING EDIT & ADDITIONAL DRAWING INSERTION ENGINE (저층->고층 자동 정렬) ---
 
-    // Low-to-High Floor Sort Helper (B3F -> B2F -> B1F -> 1F -> 2F -> 3F -> ROOF)
+    // Low-to-High Floor Sort Helper (B3F -> B2F -> B1F -> 1F -> 2F -> 3F -> ROOF -> PH -> PH_ROOF)
     window.sortFloorsLowToHigh = function(floorsList) {
         if (!Array.isArray(floorsList)) return [];
         const getRank = (code) => {
+            if (typeof window.getFloorRankFromCode === 'function') return window.getFloorRankFromCode(code);
             if (!code) return 0;
             const c = String(code).toUpperCase().trim();
             if (c.includes('EXT') || c.includes('외부')) return 10000;
-            if (c.includes('ROOF') || c.includes('옥상') || c.includes('옥탑') || c.includes('PH')) return 9999;
+            const roofInfo = typeof window.resolveRoofFloorFromText === 'function' ? window.resolveRoofFloorFromText(code) : null;
+            if (roofInfo) return roofInfo.rank;
             const bMatch = c.match(/B\s*([0-9]+)/);
             if (bMatch) return -parseInt(bMatch[1], 10);
             const fMatch = c.match(/([0-9]+)\s*F/);
@@ -1045,14 +1135,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const newFiles = Array.isArray(window.selectedEditUploadedDrawings) ? window.selectedEditUploadedDrawings : [];
 
         let html = `
-            <div style="font-size:0.85rem; font-weight:800; color:#0284c7; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:0.85rem; font-weight:800; color:#2a2a2a; margin-bottom:0.4rem; display:flex; justify-content:space-between; align-items:center;">
                 <span>🖼️ 층별 도면 목록 (저층 ➡️ 고층 순서 정렬):</span>
                 <span style="font-size:0.78rem; color:#64748b;">(기존 ${existingFloors.length}개 + 신규추가 ${newFiles.length}개)</span>
             </div>
         `;
 
         if (existingFloors.length === 0 && newFiles.length === 0) {
-            html += `<div style="font-size:0.8rem; color:#94a3b8; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">등록된 층별 도면이 없습니다. 아래에서 파일들을 선택하여 추가해 주세요.</div>`;
+            html += `<div style="font-size:0.8rem; color:#a3a3a3; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">등록된 층별 도면이 없습니다. 아래에서 파일들을 선택하여 추가해 주세요.</div>`;
         } else {
             html += `<div style="display:flex; flex-direction:column; gap:0.4rem; max-height:220px; overflow-y:auto; padding-right:4px;">`;
             
@@ -1062,7 +1152,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 html += `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:#ffffff; border:1px solid #cbd5e1; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
                         <span>
-                            <strong style="color:#0284c7;">[기존 ${idx + 1}]</strong> 🏢 ${f.floorLabel} (${f.floorCode})
+                            <strong style="color:#2a2a2a;">[기존 ${idx + 1}]</strong> 🏢 ${f.floorLabel} (${f.floorCode})
                             ${hasImg ? '<span style="color:#16a34a; font-size:0.75rem; margin-left:0.4rem;">✓ 도면이미지 보유</span>' : ''}
                         </span>
                         <button type="button" class="btn btn-sm btn-outline" style="border-color:#ef4444; color:#ef4444; font-size:0.72rem; padding:0.1rem 0.4rem;" onclick="window.deleteExistingFloorDrawing('${f.floorCode}')">
@@ -1089,9 +1179,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     const { item, idx } = g.entries[0];
                     const flagged = item.matched === false;
                     html += `
-                        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#0284c7'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; gap:0.5rem; background:${flagged ? 'rgba(217,119,6,0.1)' : '#e0f2fe'}; border:1px solid ${flagged ? '#d97706' : '#2a2a2a'}; padding:0.4rem 0.8rem; border-radius:6px; font-size:0.82rem;">
                             <span style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-                                <strong style="color:#0369a1;">[신규추가]</strong>
+                                <strong style="color:#1f1f1f;">[신규추가]</strong>
                                 <span style="color:#64748b; font-size:0.75rem; margin-left:0.4rem;">${escapeHtml(item.fileName)}</span>
                             </span>
                             <select class="form-control edit-drawing-floor-select" data-idx="${idx}" style="width:auto; font-size:0.78rem; padding:0.2rem 0.4rem; flex-shrink:0;">
@@ -1111,7 +1201,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     const isFinal = i === g.entries.length - 1;
                                     return `
                                     <div style="display:flex; justify-content:space-between; align-items:center; gap:0.4rem; padding:0.3rem 0.5rem; ${isFinal ? 'background:rgba(22,163,74,0.12); border-radius:6px;' : ''}">
-                                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#94a3b8'};" title="${escapeHtml(item.fileName)}">
+                                        <span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:0.76rem; color:${isFinal ? '#16a34a' : '#a3a3a3'};" title="${escapeHtml(item.fileName)}">
                                             ${isFinal ? '✅' : '⬜'} ${escapeHtml(item.fileName)}${isFinal ? ' <b>(저장됨)</b>' : ''}
                                         </span>
                                         ${!isFinal ? `<button type="button" class="btn btn-sm btn-outline pick-final-edit-drawing" data-idx="${idx}" style="font-size:0.68rem; padding:0.1rem 0.5rem; flex-shrink:0;">이 파일 저장</button>` : ''}
@@ -1161,11 +1251,16 @@ document.addEventListener('DOMContentLoaded', () => {
             if (bldg.floorDrawings && bldg.floorDrawings[floorCode]) {
                 delete bldg.floorDrawings[floorCode];
             }
+            if (bldg.floorDrawingPdfs && bldg.floorDrawingPdfs[floorCode]) {
+                delete bldg.floorDrawingPdfs[floorCode];
+            }
             // IndexedDB에 저장해둔 예전 도면도 지우고, "이미 저장했다"는 기록도 지워서
             // 나중에 이 층에 새 도면을 올리면 다시 저장되게 한다(안 지우면 새 도면이 안 덮어써짐).
             const drawingKey = `${bldg.id}_${floorCode}`;
             _idbPersistedDrawingKeys.delete(drawingKey);
+            _idbPersistedPdfKeys.delete(drawingKey);
             idbDelete('floorDrawings', drawingKey);
+            idbDelete('floorDrawingPdfs', drawingKey);
             if (bldg.floorsList) {
                 bldg.floorsList = bldg.floorsList.filter(f => f.floorCode !== floorCode);
             }
@@ -1274,13 +1369,20 @@ document.addEventListener('DOMContentLoaded', () => {
                         }
                         if (item.file) {
                             try {
-                                const compressedDataUrl = await window.compressDrawingImage(item.file);
-                                if (compressedDataUrl) {
+                                const prepared = (typeof window.prepareFloorDrawingUpload === 'function')
+                                    ? await window.prepareFloorDrawingUpload(item.file)
+                                    : { rasterDataUrl: await window.compressDrawingImage(item.file), pdfDataUrl: null };
+                                if (prepared && prepared.rasterDataUrl) {
                                     // 같은 층 도면을 재업로드(교체)하는 경우, "이미 저장했다"는 기록을
                                     // 지워야 바뀐 새 도면이 IndexedDB에도 다시 저장된다.
                                     _idbPersistedDrawingKeys.delete(`${bldg.id}_${item.floorCode}`);
-                                    bldg.floorDrawings[item.floorCode] = compressedDataUrl;
-                                    await uploadFloorDrawing(bldg.id, item.floorCode, compressedDataUrl);
+                                    bldg.floorDrawings[item.floorCode] = prepared.rasterDataUrl;
+                                    await uploadFloorDrawing(bldg.id, item.floorCode, prepared.rasterDataUrl);
+                                }
+                                if (prepared && prepared.pdfDataUrl) {
+                                    if (!bldg.floorDrawingPdfs) bldg.floorDrawingPdfs = {};
+                                    bldg.floorDrawingPdfs[item.floorCode] = prepared.pdfDataUrl;
+                                    _idbPersistedPdfKeys.delete(`${bldg.id}_${item.floorCode}`);
                                 }
                             } catch (err) {
                                 console.error('Edit drawing compression error:', err);
@@ -1548,16 +1650,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     ${Array.from({length: 22}).map((_, i) => `<line x1="0" y1="${i*40}" x2="1400" y2="${i*40}"/>`).join('')}
                 </g>
                 <!-- Building Outer Boundary & Walls -->
-                <rect x="120" y="90" width="1160" height="670" fill="none" stroke="#38bdf8" stroke-width="5"/>
+                <rect x="120" y="90" width="1160" height="670" fill="none" stroke="#6b6b6b" stroke-width="5"/>
                 <rect x="135" y="105" width="1130" height="640" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="2" stroke-dasharray="8 4"/>
                 
                 <!-- Internal Structural Rooms & Walls -->
-                <rect x="150" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="520" y="120" width="360" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="910" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="150" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#6b6b6b" stroke-width="3"/>
+                <rect x="520" y="120" width="360" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#6b6b6b" stroke-width="3"/>
+                <rect x="910" y="120" width="340" height="280" fill="rgba(30, 41, 59, 0.5)" stroke="#6b6b6b" stroke-width="3"/>
                 
-                <rect x="150" y="430" width="530" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
-                <rect x="710" y="430" width="540" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#38bdf8" stroke-width="3"/>
+                <rect x="150" y="430" width="530" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#6b6b6b" stroke-width="3"/>
+                <rect x="710" y="430" width="540" height="300" fill="rgba(30, 41, 59, 0.5)" stroke="#6b6b6b" stroke-width="3"/>
 
                 <!-- Structural Columns (C1, C2, C3) -->
                 ${[[150,120],[490,120],[520,120],[880,120],[910,120],[1250,120],
@@ -1578,13 +1680,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <text x="320" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE A (${floorName})</text>
                 <text x="700" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">코어 및 계단실 (CORE)</text>
                 <text x="1080" y="270" fill="#e2e8f0" font-size="22" font-weight="bold" text-anchor="middle">ZONE B (${floorName})</text>
-                <text x="415" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">주차장 / 로비 구역</text>
-                <text x="980" y="590" fill="#94a3b8" font-size="20" text-anchor="middle">기계실 / 전기실 구역</text>
+                <text x="415" y="590" fill="#a3a3a3" font-size="20" text-anchor="middle">주차장 / 로비 구역</text>
+                <text x="980" y="590" fill="#a3a3a3" font-size="20" text-anchor="middle">기계실 / 전기실 구역</text>
 
                 <!-- Architectural Title Block -->
-                <rect x="850" y="650" width="390" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#38bdf8" stroke-width="2"/>
-                <text x="865" y="678" fill="#38bdf8" font-size="16" font-weight="bold">도휘에드가9차 현장점검 CAD 평면도 [${floorName}]</text>
-                <text x="865" y="704" fill="#94a3b8" font-size="13">스마트 건축물 안전점검 시스템 | SCALE 1:100</text>
+                <rect x="850" y="650" width="390" height="70" fill="rgba(15, 23, 42, 0.9)" stroke="#6b6b6b" stroke-width="2"/>
+                <text x="865" y="678" fill="#6b6b6b" font-size="16" font-weight="bold">도휘에드가9차 현장점검 CAD 평면도 [${floorName}]</text>
+                <text x="865" y="704" fill="#a3a3a3" font-size="13">스마트 건축물 안전점검 시스템 | SCALE 1:100</text>
             </svg>
         `;
         return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
@@ -1628,6 +1730,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const defects = getCurrentFloorDefects();
         const defect = defects.find(d => d.id === defectId);
         if (!defect || !state.canvas) return;
+        if (isDefectMapUnregistered(defect)) {
+            startMapRegisterForDefect(defectId);
+            return;
+        }
 
         const centerImgX = defect.shapeType === 'area'
             ? (defect.areaX1 + defect.areaX2) / 2
@@ -1687,7 +1793,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // Draw Defect Pins INSIDE the rotated context so pins rotate WITH the drawing!
-        const currentDefects = getCurrentFloorFilteredDefects();
+        const currentDefects = getCurrentFloorMapPlacedDefects();
         renderDefectsGrouped(ctx, currentDefects, drawPin);
 
         // 범례도 결함 핀처럼 도면 좌표계 안에서 그려서 팬/줌/회전 시 도면에 붙어서 같이 움직이게 한다.
@@ -1695,12 +1801,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Draw Live Marking Drag Preview (드래그 중 — 클릭만 해도 위치 표시)
         if (isMarkingDrag) {
+            const previewMeta = getLiveMarkPinPreviewMeta();
+            const pendingDefect = previewMeta.defect;
             const nextSeq = (currentDefects.length + 1);
             const nextSeqStr = nextSeq < 10 ? `0${nextSeq}` : `${nextSeq}`;
-            const liveNoStr = document.getElementById('defectNo')?.value || `NO.${nextSeqStr}`;
+            const liveNoStr = pendingDefect ? (pendingDefect.no || previewMeta.label) : (document.getElementById('defectNo')?.value || `NO.${nextSeqStr}`);
             drawPin(ctx, {
                 no: liveNoStr,
-                category: document.getElementById('defectCategory')?.value || '구조체',
+                category: pendingDefect?.category || document.getElementById('defectCategory')?.value || '구조체',
+                defectType: pendingDefect?.defectType || getDefectComboValue(document.getElementById('defectType'), document.getElementById('defectTypeInput')) || '',
                 x: liveBoxImgX,
                 y: liveBoxImgY,
                 targetX: markPreviewTargetX,
@@ -1723,6 +1832,22 @@ document.addEventListener('DOMContentLoaded', () => {
             }, true);
         }
 
+        // 좌클릭 드래그 선택 박스
+        if (isMarqueeSelecting) {
+            const x1 = Math.min(marqueeStartImgX, marqueeCurImgX);
+            const y1 = Math.min(marqueeStartImgY, marqueeCurImgY);
+            const x2 = Math.max(marqueeStartImgX, marqueeCurImgX);
+            const y2 = Math.max(marqueeStartImgY, marqueeCurImgY);
+            ctx.save();
+            ctx.fillStyle = 'rgba(40, 40, 40, 0.12)';
+            ctx.strokeStyle = '#2a2a2a';
+            ctx.lineWidth = 1.5 / Math.max(state.view.scale || 1, 0.01);
+            ctx.setLineDash([6 / Math.max(state.view.scale || 1, 0.01), 4 / Math.max(state.view.scale || 1, 0.01)]);
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.restore();
+        }
+
         ctx.restore(); // Restore drawing rotation matrix
 
         ctx.restore(); // Restore view offset & scale
@@ -1735,7 +1860,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 드래그/패닝 중이 아닐 때만 좌측 결함 목록을 갱신 (매 프레임 DOM 재생성 방지)
-        if (!isDragging && !isMarkingDrag && !isDraggingPin && !isAreaDrag && typeof renderDefectListPanel === 'function') {
+        if (!isDragging && !isMarkingDrag && !isDraggingPin && !isDraggingPinGroup && !isAreaDrag && !isMarqueeSelecting && typeof renderDefectListPanel === 'function') {
             renderDefectListPanel();
         }
     }
@@ -1774,6 +1899,125 @@ document.addEventListener('DOMContentLoaded', () => {
     let isDraggingNdtPin = false;
     let activeDragNdtPin = null;
     let dragNdtPart = 'box';
+    let ndtPinDragOffsetX = 0;
+    let ndtPinDragOffsetY = 0;
+    let ndtDispDragOffsetX = 0;
+    let ndtDispDragOffsetY = 0;
+    let pendingNdtPinHit = null; // 클릭=수정창 / 드래그=이동 구분
+    let isDraggingNdtPinGroup = false;
+    let ndtGroupDragLastX = 0;
+    let ndtGroupDragLastY = 0;
+    let isNdtMarqueeSelecting = false;
+    let ndtMarqueeAdditive = false;
+    let ndtMarqueeStartX = 0;
+    let ndtMarqueeStartY = 0;
+    let ndtMarqueeCurX = 0;
+    let ndtMarqueeCurY = 0;
+    let selectedNdtIds = new Set(); // pin id 또는 disp_<groupId>
+    window.getSelectedNdtIds = () => selectedNdtIds;
+
+    function ndtDispSelKey(groupId) {
+        return `disp_${groupId}`;
+    }
+
+    function updateNdtSelectionBar() {
+        const bar = document.getElementById('ndtSelectionBar');
+        const countEl = document.getElementById('ndtSelectionCount');
+        if (!bar) return;
+        const n = selectedNdtIds.size;
+        if (n === 0) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        if (countEl) countEl.textContent = `${n}개 선택`;
+    }
+
+    function getVisibleNdtPinsForSelect() {
+        let items = getCurrentFloorNdtData();
+        const currentCat = currentNdtCategory || '실측';
+        if (currentCat === '기울기') return items.filter(item => item.category === currentCat);
+        if (currentCat === '변위' || currentCat === '부재변위') return [];
+        if (currentCat === '실측') return items.filter(item => item.category === '실측');
+        return items.filter(item => ['강도', '탄산화'].includes(item.category));
+    }
+
+    function collectNdtMarqueeHits(x1, y1, x2, y2) {
+        const hits = [];
+        getVisibleNdtPinsForSelect().forEach((item) => {
+            if (!item || !item.id) return;
+            const bx = item.boxX !== undefined ? item.boxX : (item.x || 0);
+            const by = item.boxY !== undefined ? item.boxY : (item.y || 0);
+            const tx = item.targetX !== undefined ? item.targetX : (item.x || bx);
+            const ty = item.targetY !== undefined ? item.targetY : (item.y || by);
+            if ((bx >= x1 && bx <= x2 && by >= y1 && by <= y2)
+                || (tx >= x1 && tx <= x2 && ty >= y1 && ty <= y2)) {
+                hits.push(item.id);
+            }
+        });
+        if (currentNdtCategory === '변위' || currentNdtCategory === '부재변위') {
+            getCurrentFloorDisplacementGroups(currentNdtCategory).forEach((g) => {
+                if (!g || !g.id) return;
+                const bx = g.boxX !== undefined ? g.boxX : (g.points?.[0]?.x || 0);
+                const by = g.boxY !== undefined ? g.boxY : (g.points?.[0]?.y || 0);
+                let hit = (bx >= x1 && bx <= x2 && by >= y1 && by <= y2);
+                if (!hit && Array.isArray(g.points)) {
+                    hit = g.points.some(p => p && p.x >= x1 && p.x <= x2 && p.y >= y1 && p.y <= y2);
+                }
+                if (hit) hits.push(ndtDispSelKey(g.id));
+            });
+        }
+        return hits;
+    }
+
+    function translateNdtPinBy(item, dx, dy) {
+        if (!item || (!dx && !dy)) return;
+        if (typeof item.x === 'number') item.x += dx;
+        if (typeof item.y === 'number') item.y += dy;
+        if (item.boxX !== undefined) item.boxX = Number(item.boxX) + dx;
+        if (item.boxY !== undefined) item.boxY = Number(item.boxY) + dy;
+        if (item.targetX !== undefined) item.targetX = Number(item.targetX) + dx;
+        if (item.targetY !== undefined) item.targetY = Number(item.targetY) + dy;
+    }
+
+    function translateNdtDispGroupBy(group, dx, dy) {
+        if (!group || (!dx && !dy)) return;
+        if (typeof group.boxX === 'number') group.boxX += dx;
+        if (typeof group.boxY === 'number') group.boxY += dy;
+        (group.points || []).forEach((p) => {
+            if (!p) return;
+            if (typeof p.x === 'number') p.x += dx;
+            if (typeof p.y === 'number') p.y += dy;
+        });
+    }
+
+    function deleteSelectedNdtMarks() {
+        const ids = [...selectedNdtIds];
+        if (!ids.length || !state.currentBuildingId) return;
+        if (!confirm(`선택한 비파괴 마킹 ${ids.length}건을 삭제할까요?`)) return;
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        const pinIds = ids.filter(id => !String(id).startsWith('disp_'));
+        const dispIds = ids.filter(id => String(id).startsWith('disp_')).map(id => id.slice(5));
+
+        if (pinIds.length) {
+            if (!state.ndtData[key]) state.ndtData[key] = [];
+            state.ndtData[key] = state.ndtData[key].filter(x => !pinIds.includes(x.id));
+        }
+        if (dispIds.length) {
+            if (!state.ndtDisplacementGroups[key]) state.ndtDisplacementGroups[key] = [];
+            state.ndtDisplacementGroups[key] = state.ndtDisplacementGroups[key].filter(g => !dispIds.includes(g.id));
+            if (window._activeNdtDispGroupId && dispIds.includes(window._activeNdtDispGroupId)) {
+                setActiveNdtDispGroup(null);
+            }
+        }
+        selectedNdtIds.clear();
+        updateNdtSelectionBar();
+        saveStateToLocalStorage();
+        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+        drawNdtCanvas();
+        if (typeof window.showToast === 'function') window.showToast(`${ids.length}건 삭제됨`, 'success');
+    }
+    window.deleteSelectedNdtMarks = deleteSelectedNdtMarks;
 
     function formatHeightValue(val) {
         if (!val) return 'H = 3,000mm';
@@ -1801,26 +2045,58 @@ document.addEventListener('DOMContentLoaded', () => {
             filtered = items.filter(item => ['실측', '강도', '탄산화'].includes(item.category));
         }
 
+        const measureCtx = state.ctx || null;
+        let bestTarget = null; // { item, dist } — 겹친 측정점은 마우스에 가까운 쪽
+
         for (let i = filtered.length - 1; i >= 0; i--) {
             const item = filtered[i];
-            const itemSize = getStyleSize(getNdtStyleKey(item.category || '강도'));
+            const ndtStyleKey = getNdtStyleKey(item.category || '강도');
+            const itemSize = getStyleSize(ndtStyleKey);
             const pinScale = itemSize.pin;
             const arrowScale = itemSize.arrow;
-            const boxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
-            const boxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
-            const targetX = item.targetX !== undefined ? item.targetX : (item.x || boxX);
-            const targetY = item.targetY !== undefined ? item.targetY : (item.y || boxY);
+            const baseBoxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
+            const baseBoxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
+            const targetX = item.targetX !== undefined ? item.targetX : (item.x || baseBoxX);
+            const targetY = item.targetY !== undefined ? item.targetY : (item.y || baseBoxY);
 
-            if (Math.hypot(vx - targetX, vy - targetY) < 30 * arrowScale) {
-                return { item, part: 'target' };
+            let noStr = item.no || 'NO.01';
+            if (noStr.startsWith('기울기-') || noStr.startsWith('NDT-') || noStr.startsWith('변위-')) {
+                const numPart = noStr.replace(/^[^\d]+/, '');
+                noStr = `NO.${numPart.length === 1 ? '0' + numPart : numPart}`;
             }
-            if (Math.hypot(vx - boxX, vy - boxY) < 50 * pinScale) {
+            noStr = formatPinNumberLabel(noStr, ndtStyleKey);
+            const cat = item.category || '강도';
+
+            // 측정점(원/화살촉) — 반경 안이면 후보로 모으고, 가장 가까운 쪽을 고른다
+            const distTarget = Math.hypot(vx - targetX, vy - targetY);
+            const tipR = 18 * arrowScale;
+            if (distTarget <= tipR && (!bestTarget || distTarget < bestTarget.dist)) {
+                bestTarget = { item, dist: distTarget };
+            }
+
+            let boxW;
+            let boxH;
+            let boxX = baseBoxX;
+            let boxY = baseBoxY;
+            if (cat === '기울기' || cat === '변위' || cat === '부재변위') {
+                boxW = 168 * pinScale;
+                boxH = 44 * pinScale;
+            } else if (cat === '강도' || cat === '탄산화') {
+                const typeLabel = getNdtStrengthCarbTypeLabel(cat);
+                const dims = measureNdtTypeCalloutDimensions(measureCtx, noStr, typeLabel, pinScale);
+                boxW = dims.boxW;
+                boxH = dims.boxH;
+            } else {
+                const boxDim = measurePinBoxDimensions(measureCtx, noStr, pinScale, 1);
+                boxW = boxDim.w;
+                boxH = boxDim.h;
+            }
+
+            if (isPointInsideMarkBox(vx, vy, boxX, boxY, boxW, boxH, ndtRotationAngle || 0)) {
                 return { item, part: 'box' };
             }
-            if (Math.hypot(vx - (item.x || 100), vy - (item.y || 100)) < 40 * pinScale) {
-                return { item, part: 'all' };
-            }
         }
+        if (bestTarget) return { item: bestTarget.item, part: 'target' };
         return null;
     }
 
@@ -1846,9 +2122,9 @@ document.addEventListener('DOMContentLoaded', () => {
         defectExistingGrade3: '#b30000', // 결함위치도(3종) - 기존결함(전회차)
         defectGoodGrade3: '#000000',    // 결함위치도(3종) - 상태양호
         priorityManage: '#15803d',      // 결함위치도 - 중점관리
-        ndtMeasure: '#0369a1',          // 부재 실측
-        ndtStrength: '#b30000',         // 강도
-        ndtCarbonation: '#ca8a04',      // 탄산화
+        ndtMeasure: '#1f1f1f',          // 부재 실측
+        ndtStrength: '#b30000',         // 강도 (빨강)
+        ndtCarbonation: '#0040c0',      // 탄산화 (파랑)
         ndtTilt: '#b30000',             // 기울기
         ndtSettlement: '#7e22ce',       // 부동침하 기울기
         ndtMemberDisp: '#15803d'        // 부재변위
@@ -1882,18 +2158,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 카테고리별 핀/화살표 크기 커스터마이징 ---
     const DEFAULT_STYLE_SIZES = {
-        defectStructural: { pin: 1.0, arrow: 1.0 },
-        defectNonStructural: { pin: 1.0, arrow: 1.0 },
-        defectFinish: { pin: 1.0, arrow: 1.0 },
-        defectStructuralGood: { pin: 1.0, arrow: 1.0 },
-        defectNonStructuralGood: { pin: 1.0, arrow: 1.0 },
-        defectFinishGood: { pin: 1.0, arrow: 1.0 },
-        ndtMeasure: { pin: 1.0, arrow: 1.0 },
-        ndtStrength: { pin: 1.0, arrow: 1.0 },
-        ndtCarbonation: { pin: 1.0, arrow: 1.0 },
-        ndtTilt: { pin: 1.0, arrow: 1.0 },
-        ndtSettlement: { pin: 1.0, arrow: 1.0 },
-        ndtMemberDisp: { pin: 1.0, arrow: 1.0 }
+        defectStructural: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        defectNonStructural: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        defectFinish: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        defectStructuralGood: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        defectNonStructuralGood: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        defectFinishGood: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtMeasure: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtStrength: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtCarbonation: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtTilt: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtSettlement: { pin: 1.0, arrow: 1.0, leader: 1.0 },
+        ndtMemberDisp: { pin: 1.0, arrow: 1.0, leader: 1.0 }
     };
 
     // 보고서 등 다른 층 렌더 시 해당 층 스타일을 쓰기 위한 임시 컨텍스트
@@ -1914,9 +2190,38 @@ document.addEventListener('DOMContentLoaded', () => {
         return out;
     }
 
+    // 결함위치도 / NDT 크기 키 분리 (일괄 슬라이더·층별 저장용)
+    const DEFECT_STYLE_SIZE_KEYS = [
+        'defectStructural', 'defectNonStructural', 'defectFinish',
+        'defectStructuralGood', 'defectNonStructuralGood', 'defectFinishGood'
+    ];
+    const NDT_STYLE_SIZE_KEYS = [
+        'ndtMeasure', 'ndtStrength', 'ndtCarbonation',
+        'ndtTilt', 'ndtSettlement', 'ndtMemberDisp'
+    ];
+
+    function cloneStyleSizesSubset(src, keys) {
+        if (!src) return null;
+        const out = {};
+        (keys || []).forEach(k => {
+            if (src[k]) out[k] = { ...src[k] };
+        });
+        return out;
+    }
+
+    function mergeStyleSizesSubset(target, subset) {
+        if (!subset) return target || null;
+        const out = target ? { ...target } : {};
+        Object.keys(subset).forEach(k => {
+            out[k] = { ...(subset[k] || {}) };
+        });
+        return out;
+    }
+
     function snapshotMapStyleSettings() {
         return {
-            styleSizes: cloneStyleSizesMap(state.styleSizes),
+            // 층별 스타일은 결함위치도만 — NDT 크기/굵기는 전역으로 별도 유지
+            styleSizes: cloneStyleSizesSubset(state.styleSizes, DEFECT_STYLE_SIZE_KEYS),
             defectLeaderLineScale: state.defectLeaderLineScale !== undefined ? state.defectLeaderLineScale : 1.0
         };
     }
@@ -1944,13 +2249,56 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getStyleSize(key) {
+        // 강도·탄산화 핀/화살표/선 굵기는 항상 동일 (강도 설정을 공유)
+        const sizeKey = (key === 'ndtCarbonation') ? 'ndtStrength' : key;
         const sizesSource = getActiveStyleSizesSource();
-        const custom = sizesSource && sizesSource[key];
-        const def = DEFAULT_STYLE_SIZES[key] || { pin: 1.0, arrow: 1.0 };
+        const custom = sizesSource && sizesSource[sizeKey];
+        const def = DEFAULT_STYLE_SIZES[sizeKey] || DEFAULT_STYLE_SIZES[key] || { pin: 1.0, arrow: 1.0, leader: 1.0 };
+        let leader = def.leader !== undefined ? def.leader : 1.0;
+        if (custom && custom.leader !== undefined && custom.leader !== null) {
+            leader = custom.leader;
+        } else if (NDT_STYLE_SIZE_KEYS.includes(sizeKey) && state.ndtLeaderLineScale !== undefined) {
+            // 구버전 전역 선 굵기 → 항목별 미설정 시 호환
+            leader = state.ndtLeaderLineScale;
+        }
         return {
             pin: (custom && custom.pin) || def.pin,
-            arrow: (custom && custom.arrow) || def.arrow
+            arrow: (custom && custom.arrow) || def.arrow,
+            leader
         };
+    }
+
+    /** 스타일 크기 저장 — 강도/탄산화는 서로 동기화 */
+    function setStyleSizeFields(key, patch) {
+        if (!state.styleSizes) state.styleSizes = {};
+        const keys = (key === 'ndtStrength' || key === 'ndtCarbonation')
+            ? ['ndtStrength', 'ndtCarbonation']
+            : [key];
+        keys.forEach((k) => {
+            if (!state.styleSizes[k]) state.styleSizes[k] = {};
+            Object.keys(patch || {}).forEach((field) => {
+                state.styleSizes[k][field] = patch[field];
+            });
+        });
+        return keys;
+    }
+
+    function syncNdtStrengthCarbSizeControlsUi() {
+        ['NdtStrength', 'NdtCarbonation'].forEach((suffix) => {
+            const sz = getStyleSize(suffix === 'NdtStrength' ? 'ndtStrength' : 'ndtCarbonation');
+            const pinInput = document.getElementById(`stylePinSize${suffix}`);
+            const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+            const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+            const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+            const leaderInput = document.getElementById(`styleLeaderSize${suffix}`);
+            const leaderLabel = document.getElementById(`styleLeaderSize${suffix}Label`);
+            if (pinInput) pinInput.value = sz.pin;
+            if (pinLabel) pinLabel.textContent = `${Math.round(sz.pin * 100)}%`;
+            if (arrowInput) arrowInput.value = sz.arrow;
+            if (arrowLabel) arrowLabel.textContent = `${Math.round(sz.arrow * 100)}%`;
+            if (leaderInput) leaderInput.value = sz.leader;
+            if (leaderLabel) leaderLabel.textContent = `${Math.round(sz.leader * 100)}%`;
+        });
     }
 
     // --- 카테고리별 박스 모양(직사각형/둥근사각형/원형) · 채우기 유무 · 번호 표시형식(NO.접두어 유무) ---
@@ -1961,9 +2309,9 @@ document.addEventListener('DOMContentLoaded', () => {
         defectStructuralGood: { shape: 'rect', fill: false, numberFormat: 'no' },
         defectNonStructuralGood: { shape: 'rect', fill: false, numberFormat: 'no' },
         defectFinishGood: { shape: 'rect', fill: false, numberFormat: 'no' },
-        ndtMeasure: { shape: 'rounded', fill: true, numberFormat: 'no' },
-        ndtStrength: { shape: 'rounded', fill: true, numberFormat: 'no' },
-        ndtCarbonation: { shape: 'rounded', fill: true, numberFormat: 'no' },
+        ndtMeasure: { shape: 'rect', fill: false, numberFormat: 'no' },
+        ndtStrength: { shape: 'rect', fill: false, numberFormat: 'no' },
+        ndtCarbonation: { shape: 'rect', fill: false, numberFormat: 'no' },
         ndtTilt: { shape: 'rect', fill: false, numberFormat: 'no' },
         ndtSettlement: { shape: 'rect', fill: false, numberFormat: 'no' },
         ndtMemberDisp: { shape: 'rect', fill: false, numberFormat: 'no' }
@@ -1992,7 +2340,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 핀 박스: fill=false면 투명 내부+색상 테두리, fill=true면 기존 채우기 방식
-    function paintPinBox(ctx, w, h, shapeCfg, activeColor, scale, roundLineMul, isBeingDragged) {
+    function paintPinBox(ctx, w, h, shapeCfg, activeColor, scale, roundLineMul, isBeingDragged, leaderScaleOverride) {
         const borderColor = isBeingDragged ? '#facc15' : activeColor;
         const cornerR = Math.min(3 * scale, w / 4, h / 4);
         traceStyledBoxPath(ctx, w, h, shapeCfg.shape, cornerR);
@@ -2001,7 +2349,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.fill();
         }
         ctx.strokeStyle = borderColor;
-        ctx.lineWidth = getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged);
+        ctx.lineWidth = getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged, leaderScaleOverride);
         ctx.stroke();
     }
 
@@ -2020,13 +2368,42 @@ document.addEventListener('DOMContentLoaded', () => {
         return Math.max(9, Math.round(11 * scale));
     }
 
-    function getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged) {
-        return (isBeingDragged ? 1.5 : 1.1) * (scale || 1) * (roundLineMul || 1);
+    function getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged, leaderScaleOverride) {
+        // 연결선 굵기 슬라이더와 동일 배율로 번호칸 테두리도 조절
+        const raw = leaderScaleOverride !== undefined && leaderScaleOverride !== null
+            ? leaderScaleOverride
+            : getActiveLeaderLineScale();
+        const factor = Math.min(Math.max(parseFloat(raw || 1), 0.5), 3.0);
+        return (isBeingDragged ? 1.5 : 1.1) * (scale || 1) * (roundLineMul || 1) * factor;
     }
 
     function getDefectLeaderLineWidth(scale, roundLineMul, isBeingDragged) {
-        const factor = Math.min(Math.max(parseFloat(getActiveLeaderLineScale() || 1), 0.5), 3.0);
-        return getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged) * factor;
+        return getPinBoxBorderWidth(scale, roundLineMul, isBeingDragged);
+    }
+
+    function getNdtLeaderLineScale(styleKey) {
+        if (styleKey) return getStyleSize(styleKey).leader;
+        return state.ndtLeaderLineScale !== undefined ? state.ndtLeaderLineScale : 1.0;
+    }
+
+    function getNdtLeaderLineWidth(scale, isBeingDragged, styleKey) {
+        return getPinBoxBorderWidth(scale || 1, 1, isBeingDragged, getNdtLeaderLineScale(styleKey));
+    }
+
+    function getCurrentNdtStyleKey() {
+        return getNdtStyleKey(currentNdtCategory || '실측');
+    }
+
+    function getNdtCategoryLabel(cat) {
+        const map = {
+            '실측': '부재 실측',
+            '강도': '콘크리트 강도',
+            '탄산화': '콘크리트 탄산화',
+            '기울기': '외벽 기울기',
+            '변위': '부동침하 기울기',
+            '부재변위': '부재변위'
+        };
+        return map[cat] || cat || '비파괴';
     }
 
     function measurePinBoxDimensions(ctx, labelText, scale, roundLineMul) {
@@ -2052,6 +2429,20 @@ document.addEventListener('DOMContentLoaded', () => {
     function getPinBoxDimensions(scale, labelText, ctx) {
         const measureCtx = ctx || state.ctx || null;
         return measurePinBoxDimensions(measureCtx, labelText || 'NO.01', scale || 1, 1);
+    }
+
+    /** 화면과 같이 역회전된 번호/콜아웃 박스 — 내부일 때만 드래그 히트 */
+    function isPointInsideMarkBox(px, py, cx, cy, boxW, boxH, rotationDeg) {
+        if (!(boxW > 0) || !(boxH > 0)) return false;
+        const dx = px - cx;
+        const dy = py - cy;
+        const rad = ((rotationDeg || 0) * Math.PI) / 180;
+        // 그릴 때 rotate(-θ) → 히트는 rotate(+θ)로 로컬 복원
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const lx = dx * cos - dy * sin;
+        const ly = dx * sin + dy * cos;
+        return Math.abs(lx) <= boxW / 2 && Math.abs(ly) <= boxH / 2;
     }
 
     // 마킹(화살표 끝) 바로 위에 번호 박스 중심 배치 — 박스 하단과 마킹 사이 간격 = 글자 크기
@@ -2091,6 +2482,43 @@ document.addEventListener('DOMContentLoaded', () => {
         let best = corners[0];
         let bestDist = Infinity;
         corners.forEach(c => {
+            const d = Math.hypot(lx - c.x, ly - c.y);
+            if (d < bestDist) {
+                bestDist = d;
+                best = c;
+            }
+        });
+
+        return {
+            x: boxX + best.x * cos + best.y * sin,
+            y: boxY - best.x * sin + best.y * cos
+        };
+    }
+
+    /** 지시선이 상·하·좌·우 **변의 중앙**에서 나가도록 (외벽 기울기 콜아웃용) */
+    function getPinLeaderBoxEdgeCenterAnchor(boxX, boxY, refX, refY, boxW, boxH, rotationDeg) {
+        const hw = boxW / 2;
+        const hh = boxH / 2;
+        const rad = ((rotationDeg || 0) * Math.PI) / 180;
+        const dx = refX - boxX;
+        const dy = refY - boxY;
+        if (Math.hypot(dx, dy) < 1e-6) return { x: boxX, y: boxY + hh };
+
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const lx = dx * cos - dy * sin;
+        const ly = dx * sin + dy * cos;
+
+        const edgeMids = [
+            { x: 0, y: -hh },  // top
+            { x: hw, y: 0 },   // right
+            { x: 0, y: hh },   // bottom
+            { x: -hw, y: 0 }   // left
+        ];
+
+        let best = edgeMids[0];
+        let bestDist = Infinity;
+        edgeMids.forEach(c => {
             const d = Math.hypot(lx - c.x, ly - c.y);
             if (d < bestDist) {
                 bestDist = d;
@@ -2206,10 +2634,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 바닥 수직변위: 그룹(NO.박스) + 다중 레벨 포인트 데이터 ---
-    const NDT_DISPLACEMENT_COLORS = ['#ef4444', '#3b82f6', '#f97316', '#22c55e', '#a855f7', '#eab308', '#06b6d4', '#ec4899'];
+    const NDT_DISPLACEMENT_COLORS = ['#ef4444', '#525252', '#f97316', '#22c55e', '#a855f7', '#eab308', '#06b6d4', '#ec4899'];
     const NDT_GRADE_BADGES = {
         'a등급': '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a등급 (1/750이상)</span>',
-        'b등급': '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (1/500이하)</span>',
+        'b등급': '<span class="badge" style="background:rgba(56,189,248,0.2); color:#6b6b6b; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (1/500이하)</span>',
         'c등급': '<span class="badge" style="background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4); font-weight:800;">c등급 (1/250이하)</span>',
         'd등급': '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d등급 (1/150이하)</span>',
         'e등급': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (1/150초과)</span>'
@@ -2233,6 +2661,42 @@ document.addEventListener('DOMContentLoaded', () => {
     function nextDisplacementGroupNo(cat = null) {
         const groups = getCurrentFloorDisplacementGroups(cat);
         return `NO.${String(groups.length + 1).padStart(2, '0')}`;
+    }
+
+    /** 부동침하/부재변위: 지정한 측정 구역에 이어서 지점 번호를 늘리기 위한 활성 구역 */
+    function getActiveNdtDispGroup() {
+        const id = window._activeNdtDispGroupId;
+        if (!id) return null;
+        return getCurrentFloorDisplacementGroups(currentNdtCategory).find(g => g.id === id) || null;
+    }
+
+    function setActiveNdtDispGroup(groupOrId) {
+        if (!groupOrId) {
+            window._activeNdtDispGroupId = null;
+            window._ndtDisplacementTemplate = null;
+            return null;
+        }
+        const id = typeof groupOrId === 'string' ? groupOrId : groupOrId.id;
+        window._activeNdtDispGroupId = id;
+        const g = getActiveNdtDispGroup();
+        if (!g) {
+            window._activeNdtDispGroupId = null;
+            window._ndtDisplacementTemplate = null;
+            return null;
+        }
+        window._ndtDisplacementTemplate = {
+            groupId: g.id,
+            groupNo: g.groupNo,
+            locationType: g.locationType,
+            nextPointNo: (g.points || []).length + 1
+        };
+        return g;
+    }
+
+    function refreshNdtDispActiveTemplate() {
+        const g = getActiveNdtDispGroup();
+        if (g) setActiveNdtDispGroup(g);
+        else window._ndtDisplacementTemplate = null;
     }
 
     // 외벽 기울기: 높이 H(mm) 대비 변위량(mm)으로 1/H 기울기 비율과 기울기 안전등급 산정
@@ -2341,13 +2805,19 @@ document.addEventListener('DOMContentLoaded', () => {
             const groupSize = getStyleSize(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement');
             for (let j = group.points.length - 1; j >= 0; j--) {
                 const p = group.points[j];
-                if (Math.hypot(vx - p.x, vy - p.y) < 22 * groupSize.pin) {
+                // 원 + 아래 (01) 라벨 영역까지 히트
+                const labelY = p.y + 18 * groupSize.pin;
+                if (Math.hypot(vx - p.x, vy - p.y) < 16 * groupSize.pin
+                    || Math.hypot(vx - p.x, vy - labelY) < 14 * groupSize.pin) {
                     return { type: 'point', group, point: p };
                 }
             }
             const bx = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
             const by = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
-            if (Math.hypot(vx - bx, vy - by) < 34 * groupSize.pin) {
+            const groupStyleKey = group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement';
+            let groupNoStr = formatPinNumberLabel(group.groupNo || 'NO.01', groupStyleKey);
+            const groupDim = measurePinBoxDimensions(state.ctx || null, groupNoStr, groupSize.pin, 1);
+            if (isPointInsideMarkBox(vx, vy, bx, by, groupDim.w, groupDim.h, ndtRotationAngle || 0)) {
                 return { type: 'box', group };
             }
         }
@@ -2460,11 +2930,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnPan) btnPan.classList.toggle('active', mode === 'PAN');
         if (btnMark) btnMark.classList.toggle('active', mode === 'MARK');
         const canvas = document.getElementById('ndtCanvas');
-        if (canvas) canvas.style.cursor = mode === 'MARK' ? 'crosshair' : 'grab';
+        if (canvas) canvas.style.cursor = mode === 'MARK' ? 'crosshair' : 'default';
     };
 
     window.setNdtCategory = function(cat) {
         currentNdtCategory = cat;
+        setActiveNdtDispGroup(null);
+        selectedNdtIds.clear();
+        updateNdtSelectionBar();
         const catMap = { '실측': 'Dim', '강도': 'Strength', '탄산화': 'Carb', '기울기': 'Tilt', '변위': 'Vert', '부재변위': 'MemberDisp' };
         Object.values(catMap).forEach(id => {
             const btn = document.getElementById(`btnNdtCat${id}`);
@@ -2474,6 +2947,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeBtn) activeBtn.classList.add('active');
         if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
         if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+        if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
     };
 
     function drawNdtCanvas() {
@@ -2484,7 +2958,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const ch = canvas.height;
 
         ctx.clearRect(0, 0, cw, ch);
-        ctx.fillStyle = '#1b2333';
+        ctx.fillStyle = '#d0d0d0';
         ctx.fillRect(0, 0, cw, ch);
 
         ctx.save();
@@ -2523,9 +2997,34 @@ document.addEventListener('DOMContentLoaded', () => {
             // 강도 / 탄산화 탭: 같은 도면에 함께 표시 (부재 실측은 별도 도면)
             ndtItems = ndtItems.filter(item => ['강도', '탄산화'].includes(item.category));
         }
-        ndtItems.forEach(item => drawNdtPin(ctx, item));
+        ndtItems.forEach(item => {
+            drawNdtPin(ctx, item, ndtItems);
+            if (item && item.id && selectedNdtIds.has(item.id)) {
+                drawNdtSelectionHalo(ctx, item);
+            }
+        });
         if (currentCat === '변위' || currentCat === '부재변위') {
-            getCurrentFloorDisplacementGroups(currentCat).forEach(g => drawNdtDisplacementGroup(ctx, g));
+            getCurrentFloorDisplacementGroups(currentCat).forEach(g => {
+                drawNdtDisplacementGroup(ctx, g);
+                if (g && g.id && selectedNdtIds.has(ndtDispSelKey(g.id))) {
+                    drawNdtDispSelectionHalo(ctx, g);
+                }
+            });
+        }
+
+        if (isNdtMarqueeSelecting) {
+            const x1 = Math.min(ndtMarqueeStartX, ndtMarqueeCurX);
+            const y1 = Math.min(ndtMarqueeStartY, ndtMarqueeCurY);
+            const x2 = Math.max(ndtMarqueeStartX, ndtMarqueeCurX);
+            const y2 = Math.max(ndtMarqueeStartY, ndtMarqueeCurY);
+            ctx.save();
+            ctx.fillStyle = 'rgba(40, 40, 40, 0.12)';
+            ctx.strokeStyle = '#2a2a2a';
+            ctx.lineWidth = 1.5 / Math.max(ndtView.scale || 1, 0.01);
+            ctx.setLineDash([6 / Math.max(ndtView.scale || 1, 0.01), 4 / Math.max(ndtView.scale || 1, 0.01)]);
+            ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+            ctx.restore();
         }
 
         ctx.restore();
@@ -2538,11 +3037,228 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tblTitleEl) tblTitleEl.textContent = `지상 ${flLabel}`;
     }
 
-    function drawNdtPin(ctx, item) {
-        const x = item.boxX !== undefined ? item.boxX : (item.x || 100);
-        const y = item.boxY !== undefined ? item.boxY : (item.y || 100);
-        const targetX = item.targetX !== undefined ? item.targetX : (item.x || x);
-        const targetY = item.targetY !== undefined ? item.targetY : (item.y || y);
+    function getNdtStrengthCarbTypeLabel(cat) {
+        if (cat === '강도') return '콘크리트 강도측정';
+        if (cat === '탄산화') return '콘크리트 탄산화';
+        return cat || '';
+    }
+
+    function drawNdtSelectionHalo(ctx, item) {
+        const bx = item.boxX !== undefined ? item.boxX : (item.x || 0);
+        const by = item.boxY !== undefined ? item.boxY : (item.y || 0);
+        const cat = item.category || '';
+        const pinScale = getStyleSize(getNdtStyleKey(cat)).pin;
+        let w = 60 * pinScale;
+        let h = 28 * pinScale;
+        if (cat === '기울기' || cat === '변위' || cat === '부재변위') {
+            w = 168 * pinScale;
+            h = 44 * pinScale;
+        } else if (cat === '강도' || cat === '탄산화') {
+            const dims = measureNdtTypeCalloutDimensions(ctx, item.no || 'NO.01', getNdtStrengthCarbTypeLabel(cat), pinScale);
+            w = dims.boxW;
+            h = dims.boxH;
+        }
+        ctx.save();
+        ctx.translate(bx, by);
+        if (ndtRotationAngle === 90) ctx.rotate((-90 * Math.PI) / 180);
+        else if (ndtRotationAngle === 180) ctx.rotate((-180 * Math.PI) / 180);
+        else if (ndtRotationAngle === 270) ctx.rotate((-270 * Math.PI) / 180);
+        ctx.strokeStyle = '#6b6b6b';
+        ctx.lineWidth = Math.max(2, 2.4 * pinScale);
+        ctx.setLineDash([]);
+        ctx.strokeRect(-w / 2 - 3 * pinScale, -h / 2 - 3 * pinScale, w + 6 * pinScale, h + 6 * pinScale);
+        ctx.restore();
+    }
+
+    function drawNdtDispSelectionHalo(ctx, group) {
+        const pinScale = getStyleSize(group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement').pin;
+        const bx = group.boxX !== undefined ? group.boxX : (group.points?.[0]?.x || 0);
+        const by = group.boxY !== undefined ? group.boxY : (group.points?.[0]?.y || 0);
+        const label = group.groupNo || 'NO.01';
+        const dim = measurePinBoxDimensions(ctx, label, pinScale, 1);
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.strokeStyle = '#6b6b6b';
+        ctx.lineWidth = Math.max(2, 2.4 * pinScale);
+        ctx.strokeRect(-dim.w / 2 - 3 * pinScale, -dim.h / 2 - 3 * pinScale, dim.w + 6 * pinScale, dim.h + 6 * pinScale);
+        ctx.restore();
+    }
+
+    // 강도·탄산화 자석/자동스택 제거 — 박스는 저장된 좌표 그대로 사용
+
+    function measureNdtTypeCalloutDimensions(ctx, noStr, typeLabel, pinScale) {
+        const fontNo = Math.max(10, Math.round(12 * pinScale));
+        const fontType = Math.max(10, Math.round(11 * pinScale));
+        const padX = 8 * pinScale;
+        const padY = 5 * pinScale;
+        const gap = 6 * pinScale;
+        let noW = String(noStr || 'NO.01').length * fontNo * 0.62;
+        let typeW = String(typeLabel || '').length * fontType * 0.62;
+        if (ctx) {
+            ctx.save();
+            ctx.font = `bold ${fontNo}px sans-serif`;
+            noW = ctx.measureText(noStr || 'NO.01').width;
+            ctx.font = `bold ${fontType}px sans-serif`;
+            typeW = ctx.measureText(typeLabel || '').width;
+            ctx.restore();
+        }
+        const col1W = Math.max(44 * pinScale, noW + padX * 2);
+        const col2W = Math.max(110 * pinScale, typeW + padX * 2);
+        const boxH = Math.max(22 * pinScale, fontType + padY * 2);
+        return {
+            boxW: col1W + col2W,
+            boxH,
+            col1W,
+            col2W,
+            fontNo,
+            fontType,
+            gap
+        };
+    }
+
+    function formatNdtTiltValue(item) {
+        const raw = item && (item.avgValue != null && item.avgValue !== ''
+            ? item.avgValue
+            : (item.v1 != null && item.v1 !== '' ? item.v1 : null));
+        if (raw == null) return '—';
+        const s = String(raw).trim();
+        if (!s) return '—';
+        if (/mm/i.test(s)) return s;
+        const n = parseFloat(s);
+        if (Number.isFinite(n)) return `${n}mm`;
+        return s;
+    }
+
+    function normalizeNdtDispDirSymbol(dir) {
+        const d = String(dir || '').trim();
+        // 변위 0mm — 방향 없음
+        if (d === '-' || d === '−' || d === '–' || d === '—' || d === '0' || d === '없음' || d.toLowerCase() === 'none') {
+            return '-';
+        }
+        const map = {
+            '→': '→', '←': '←', '↑': '↑', '↓': '↓',
+            '↗': '↗', '↖': '↖', '↘': '↘', '↙': '↙',
+            '➡': '→', '⬅': '←', '⬆': '↑', '⬇': '↓',
+            '⇒': '→', '⇐': '←', '⇑': '↑', '⇓': '↓',
+            '>': '→', '<': '←', '^': '↑', 'v': '↓', 'V': '↓'
+        };
+        return map[d] || d || '→';
+    }
+
+    /**
+     * 외벽 기울기 콜아웃 — 흰 배경 표(NO | 변위량/값 · 변위방향/화살표) + 측정점 지시 화살표
+     */
+    function drawNdtTiltCallout(ctx, opts) {
+        const {
+            item, noStr, cat, boxX, boxY, targetX, targetY,
+            pinScale, arrowScale, color, isBeingDragged, rotationAngle
+        } = opts;
+        const tiltVal = formatNdtTiltValue(item);
+        const dispDir = normalizeNdtDispDirSymbol(item.dispDirection);
+        const amountLabel = (cat === '부재변위') ? '처 짐 량' : '변 위 량';
+
+        // 표 치수 (참고 이미지 비율)
+        const boxW = 168 * pinScale;
+        const boxH = 44 * pinScale;
+        const col1W = 52 * pinScale;
+        const col2W = 58 * pinScale;
+        const col3W = boxW - col1W - col2W;
+        const lineW = Math.max(1.1, getNdtLeaderLineWidth(pinScale, isBeingDragged, getNdtStyleKey(cat || '기울기')) * 0.85);
+        const headLen = (isBeingDragged ? 18 : 15) * arrowScale;
+
+        // 지시선: 박스에서 측정점으로 — 가장 가까운 변에서 시작, 끝은 채워진 화살촉
+        const anchor = getPinLeaderBoxEdgeCenterAnchor(boxX, boxY, targetX, targetY, boxW, boxH, rotationAngle || 0);
+        const ux = targetX - anchor.x;
+        const uy = targetY - anchor.y;
+        const dist = Math.hypot(ux, uy);
+
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.fillStyle = color;
+        ctx.lineWidth = Math.max(1.8, lineW * 1.35) * (arrowScale / Math.max(pinScale, 0.01));
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+        if (dist > 4) {
+            const stemEnd = getArrowStemEndPoint(targetX, targetY, ux, uy, headLen * 0.85);
+            ctx.beginPath();
+            ctx.moveTo(anchor.x, anchor.y);
+            ctx.lineTo(stemEnd.x, stemEnd.y);
+            if (isBeingDragged) ctx.setLineDash([5, 3]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            const angle = Math.atan2(uy, ux);
+            ctx.beginPath();
+            ctx.moveTo(targetX, targetY);
+            ctx.lineTo(
+                targetX - headLen * Math.cos(angle - Math.PI / 7),
+                targetY - headLen * Math.sin(angle - Math.PI / 7)
+            );
+            ctx.lineTo(
+                targetX - headLen * Math.cos(angle + Math.PI / 7),
+                targetY - headLen * Math.sin(angle + Math.PI / 7)
+            );
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.restore();
+
+        // 표
+        ctx.save();
+        ctx.translate(boxX, boxY);
+        if (rotationAngle === 90) {
+            ctx.rotate((-90 * Math.PI) / 180);
+        } else if (rotationAngle === 180) {
+            ctx.rotate((-180 * Math.PI) / 180);
+        } else if (rotationAngle === 270) {
+            ctx.rotate((-270 * Math.PI) / 180);
+        }
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineW;
+        ctx.beginPath();
+        ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
+        ctx.stroke();
+
+        // 격자: 세로 2줄 + 가로 1줄(오른쪽만)
+        ctx.beginPath();
+        ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
+        ctx.lineTo(-boxW / 2 + col1W, boxH / 2);
+        ctx.moveTo(-boxW / 2 + col1W + col2W, -boxH / 2);
+        ctx.lineTo(-boxW / 2 + col1W + col2W, boxH / 2);
+        ctx.moveTo(-boxW / 2 + col1W, 0);
+        ctx.lineTo(boxW / 2, 0);
+        ctx.stroke();
+
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // 좌측 NO
+        ctx.font = `bold ${Math.round(15 * pinScale)}px sans-serif`;
+        ctx.fillText(noStr, -boxW / 2 + col1W / 2, 0);
+
+        // 중·우 셀
+        const midX = -boxW / 2 + col1W + col2W / 2;
+        const rightX = -boxW / 2 + col1W + col2W + col3W / 2;
+        ctx.font = `bold ${Math.round(10.5 * pinScale)}px sans-serif`;
+        ctx.fillText(amountLabel, midX, -boxH / 4);
+        ctx.fillText('변위방향', midX, boxH / 4);
+
+        ctx.font = `bold ${Math.round(12.5 * pinScale)}px sans-serif`;
+        ctx.fillText(tiltVal, rightX, -boxH / 4);
+        ctx.font = `bold ${Math.round(18 * pinScale)}px sans-serif`;
+        ctx.fillText(dispDir, rightX, boxH / 4);
+
+        ctx.restore();
+    }
+
+    function drawNdtPin(ctx, item, allItems) {
+        const baseBoxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
+        const baseBoxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
+        const targetX = item.targetX !== undefined ? item.targetX : (item.x || baseBoxX);
+        const targetY = item.targetY !== undefined ? item.targetY : (item.y || baseBoxY);
         const isBeingDragged = (typeof activeDragNdtPin !== 'undefined' && activeDragNdtPin && activeDragNdtPin === item);
         const cat = item.category || '강도';
         const ndtStyleKey = getNdtStyleKey(cat);
@@ -2550,6 +3266,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const ndtShapeCfg = getStyleShape(ndtStyleKey);
         const pinScale = ndtSize.pin;
         const arrowScale = ndtSize.arrow;
+        const useCircleTip = state.tipShape === 'circle';
 
         let noStr = item.no || 'NO.01';
         if (noStr.startsWith('기울기-') || noStr.startsWith('NDT-') || noStr.startsWith('변위-')) {
@@ -2558,48 +3275,60 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         noStr = formatPinNumberLabel(noStr, ndtStyleKey);
 
+        // 외벽 기울기: 참고 디자인 — NO | 변위량/값 · 변위방향/화살표 표 + 지시 화살표
         if (cat === '기울기' || cat === '변위' || cat === '부재변위') {
-            // CAD Callout Style rendering (100% matching user reference photo & draggable!)
-            const tiltVal = item.avgValue || (item.v1 ? `${item.v1}mm` : '3mm');
-            const dispDir = item.dispDirection || '←';
-            const calloutColor = getStyleColor(ndtStyleKey);
+            drawNdtTiltCallout(ctx, {
+                item,
+                noStr,
+                cat,
+                boxX: baseBoxX,
+                boxY: baseBoxY,
+                targetX,
+                targetY,
+                pinScale,
+                arrowScale,
+                color: isBeingDragged ? '#facc15' : getStyleColor(ndtStyleKey),
+                isBeingDragged,
+                rotationAngle: ndtRotationAngle || 0
+            });
+            return;
+        }
+
+        // 강도·탄산화: 2열 콜아웃 (NO | 콘크리트 강도측정/탄산화) + 측정점 원
+        if (cat === '강도' || cat === '탄산화') {
+            const typeLabel = getNdtStrengthCarbTypeLabel(cat);
+            const color = isBeingDragged ? '#facc15' : getStyleColor(ndtStyleKey);
+            const dims = measureNdtTypeCalloutDimensions(ctx, noStr, typeLabel, pinScale);
+            const boxX = baseBoxX;
+            const boxY = baseBoxY;
+
+            // 지시선: 콜아웃 박스 모서리 → 측정점 (항상 원 끝)
+            const anchor = getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, dims.boxW, dims.boxH, ndtRotationAngle || 0);
+            const tipR = (isBeingDragged ? 5.5 : 4) * arrowScale;
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.fillStyle = color;
+            ctx.lineWidth = getNdtLeaderLineWidth(pinScale, isBeingDragged, ndtStyleKey);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            if (Math.hypot(targetX - anchor.x, targetY - anchor.y) > 3) {
+                const ux = targetX - anchor.x;
+                const uy = targetY - anchor.y;
+                const stemEnd = getArrowStemEndPoint(targetX, targetY, ux, uy, tipR);
+                ctx.beginPath();
+                ctx.moveTo(anchor.x, anchor.y);
+                ctx.lineTo(stemEnd.x, stemEnd.y);
+                if (isBeingDragged) ctx.setLineDash([5, 3]);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.beginPath();
+            ctx.arc(targetX, targetY, tipR, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
 
             ctx.save();
-
-            // 1. Draw Arrow pointing from Box to Target Point
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
-            ctx.fillStyle = isBeingDragged ? '#facc15' : calloutColor;
-            ctx.lineWidth = (isBeingDragged ? 4.5 : 3.5) * arrowScale;
-
-            const dx = targetX - x;
-            const dy = targetY - y;
-            const dist = Math.hypot(dx, dy);
-
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(targetX, targetY);
-            if (isBeingDragged) ctx.setLineDash([5, 3]);
-            ctx.stroke();
-            ctx.setLineDash([]);
-
-            // 지시선 끝 모양(state.tipShape) 설정에 따라 화살표머리 또는 원 중 하나만 표시 (동시에 둘 다 그리지 않음)
-            if (state.tipShape === 'circle') {
-                ctx.beginPath();
-                ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4) * arrowScale, 0, Math.PI * 2);
-                ctx.fill();
-            } else if (dist > 5) {
-                const angle = Math.atan2(dy, dx);
-                const headLen = (isBeingDragged ? 16 : 14) * arrowScale;
-                ctx.beginPath();
-                ctx.moveTo(targetX, targetY);
-                ctx.lineTo(targetX - headLen * Math.cos(angle - Math.PI / 6), targetY - headLen * Math.sin(angle - Math.PI / 6));
-                ctx.lineTo(targetX - headLen * Math.cos(angle + Math.PI / 6), targetY - headLen * Math.sin(angle + Math.PI / 6));
-                ctx.closePath();
-                ctx.fill();
-            }
-
-            // 2. Draw 3-Column CAD Table Box at (x, y) - Un-rotated to stay 100% horizontal on user screen!
-            ctx.translate(x, y);
+            ctx.translate(boxX, boxY);
             if (ndtRotationAngle === 90) {
                 ctx.rotate((-90 * Math.PI) / 180);
             } else if (ndtRotationAngle === 180) {
@@ -2608,109 +3337,78 @@ document.addEventListener('DOMContentLoaded', () => {
                 ctx.rotate((-270 * Math.PI) / 180);
             }
 
-            const boxW = 190 * pinScale;
-            const boxH = 50 * pinScale;
-            const col1W = 60 * pinScale;
-            const col2W = 65 * pinScale;
-            const col3W = 65 * pinScale;
-
-            // Box Background & Outer Border (채우기 유무/모양은 카테고리 설정을 따름)
-            const calloutBgColor = ndtShapeCfg.fill ? calloutColor : '#ffffff';
-            const calloutTextColor = ndtShapeCfg.fill ? '#ffffff' : (isBeingDragged ? '#d97706' : calloutColor);
-            ctx.fillStyle = calloutBgColor;
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutColor;
-            ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
-            if (isBeingDragged) {
-                ctx.shadowColor = '#facc15';
-                ctx.shadowBlur = 12 * pinScale;
-            }
-            traceStyledBoxPath(ctx, boxW, boxH, ndtShapeCfg.shape, 8 * pinScale);
-            ctx.fill();
+            const { boxW, boxH, col1W, fontNo, fontType } = dims;
+            ctx.strokeStyle = color;
+            ctx.lineWidth = getNdtLeaderLineWidth(pinScale, isBeingDragged, ndtStyleKey);
+            ctx.beginPath();
+            ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
             ctx.stroke();
-            ctx.shadowBlur = 0;
 
-            // Vertical & Horizontal Grid Dividers
-            ctx.strokeStyle = isBeingDragged ? '#facc15' : calloutTextColor;
-            ctx.lineWidth = 1.5 * pinScale;
             ctx.beginPath();
             ctx.moveTo(-boxW / 2 + col1W, -boxH / 2);
             ctx.lineTo(-boxW / 2 + col1W, boxH / 2);
-
-            ctx.moveTo(-boxW / 2 + col1W + col2W, -boxH / 2);
-            ctx.lineTo(-boxW / 2 + col1W + col2W, boxH / 2);
-
-            ctx.moveTo(-boxW / 2 + col1W, 0);
-            ctx.lineTo(boxW / 2, 0);
             ctx.stroke();
 
-            // Cell Text Formatting
-            ctx.fillStyle = calloutTextColor;
+            ctx.fillStyle = color;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-
-            // Column 1: NO.01
-            ctx.font = `bold ${Math.round(13 * pinScale)}px monospace`;
+            ctx.font = `bold ${fontNo}px sans-serif`;
             ctx.fillText(noStr, -boxW / 2 + col1W / 2, 0);
-
-            // Column 2: Top "변 위 량" / "처 짐 량", Bottom "변위방향"
-            const labelTop = (cat === '부재변위') ? '처 짐 량' : '변 위 량';
-            ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
-            ctx.fillText(labelTop, -boxW / 2 + col1W + col2W / 2, -boxH / 4);
-            ctx.fillText('변위방향', -boxW / 2 + col1W + col2W / 2, boxH / 4);
-
-            // Column 3: Top tiltVal (e.g. 3mm), Bottom dispDir (e.g. ←)
-            ctx.font = `bold ${Math.round(12 * pinScale)}px sans-serif`;
-            ctx.fillText(tiltVal, -boxW / 2 + col1W + col2W + col3W / 2, -boxH / 4);
-
-            ctx.font = `bold ${Math.round(16 * pinScale)}px sans-serif`;
-            ctx.fillText(dispDir, -boxW / 2 + col1W + col2W + col3W / 2, boxH / 4);
-
+            ctx.font = `bold ${fontType}px sans-serif`;
+            ctx.fillText(typeLabel, -boxW / 2 + col1W + (boxW - col1W) / 2, 0);
             ctx.restore();
             return;
         }
 
-        // Standard Pin for other NDT items
-        const catColors = {
-            '실측': getStyleColor('ndtMeasure'),
-            '강도': getStyleColor('ndtStrength'),
-            '탄산화': getStyleColor('ndtCarbonation')
-        };
-        const color = isBeingDragged ? '#facc15' : (catColors[cat] || '#38bdf8');
+        // 실측: 결함위치도와 동일 핀 스타일 (NDT 전용 크기·굵기)
+        const boxX = baseBoxX;
+        const boxY = baseBoxY;
+        const color = isBeingDragged ? '#facc15' : getStyleColor(ndtStyleKey);
+        const { w, h } = measurePinBoxDimensions(ctx, noStr, pinScale, 1);
 
-        // 리더라인(화살표): 번호 박스(x,y) -> 실제 측정 지점(targetX,targetY)
-        const stdDx = targetX - x;
-        const stdDy = targetY - y;
-        const stdDist = Math.hypot(stdDx, stdDy);
-        if (stdDist > 3) {
+        const anchor = getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, w, h, ndtRotationAngle || 0);
+        const headLen = (isBeingDragged ? 13 : 10) * arrowScale;
+        const stemInset = useCircleTip
+            ? (isBeingDragged ? 6 : 4.5) * arrowScale
+            : headLen * Math.cos(Math.PI / 6);
+        const ux = targetX - anchor.x;
+        const uy = targetY - anchor.y;
+        const stemEnd = stemInset > 0
+            ? getArrowStemEndPoint(targetX, targetY, ux, uy, stemInset)
+            : { x: targetX, y: targetY };
+
+        if (Math.hypot(ux, uy) > 3) {
             ctx.save();
             ctx.strokeStyle = color;
             ctx.fillStyle = color;
-            ctx.lineWidth = (isBeingDragged ? 4 : 3) * arrowScale;
+            ctx.lineWidth = getNdtLeaderLineWidth(pinScale, isBeingDragged, ndtStyleKey);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(targetX, targetY);
+            ctx.moveTo(anchor.x, anchor.y);
+            ctx.lineTo(stemEnd.x, stemEnd.y);
             if (isBeingDragged) ctx.setLineDash([5, 3]);
             ctx.stroke();
             ctx.setLineDash([]);
 
-            const stdAngle = Math.atan2(stdDy, stdDx);
-            const stdHeadLen = (isBeingDragged ? 14 : 12) * arrowScale;
-            ctx.beginPath();
-            ctx.moveTo(targetX, targetY);
-            ctx.lineTo(targetX - stdHeadLen * Math.cos(stdAngle - Math.PI / 6), targetY - stdHeadLen * Math.sin(stdAngle - Math.PI / 6));
-            ctx.lineTo(targetX - stdHeadLen * Math.cos(stdAngle + Math.PI / 6), targetY - stdHeadLen * Math.sin(stdAngle + Math.PI / 6));
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.beginPath();
-            ctx.arc(targetX, targetY, (isBeingDragged ? 5 : 3.5) * arrowScale, 0, Math.PI * 2);
-            ctx.fill();
+            if (useCircleTip) {
+                ctx.beginPath();
+                ctx.arc(targetX, targetY, (isBeingDragged ? 6 : 4.5) * arrowScale, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                const angle = Math.atan2(uy, ux);
+                ctx.beginPath();
+                ctx.moveTo(targetX, targetY);
+                ctx.lineTo(targetX - headLen * Math.cos(angle - Math.PI / 6), targetY - headLen * Math.sin(angle - Math.PI / 6));
+                ctx.lineTo(targetX - headLen * Math.cos(angle + Math.PI / 6), targetY - headLen * Math.sin(angle + Math.PI / 6));
+                ctx.closePath();
+                ctx.fill();
+            }
             ctx.restore();
         }
 
         ctx.save();
-        ctx.translate(x, y);
-        // 보는 방향(도면 회전)과 무관하게 번호 박스는 항상 똑바로 보이도록 역회전
+        ctx.translate(boxX, boxY);
         if (ndtRotationAngle === 90) {
             ctx.rotate((-90 * Math.PI) / 180);
         } else if (ndtRotationAngle === 180) {
@@ -2719,101 +3417,83 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.rotate((-270 * Math.PI) / 180);
         }
 
-        const stdBgColor = ndtShapeCfg.fill ? color : '#ffffff';
-        const stdTextColor = ndtShapeCfg.fill ? '#ffffff' : color;
-        ctx.fillStyle = stdBgColor;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = (isBeingDragged ? 3.5 : 2.5) * pinScale;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = (isBeingDragged ? 16 : 8) * pinScale;
-
-        const w = 78 * pinScale;
-        const h = 26 * pinScale;
-        traceStyledBoxPath(ctx, w, h, ndtShapeCfg.shape, 6 * pinScale);
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = stdTextColor;
-        ctx.font = `bold ${Math.round(11 * pinScale)}px sans-serif`;
+        // 비파괴 실측: 투명 배경 + 색 테두리/글자 (결함위치도와 동일)
+        paintPinBox(ctx, w, h, ndtShapeCfg, color, pinScale, 1, isBeingDragged, getNdtLeaderLineScale(ndtStyleKey));
+        ctx.fillStyle = getPinBoxTextColor(color, ndtShapeCfg, isBeingDragged);
+        ctx.font = `bold ${getPinBoxFontSize(pinScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(noStr, 0, 0);
-
         ctx.restore();
     }
 
-    // 바닥 수직변위: 그룹 라벨 박스(측정위치) 1개 + 각 레벨 포인트로 뻗는 리더라인 + 포인트 원(순번/레벨값)
+    // 바닥 수직변위: 그룹 NO.박스 + 측정점(작은 원 + 아래 (01)(02)… 순번)
+    function formatNdtDisplacementPointLabel(seq) {
+        const n = Math.max(1, parseInt(seq, 10) || 1);
+        return `(${String(n).padStart(2, '0')})`;
+    }
+
     function drawNdtDisplacementGroup(ctx, group) {
         const groupStyleKey = group.category === '부재변위' ? 'ndtMemberDisp' : 'ndtSettlement';
         const groupSize = getStyleSize(groupStyleKey);
         const pinScale = groupSize.pin;
-        const arrowScale = groupSize.arrow;
         const color = group.color || getStyleColor(groupStyleKey);
         const boxX = group.boxX !== undefined ? group.boxX : (group.points[0] ? group.points[0].x : 100);
         const boxY = group.boxY !== undefined ? group.boxY : (group.points[0] ? group.points[0].y : 100);
         const isGroupDragged = activeDragNdtDisplacementGroup === group && !activeDragNdtDisplacementPoint;
-
-        // 리더라인: 박스 -> 각 포인트 (선은 그대로 그리되 투명 처리하여 화면에는 보이지 않음)
-        group.points.forEach(p => {
-            ctx.save();
-            ctx.beginPath();
-            ctx.moveTo(boxX, boxY);
-            ctx.lineTo(p.x, p.y);
-            ctx.strokeStyle = 'transparent';
-            ctx.lineWidth = 1.5 * arrowScale;
-            ctx.setLineDash([3, 3]);
-            ctx.stroke();
-            ctx.restore();
-        });
-
-        // 포인트 원 (순번 + 레벨값)
         const groupCounterRotate = ndtRotationAngle === 90 ? -90 : (ndtRotationAngle === 180 ? -180 : (ndtRotationAngle === 270 ? -270 : 0));
+
+        // 측정점: 작은 원 + 바로 아래 (01)(02)… (그룹 내 1부터 1씩 증가)
         group.points.forEach((p, idx) => {
             const isPtDragged = activeDragNdtDisplacementGroup === group && activeDragNdtDisplacementPoint === p;
-            const r = (isPtDragged ? 15 : 12) * pinScale;
+            const r = (isPtDragged ? 7 : 5) * pinScale;
+            const seqLabel = formatNdtDisplacementPointLabel(idx + 1);
+            const fontSize = Math.max(9, Math.round(11 * pinScale));
+
             ctx.save();
             ctx.translate(p.x, p.y);
             ctx.fillStyle = isPtDragged ? '#facc15' : color;
             ctx.beginPath();
             ctx.arc(0, 0, r, 0, Math.PI * 2);
             ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.5 * pinScale;
-            ctx.stroke();
 
-            // 보는 방향(도면 회전)과 무관하게 순번 숫자는 항상 똑바로 보이도록 역회전, 측정값은 표시하지 않음
             if (groupCounterRotate) ctx.rotate((groupCounterRotate * Math.PI) / 180);
-            ctx.fillStyle = '#ffffff';
+            ctx.fillStyle = isPtDragged ? '#d97706' : color;
             ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = `bold ${Math.round(10 * pinScale)}px sans-serif`;
-            ctx.fillText(`${idx + 1}`, 0, 0);
+            ctx.textBaseline = 'top';
+            ctx.font = `bold ${fontSize}px sans-serif`;
+            ctx.fillText(seqLabel, 0, r + 2 * pinScale);
             ctx.restore();
         });
 
-        // 그룹 라벨 박스 (측정 구역 번호만 표시) — 보는 방향과 무관하게 항상 똑바로 보이도록 역회전
+        // 그룹 라벨 박스 (NO.xx) — 구역 식별
         const groupShapeCfg = getStyleShape(groupStyleKey);
+        let groupNoStr = group.groupNo || 'NO.01';
+        groupNoStr = formatPinNumberLabel(groupNoStr, groupStyleKey);
+        const groupDim = measurePinBoxDimensions(ctx, groupNoStr, pinScale, 1);
+        const isActiveZone = window._activeNdtDispGroupId && group.id === window._activeNdtDispGroupId;
         ctx.save();
         ctx.translate(boxX, boxY);
         if (groupCounterRotate) ctx.rotate((groupCounterRotate * Math.PI) / 180);
-        ctx.fillStyle = groupShapeCfg.fill ? color : '#ffffff';
-        ctx.strokeStyle = isGroupDragged ? '#facc15' : color;
-        ctx.lineWidth = (isGroupDragged ? 3 : 2) * pinScale;
-        const w = 56 * pinScale;
-        const h = 22 * pinScale;
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 5 * pinScale;
-        traceStyledBoxPath(ctx, w, h, groupShapeCfg.shape, 6 * pinScale);
-        ctx.fill();
+        const boxColor = isGroupDragged ? '#facc15' : (isActiveZone ? '#ea580c' : color);
+        // 투명 배경 + 색 테두리/글자
+        ctx.strokeStyle = boxColor;
+        ctx.lineWidth = getNdtLeaderLineWidth(pinScale, isGroupDragged || isActiveZone, groupStyleKey);
+        ctx.beginPath();
+        ctx.rect(-groupDim.w / 2, -groupDim.h / 2, groupDim.w, groupDim.h);
         ctx.stroke();
-        ctx.shadowBlur = 0;
-
-        ctx.fillStyle = groupShapeCfg.fill ? '#ffffff' : color;
+        if (isActiveZone && !isGroupDragged) {
+            ctx.strokeStyle = 'rgba(234,88,12,0.45)';
+            ctx.lineWidth = Math.max(1, 2 * pinScale);
+            ctx.setLineDash([4 * pinScale, 3 * pinScale]);
+            ctx.strokeRect(-groupDim.w / 2 - 3 * pinScale, -groupDim.h / 2 - 3 * pinScale, groupDim.w + 6 * pinScale, groupDim.h + 6 * pinScale);
+            ctx.setLineDash([]);
+        }
+        ctx.fillStyle = boxColor;
+        ctx.font = `bold ${getPinBoxFontSize(pinScale)}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.font = `bold ${Math.round(12 * pinScale)}px sans-serif`;
-        ctx.fillText(formatPinNumberLabel(group.groupNo, groupStyleKey), 0, 0);
+        ctx.fillText(groupNoStr, 0, 0);
         ctx.restore();
     }
 
@@ -2864,7 +3544,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (points.length === 0) {
                 ctx.font = '16px sans-serif';
-                ctx.fillStyle = '#94a3b8';
+                ctx.fillStyle = '#a3a3a3';
                 ctx.fillText('측정 지점이 없습니다.', cw / 2, ch / 2);
                 return canvas.toDataURL('image/png');
             }
@@ -2941,7 +3621,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ctx.font = 'bold 14px sans-serif';
             ctx.fillText('측정값', marginL, marginT + plotH + 55);
             ctx.font = '13px sans-serif';
-            const listText = points.map((p, idx) => `${idx + 1}번: ${p.level}mm`).join('    ');
+            const listText = points.map((p, idx) => `${formatNdtDisplacementPointLabel(idx + 1)}: ${p.level}mm`).join('    ');
             wrapCanvasText(ctx, listText, marginL, marginT + plotH + 78, plotW + marginR - 10, 20);
 
             return canvas.toDataURL('image/png');
@@ -2999,11 +3679,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 isNdtDragging = true;
                 isNdtMarkingDrag = false;
                 isNdtDisplacementMarking = false;
+                isNdtMarqueeSelecting = false;
+                isDraggingNdtPinGroup = false;
                 pendingNdtDispHit = null;
+                pendingNdtPinHit = null;
                 canvas.style.cursor = 'grabbing';
                 return;
             }
             if (e.button !== 0) return;
+            const additive = !!(e.ctrlKey || e.metaKey);
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
@@ -3019,13 +3703,38 @@ document.addEventListener('DOMContentLoaded', () => {
             ndtInitialOffsetY = ndtView.offsetY;
 
             // Check hit test on existing NDT pin (Box or Target point)
+            // 클릭=수정창 / 드래그=이동 — 임계값 넘기기 전에는 pending만 보관
             const hitPin = findNdtPinAt(vx, vy);
             if (hitPin) {
-                isDraggingNdtPin = true;
-                activeDragNdtPin = hitPin.item;
-                dragNdtPart = hitPin.part;
-                canvas.style.cursor = 'move';
-                drawNdtCanvas();
+                const id = hitPin.item && hitPin.item.id;
+                if (id) {
+                    if (additive) {
+                        if (selectedNdtIds.has(id)) selectedNdtIds.delete(id);
+                        else selectedNdtIds.add(id);
+                    } else if (!selectedNdtIds.has(id) || selectedNdtIds.size <= 1) {
+                        selectedNdtIds = new Set([id]);
+                    }
+                    updateNdtSelectionBar();
+                    drawNdtCanvas();
+                }
+                pendingNdtPinHit = {
+                    item: hitPin.item,
+                    part: hitPin.part,
+                    grabX: vx,
+                    grabY: vy,
+                    additive
+                };
+                return;
+            }
+
+            // 빈 곳 클릭 + 등록창 열려 있으면 닫기 (결함위치도와 동일)
+            if (ndtMode === 'PAN' && isNdtModalOpen()) {
+                closeNdtModal();
+                if (!additive) {
+                    selectedNdtIds.clear();
+                    updateNdtSelectionBar();
+                    drawNdtCanvas();
+                }
                 return;
             }
 
@@ -3033,7 +3742,19 @@ document.addEventListener('DOMContentLoaded', () => {
             if (currentNdtCategory === '변위' || currentNdtCategory === '부재변위') {
                 const hitDisp = findNdtDisplacementHit(vx, vy);
                 if (hitDisp) {
-                    pendingNdtDispHit = { hit: hitDisp };
+                    const gid = hitDisp.group && hitDisp.group.id;
+                    const selKey = gid ? ndtDispSelKey(gid) : null;
+                    if (selKey) {
+                        if (additive) {
+                            if (selectedNdtIds.has(selKey)) selectedNdtIds.delete(selKey);
+                            else selectedNdtIds.add(selKey);
+                        } else if (!selectedNdtIds.has(selKey) || selectedNdtIds.size <= 1) {
+                            selectedNdtIds = new Set([selKey]);
+                        }
+                        updateNdtSelectionBar();
+                        drawNdtCanvas();
+                    }
+                    pendingNdtDispHit = { hit: hitDisp, grabX: vx, grabY: vy, additive };
                     return;
                 }
                 if (ndtMode === 'MARK') {
@@ -3048,8 +3769,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 window._ndtMarkStartCoords = { x: vx, y: vy };
                 window._ndtMarkCurrentCoords = { x: vx, y: vy };
             } else {
-                isNdtDragging = true;
-                canvas.style.cursor = 'grabbing';
+                // 좌클릭 빈 곳 = 마퀴 선택 (화면 이동은 휠클릭)
+                isNdtMarqueeSelecting = true;
+                ndtMarqueeAdditive = additive;
+                ndtMarqueeStartX = vx;
+                ndtMarqueeStartY = vy;
+                ndtMarqueeCurX = vx;
+                ndtMarqueeCurY = vy;
+                canvas.style.cursor = 'crosshair';
+                drawNdtCanvas();
             }
         });
 
@@ -3065,6 +3793,45 @@ document.addEventListener('DOMContentLoaded', () => {
             const vx = pt.x;
             const vy = pt.y;
 
+            if (pendingNdtPinHit && !isDraggingNdtPin && !isDraggingNdtPinGroup) {
+                const dx = e.clientX - ndtStartMouseX;
+                const dy = e.clientY - ndtStartMouseY;
+                if (Math.hypot(dx, dy) > 6) {
+                    const item = pendingNdtPinHit.item;
+                    const grabX = pendingNdtPinHit.grabX;
+                    const grabY = pendingNdtPinHit.grabY;
+                    const multiGroup = item && item.id
+                        && selectedNdtIds.size > 1
+                        && selectedNdtIds.has(item.id)
+                        && pendingNdtPinHit.part === 'box';
+                    if (multiGroup) {
+                        isDraggingNdtPinGroup = true;
+                        ndtGroupDragLastX = grabX;
+                        ndtGroupDragLastY = grabY;
+                        pendingNdtPinHit = null;
+                        canvas.style.cursor = 'move';
+                    } else {
+                        isDraggingNdtPin = true;
+                        activeDragNdtPin = item;
+                        dragNdtPart = pendingNdtPinHit.part;
+                        if (dragNdtPart === 'target') {
+                            ndtPinDragOffsetX = grabX - (item.targetX !== undefined ? item.targetX : (item.x || 0));
+                            ndtPinDragOffsetY = grabY - (item.targetY !== undefined ? item.targetY : (item.y || 0));
+                        } else if (dragNdtPart === 'box') {
+                            ndtPinDragOffsetX = grabX - (item.boxX !== undefined ? item.boxX : (item.x || 0));
+                            ndtPinDragOffsetY = grabY - (item.boxY !== undefined ? item.boxY : (item.y || 0));
+                        } else {
+                            ndtPinDragOffsetX = grabX - (item.x || 0);
+                            ndtPinDragOffsetY = grabY - (item.y || 0);
+                        }
+                        pendingNdtPinHit = null;
+                        canvas.style.cursor = 'move';
+                    }
+                } else {
+                    return;
+                }
+            }
+
             if (pendingNdtDispHit && !isDraggingNdtDisplacement) {
                 const dx = e.clientX - ndtStartMouseX;
                 const dy = e.clientY - ndtStartMouseY;
@@ -3072,6 +3839,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     isDraggingNdtDisplacement = true;
                     activeDragNdtDisplacementGroup = pendingNdtDispHit.hit.group;
                     activeDragNdtDisplacementPoint = pendingNdtDispHit.hit.type === 'point' ? pendingNdtDispHit.hit.point : null;
+                    const grabX = pendingNdtDispHit.grabX;
+                    const grabY = pendingNdtDispHit.grabY;
+                    if (activeDragNdtDisplacementPoint) {
+                        ndtDispDragOffsetX = grabX - activeDragNdtDisplacementPoint.x;
+                        ndtDispDragOffsetY = grabY - activeDragNdtDisplacementPoint.y;
+                    } else {
+                        const g = activeDragNdtDisplacementGroup;
+                        const bx = g.boxX !== undefined ? g.boxX : (g.points[0] ? g.points[0].x : 0);
+                        const by = g.boxY !== undefined ? g.boxY : (g.points[0] ? g.points[0].y : 0);
+                        ndtDispDragOffsetX = grabX - bx;
+                        ndtDispDragOffsetY = grabY - by;
+                    }
                     pendingNdtDispHit = null;
                     canvas.style.cursor = 'move';
                 } else {
@@ -3081,30 +3860,55 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (isDraggingNdtDisplacement && activeDragNdtDisplacementGroup) {
                 if (activeDragNdtDisplacementPoint) {
-                    activeDragNdtDisplacementPoint.x = vx;
-                    activeDragNdtDisplacementPoint.y = vy;
+                    activeDragNdtDisplacementPoint.x = vx - ndtDispDragOffsetX;
+                    activeDragNdtDisplacementPoint.y = vy - ndtDispDragOffsetY;
                 } else {
-                    activeDragNdtDisplacementGroup.boxX = vx;
-                    activeDragNdtDisplacementGroup.boxY = vy;
+                    activeDragNdtDisplacementGroup.boxX = vx - ndtDispDragOffsetX;
+                    activeDragNdtDisplacementGroup.boxY = vy - ndtDispDragOffsetY;
                 }
                 drawNdtCanvas();
+            } else if (isDraggingNdtPinGroup) {
+                const dx = vx - ndtGroupDragLastX;
+                const dy = vy - ndtGroupDragLastY;
+                if (dx || dy) {
+                    const floorPins = getCurrentFloorNdtData();
+                    selectedNdtIds.forEach((id) => {
+                        if (String(id).startsWith('disp_')) {
+                            const gid = id.slice(5);
+                            const g = getCurrentFloorDisplacementGroups(currentNdtCategory).find(x => x.id === gid);
+                            if (g) translateNdtDispGroupBy(g, dx, dy);
+                        } else {
+                            const pin = floorPins.find(x => x.id === id);
+                            if (pin) translateNdtPinBy(pin, dx, dy);
+                        }
+                    });
+                    ndtGroupDragLastX = vx;
+                    ndtGroupDragLastY = vy;
+                    drawNdtCanvas();
+                }
             } else if (isDraggingNdtPin && activeDragNdtPin) {
                 if (dragNdtPart === 'target') {
-                    activeDragNdtPin.targetX = vx;
-                    activeDragNdtPin.targetY = vy;
+                    activeDragNdtPin.targetX = vx - ndtPinDragOffsetX;
+                    activeDragNdtPin.targetY = vy - ndtPinDragOffsetY;
                 } else if (dragNdtPart === 'box') {
-                    activeDragNdtPin.boxX = vx;
-                    activeDragNdtPin.boxY = vy;
+                    activeDragNdtPin.boxX = vx - ndtPinDragOffsetX;
+                    activeDragNdtPin.boxY = vy - ndtPinDragOffsetY;
                 } else {
-                    const dx = vx - (activeDragNdtPin.x || vx);
-                    const dy = vy - (activeDragNdtPin.y || vy);
-                    activeDragNdtPin.x = vx;
-                    activeDragNdtPin.y = vy;
-                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : vx) + dx;
-                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : vy) + dy;
-                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : vx) + dx;
-                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : vy) + dy;
+                    const newX = vx - ndtPinDragOffsetX;
+                    const newY = vy - ndtPinDragOffsetY;
+                    const dx = newX - (activeDragNdtPin.x || newX);
+                    const dy = newY - (activeDragNdtPin.y || newY);
+                    activeDragNdtPin.x = newX;
+                    activeDragNdtPin.y = newY;
+                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : newX) + dx;
+                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : newY) + dy;
+                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : newX) + dx;
+                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : newY) + dy;
                 }
+                drawNdtCanvas();
+            } else if (isNdtMarqueeSelecting) {
+                ndtMarqueeCurX = vx;
+                ndtMarqueeCurY = vy;
                 drawNdtCanvas();
             } else if (isNdtMarkingDrag) {
                 window._ndtMarkCurrentCoords = { x: vx, y: vy };
@@ -3115,17 +3919,40 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtView.offsetX = ndtInitialOffsetX + dx;
                 ndtView.offsetY = ndtInitialOffsetY + dy;
                 drawNdtCanvas();
+            } else if (mouseX >= 0 && mouseX <= rect.width && mouseY >= 0 && mouseY <= rect.height) {
+                if (ndtMode === 'MARK') {
+                    canvas.style.cursor = 'crosshair';
+                } else {
+                    const hit = findNdtPinAt(vx, vy);
+                    if (hit) {
+                        canvas.style.cursor = hit.part === 'target' ? 'pointer' : 'move';
+                    } else {
+                        canvas.style.cursor = 'default';
+                    }
+                }
             }
         });
 
         window.addEventListener('mouseup', (e) => {
+            if (pendingNdtPinHit && !isDraggingNdtPin && !isDraggingNdtPinGroup) {
+                const item = pendingNdtPinHit.item;
+                const wasAdditive = !!pendingNdtPinHit.additive;
+                pendingNdtPinHit = null;
+                if (item && !wasAdditive) openNdtModal(item.x || item.boxX || 0, item.y || item.boxY || 0, item);
+                return;
+            }
             if (pendingNdtDispHit && !isDraggingNdtDisplacement) {
                 const hit = pendingNdtDispHit.hit;
+                const wasAdditive = !!pendingNdtDispHit.additive;
                 pendingNdtDispHit = null;
+                if (wasAdditive) return;
                 if (hit.type === 'point') {
+                    setActiveNdtDispGroup(hit.group);
                     openNdtDisplacementModal(hit.point.x, hit.point.y, hit.group, hit.point);
                 } else {
+                    setActiveNdtDispGroup(hit.group);
                     openNdtDisplacementGroupEditModal(hit.group);
+                    window.showToast(`${hit.group.groupNo} 구역 활성 · 마킹 시 지점 번호가 이 구역에서 이어집니다`, 'info', 2800);
                 }
                 return;
             }
@@ -3136,7 +3963,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 activeDragNdtDisplacementPoint = null;
                 saveStateToLocalStorage();
                 const canvas = document.getElementById('ndtCanvas');
-                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'grab';
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'default';
                 drawNdtCanvas();
             }
             if (isNdtDisplacementMarking) {
@@ -3144,12 +3971,51 @@ document.addEventListener('DOMContentLoaded', () => {
                 const coords = window._ndtDispMarkCoords || { x: 100, y: 100 };
                 openNdtDisplacementModal(coords.x, coords.y);
             }
+            if (isDraggingNdtPinGroup) {
+                isDraggingNdtPinGroup = false;
+                saveStateToLocalStorage();
+                const canvas = document.getElementById('ndtCanvas');
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'default';
+                drawNdtCanvas();
+            }
             if (isDraggingNdtPin) {
+                if (activeDragNdtPin) {
+                    window._pendingNdtExtra = {
+                        targetX: activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : (activeDragNdtPin.x || 0),
+                        targetY: activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : (activeDragNdtPin.y || 0),
+                        boxX: activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : (activeDragNdtPin.x || 0),
+                        boxY: activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : (activeDragNdtPin.y || 0)
+                    };
+                }
                 isDraggingNdtPin = false;
                 activeDragNdtPin = null;
                 saveStateToLocalStorage();
                 const canvas = document.getElementById('ndtCanvas');
-                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'grab';
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'default';
+                drawNdtCanvas();
+            }
+            if (isNdtMarqueeSelecting) {
+                isNdtMarqueeSelecting = false;
+                const x1 = Math.min(ndtMarqueeStartX, ndtMarqueeCurX);
+                const y1 = Math.min(ndtMarqueeStartY, ndtMarqueeCurY);
+                const x2 = Math.max(ndtMarqueeStartX, ndtMarqueeCurX);
+                const y2 = Math.max(ndtMarqueeStartY, ndtMarqueeCurY);
+                const tiny = Math.hypot(x2 - x1, y2 - y1) < 6;
+                if (!ndtMarqueeAdditive) selectedNdtIds.clear();
+                if (!tiny) {
+                    collectNdtMarqueeHits(x1, y1, x2, y2).forEach((id) => {
+                        if (ndtMarqueeAdditive) {
+                            if (selectedNdtIds.has(id)) selectedNdtIds.delete(id);
+                            else selectedNdtIds.add(id);
+                        } else {
+                            selectedNdtIds.add(id);
+                        }
+                    });
+                }
+                ndtMarqueeAdditive = false;
+                updateNdtSelectionBar();
+                const canvas = document.getElementById('ndtCanvas');
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'default';
                 drawNdtCanvas();
             }
             if (isNdtMarkingDrag) {
@@ -3189,13 +4055,23 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isNdtDragging) {
                 isNdtDragging = false;
                 const canvas = document.getElementById('ndtCanvas');
-                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'grab';
+                if (canvas) canvas.style.cursor = ndtMode === 'MARK' ? 'crosshair' : 'default';
             }
         });
 
         canvas.addEventListener('auxclick', (e) => {
             if (e.button === 1) e.preventDefault();
         });
+
+        const btnDelNdtSel = document.getElementById('btnDeleteSelectedNdt');
+        if (btnDelNdtSel && !btnDelNdtSel.dataset.ndtSelBound) {
+            btnDelNdtSel.dataset.ndtSelBound = '1';
+            btnDelNdtSel.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                deleteSelectedNdtMarks();
+            });
+        }
 
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1 && !isNdtPinching) {
@@ -3216,17 +4092,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const hitPin = findNdtPinAt(vx, vy);
                 if (hitPin) {
-                    isDraggingNdtPin = true;
-                    activeDragNdtPin = hitPin.item;
-                    dragNdtPart = hitPin.part;
-                    drawNdtCanvas();
+                    pendingNdtPinHit = {
+                        item: hitPin.item,
+                        part: hitPin.part,
+                        grabX: vx,
+                        grabY: vy
+                    };
                     return;
                 }
 
                 if (currentNdtCategory === '변위' || currentNdtCategory === '부재변위') {
                     const hitDisp = findNdtDisplacementHit(vx, vy);
                     if (hitDisp) {
-                        pendingNdtDispHit = { hit: hitDisp };
+                        pendingNdtDispHit = { hit: hitDisp, grabX: vx, grabY: vy };
                         return;
                     }
                     if (ndtMode === 'MARK') {
@@ -3280,6 +4158,65 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (zoomTxt) zoomTxt.textContent = `${Math.round(ndtView.scale * 100)}%`;
                     drawNdtCanvas();
                 }
+            } else if (!isNdtPinching && (pendingNdtPinHit || isDraggingNdtPin) && e.touches.length === 1) {
+                const canvas = document.getElementById('ndtCanvas');
+                if (!canvas) return;
+                const touch = e.touches[0];
+
+                if (pendingNdtPinHit && !isDraggingNdtPin) {
+                    const dx = touch.clientX - ndtStartMouseX;
+                    const dy = touch.clientY - ndtStartMouseY;
+                    if (Math.hypot(dx, dy) > 6) {
+                        isDraggingNdtPin = true;
+                        activeDragNdtPin = pendingNdtPinHit.item;
+                        dragNdtPart = pendingNdtPinHit.part;
+                        const item = pendingNdtPinHit.item;
+                        const grabX = pendingNdtPinHit.grabX;
+                        const grabY = pendingNdtPinHit.grabY;
+                        if (dragNdtPart === 'target') {
+                            ndtPinDragOffsetX = grabX - (item.targetX !== undefined ? item.targetX : (item.x || 0));
+                            ndtPinDragOffsetY = grabY - (item.targetY !== undefined ? item.targetY : (item.y || 0));
+                        } else if (dragNdtPart === 'box') {
+                            ndtPinDragOffsetX = grabX - (item.boxX !== undefined ? item.boxX : (item.x || 0));
+                            ndtPinDragOffsetY = grabY - (item.boxY !== undefined ? item.boxY : (item.y || 0));
+                        } else {
+                            ndtPinDragOffsetX = grabX - (item.x || 0);
+                            ndtPinDragOffsetY = grabY - (item.y || 0);
+                        }
+                        pendingNdtPinHit = null;
+                    } else {
+                        return;
+                    }
+                }
+
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = touch.clientX - rect.left;
+                const mouseY = touch.clientY - rect.top;
+                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
+                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
+                const pt = viewToNdtImgCoords(rawVx, rawVy);
+                const vx = pt.x;
+                const vy = pt.y;
+
+                if (dragNdtPart === 'target') {
+                    activeDragNdtPin.targetX = vx - ndtPinDragOffsetX;
+                    activeDragNdtPin.targetY = vy - ndtPinDragOffsetY;
+                } else if (dragNdtPart === 'box') {
+                    activeDragNdtPin.boxX = vx - ndtPinDragOffsetX;
+                    activeDragNdtPin.boxY = vy - ndtPinDragOffsetY;
+                } else {
+                    const newX = vx - ndtPinDragOffsetX;
+                    const newY = vy - ndtPinDragOffsetY;
+                    const dx = newX - (activeDragNdtPin.x || newX);
+                    const dy = newY - (activeDragNdtPin.y || newY);
+                    activeDragNdtPin.x = newX;
+                    activeDragNdtPin.y = newY;
+                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : newX) + dx;
+                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : newY) + dy;
+                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : newX) + dx;
+                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : newY) + dy;
+                }
+                drawNdtCanvas();
             } else if (!isNdtPinching && (pendingNdtDispHit || isDraggingNdtDisplacement) && e.touches.length === 1) {
                 const canvas = document.getElementById('ndtCanvas');
                 if (!canvas) return;
@@ -3292,6 +4229,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         isDraggingNdtDisplacement = true;
                         activeDragNdtDisplacementGroup = pendingNdtDispHit.hit.group;
                         activeDragNdtDisplacementPoint = pendingNdtDispHit.hit.type === 'point' ? pendingNdtDispHit.hit.point : null;
+                        const grabX = pendingNdtDispHit.grabX;
+                        const grabY = pendingNdtDispHit.grabY;
+                        if (activeDragNdtDisplacementPoint) {
+                            ndtDispDragOffsetX = grabX - activeDragNdtDisplacementPoint.x;
+                            ndtDispDragOffsetY = grabY - activeDragNdtDisplacementPoint.y;
+                        } else {
+                            const g = activeDragNdtDisplacementGroup;
+                            const bx = g.boxX !== undefined ? g.boxX : (g.points[0] ? g.points[0].x : 0);
+                            const by = g.boxY !== undefined ? g.boxY : (g.points[0] ? g.points[0].y : 0);
+                            ndtDispDragOffsetX = grabX - bx;
+                            ndtDispDragOffsetY = grabY - by;
+                        }
                         pendingNdtDispHit = null;
                     } else {
                         return;
@@ -3308,41 +4257,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const vy = pt.y;
 
                 if (activeDragNdtDisplacementPoint) {
-                    activeDragNdtDisplacementPoint.x = vx;
-                    activeDragNdtDisplacementPoint.y = vy;
+                    activeDragNdtDisplacementPoint.x = vx - ndtDispDragOffsetX;
+                    activeDragNdtDisplacementPoint.y = vy - ndtDispDragOffsetY;
                 } else if (activeDragNdtDisplacementGroup) {
-                    activeDragNdtDisplacementGroup.boxX = vx;
-                    activeDragNdtDisplacementGroup.boxY = vy;
-                }
-                drawNdtCanvas();
-            } else if (!isNdtPinching && isDraggingNdtPin && e.touches.length === 1) {
-                const canvas = document.getElementById('ndtCanvas');
-                if (!canvas) return;
-                const rect = canvas.getBoundingClientRect();
-                const touch = e.touches[0];
-                const mouseX = touch.clientX - rect.left;
-                const mouseY = touch.clientY - rect.top;
-                const rawVx = (mouseX - ndtView.offsetX) / ndtView.scale;
-                const rawVy = (mouseY - ndtView.offsetY) / ndtView.scale;
-                const pt = viewToNdtImgCoords(rawVx, rawVy);
-                const vx = pt.x;
-                const vy = pt.y;
-
-                if (dragNdtPart === 'target') {
-                    activeDragNdtPin.targetX = vx;
-                    activeDragNdtPin.targetY = vy;
-                } else if (dragNdtPart === 'box') {
-                    activeDragNdtPin.boxX = vx;
-                    activeDragNdtPin.boxY = vy;
-                } else {
-                    const dx = vx - (activeDragNdtPin.x || vx);
-                    const dy = vy - (activeDragNdtPin.y || vy);
-                    activeDragNdtPin.x = vx;
-                    activeDragNdtPin.y = vy;
-                    activeDragNdtPin.boxX = (activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : vx) + dx;
-                    activeDragNdtPin.boxY = (activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : vy) + dy;
-                    activeDragNdtPin.targetX = (activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : vx) + dx;
-                    activeDragNdtPin.targetY = (activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : vy) + dy;
+                    activeDragNdtDisplacementGroup.boxX = vx - ndtDispDragOffsetX;
+                    activeDragNdtDisplacementGroup.boxY = vy - ndtDispDragOffsetY;
                 }
                 drawNdtCanvas();
             } else if (!isNdtPinching && isNdtMarkingDrag && e.touches.length === 1) {
@@ -3369,13 +4288,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
         window.addEventListener('touchend', (e) => {
             if (isNdtPinching && e.touches.length < 2) isNdtPinching = false;
+            if (pendingNdtPinHit && !isDraggingNdtPin) {
+                const item = pendingNdtPinHit.item;
+                pendingNdtPinHit = null;
+                if (item) openNdtModal(item.x || item.boxX || 0, item.y || item.boxY || 0, item);
+                return;
+            }
             if (pendingNdtDispHit && !isDraggingNdtDisplacement) {
                 const hit = pendingNdtDispHit.hit;
                 pendingNdtDispHit = null;
                 if (hit.type === 'point') {
+                    setActiveNdtDispGroup(hit.group);
                     openNdtDisplacementModal(hit.point.x, hit.point.y, hit.group, hit.point);
                 } else {
+                    setActiveNdtDispGroup(hit.group);
                     openNdtDisplacementGroupEditModal(hit.group);
+                    window.showToast(`${hit.group.groupNo} 구역 활성 · 마킹 시 지점 번호가 이 구역에서 이어집니다`, 'info', 2800);
                 }
                 return;
             }
@@ -3393,6 +4321,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 openNdtDisplacementModal(coords.x, coords.y);
             }
             if (isDraggingNdtPin) {
+                if (activeDragNdtPin) {
+                    window._pendingNdtExtra = {
+                        targetX: activeDragNdtPin.targetX !== undefined ? activeDragNdtPin.targetX : (activeDragNdtPin.x || 0),
+                        targetY: activeDragNdtPin.targetY !== undefined ? activeDragNdtPin.targetY : (activeDragNdtPin.y || 0),
+                        boxX: activeDragNdtPin.boxX !== undefined ? activeDragNdtPin.boxX : (activeDragNdtPin.x || 0),
+                        boxY: activeDragNdtPin.boxY !== undefined ? activeDragNdtPin.boxY : (activeDragNdtPin.y || 0)
+                    };
+                }
                 isDraggingNdtPin = false;
                 activeDragNdtPin = null;
                 saveStateToLocalStorage();
@@ -3502,12 +4438,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (items.length === 0) {
             const colSpan = (currentCat === '기울기' || currentCat === '변위' || currentCat === '부재변위') ? 7 : (currentCat === '실측' ? 9 : 8);
-            tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 ${currentCat} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="${colSpan}" style="text-align: center; color: #a3a3a3; padding: 1.5rem;">등록된 ${currentCat} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
             return;
         }
 
         const catBadges = {
-            '실측': '<span class="badge" style="background:rgba(2,132,199,0.2); color:#38bdf8; border:1px solid rgba(2,132,199,0.4);">📏 부재실측</span>',
+            '실측': '<span class="badge" style="background:rgba(2,132,199,0.2); color:#6b6b6b; border:1px solid rgba(2,132,199,0.4);">📏 부재실측</span>',
             '강도': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4);">🔨 콘크리트 강도</span>',
             '탄산화': '<span class="badge" style="background:rgba(234,179,8,0.2); color:#facc15; border:1px solid rgba(234,179,8,0.4);">🧪 탄산화</span>',
             '기울기': '<span class="badge" style="background:rgba(168,85,247,0.2); color:#c084fc; border:1px solid rgba(168,85,247,0.4);">📐 외벽기울기</span>',
@@ -3523,7 +4459,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const gradeBadges = {
             'a등급': '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a등급 (1/750이상)</span>',
-            'b등급': '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (1/500이하)</span>',
+            'b등급': '<span class="badge" style="background:rgba(56,189,248,0.2); color:#6b6b6b; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b등급 (1/500이하)</span>',
             'c등급': '<span class="badge" style="background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4); font-weight:800;">c등급 (1/250이하)</span>',
             'd등급': '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d등급 (1/150이하)</span>',
             'e등급': '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e등급 (1/150초과)</span>'
@@ -3532,7 +4468,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 부재단면 규격 등급(a~e) — [표 6.24] 단면적비율(c%) 기준, 별도 뱃지(문자 하나로 간결하게 표기)
         const sectionGradeBadges = {
             a: '<span class="badge" style="background:rgba(34,197,94,0.2); color:#4ade80; border:1px solid rgba(34,197,94,0.4); font-weight:800;">a</span>',
-            b: '<span class="badge" style="background:rgba(56,189,248,0.2); color:#38bdf8; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b</span>',
+            b: '<span class="badge" style="background:rgba(56,189,248,0.2); color:#6b6b6b; border:1px solid rgba(56,189,248,0.4); font-weight:800;">b</span>',
             c: '<span class="badge" style="background:rgba(250,204,21,0.2); color:#facc15; border:1px solid rgba(250,204,21,0.4); font-weight:800;">c</span>',
             d: '<span class="badge" style="background:rgba(249,115,22,0.2); color:#fb923c; border:1px solid rgba(249,115,22,0.4); font-weight:800;">d</span>',
             e: '<span class="badge" style="background:rgba(239,68,68,0.2); color:#f87171; border:1px solid rgba(239,68,68,0.4); font-weight:800;">e</span>'
@@ -3541,14 +4477,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentCat === '기울기' || currentCat === '부재변위') {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
-                    <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
-                    <td style="font-weight:700; color:#38bdf8;">${formatHeightValue(item.height)}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${formatHeightValue(item.height)}</td>
                     <td style="font-weight:800; color:#f8fafc;">${item.avgValue || '-'}</td>
                     <td style="font-weight:800; color:#c084fc;">${item.tiltRatio || '1/750'}</td>
                     <td>${gradeBadges[item.grade] || gradeBadges['a등급']}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
                     </td>
                 </tr>
@@ -3561,7 +4497,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? `${item.sectionRatio.toFixed(1)}%` : '-';
                 return `
                 <tr>
-                    <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
                     <td>${item.component || '기둥'}</td>
                     <td style="font-family:monospace; font-size:0.88rem;">${designText}</td>
@@ -3570,7 +4506,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="font-weight:800; color:#4ade80;">${ratioText}</td>
                     <td>${item.sectionGrade ? (sectionGradeBadges[item.sectionGrade] || item.sectionGrade) : '-'}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
                     </td>
                 </tr>
@@ -3579,7 +4515,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             tbody.innerHTML = items.map((item, idx) => `
                 <tr>
-                    <td style="font-weight:700; color:#38bdf8;">${item.no || (idx + 1)}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${item.no || (idx + 1)}</td>
                     <td>${catBadges[item.category] || item.category}</td>
                     <td style="font-weight:700;">${item.location || '위치미지정'}</td>
                     <td>${item.component || '기둥'}</td>
@@ -3587,7 +4523,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <td style="font-weight:800; color:#4ade80;">${item.avgValue || '-'}</td>
                     <td>${statusBadges[item.status] || '🟢 양호'}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtItem('${item.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtItem('${item.id}')">삭제</button>
                     </td>
                 </tr>
@@ -3617,7 +4553,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (groups.length === 0) {
             const labelStr = isMemberDisp ? '부재변위(부재처짐)' : '부동침하 기울기';
-            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #94a3b8; padding: 1.5rem;">등록된 ${labelStr} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #a3a3a3; padding: 1.5rem;">등록된 ${labelStr} 측정 데이터가 없습니다. 도면 상에 [📍 NDT 위치 마킹]을 클릭해 주세요.</td></tr>`;
             return;
         }
 
@@ -3627,13 +4563,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 <tr>
                     <td style="font-weight:800; color:${group.color || getStyleColor(isMemberDisp ? 'ndtMemberDisp' : 'ndtSettlement')};">${group.groupNo}</td>
                     <td style="font-weight:700;">${group.locationType} (${group.points.length}개 지점)</td>
-                    <td style="font-weight:700; color:#38bdf8;">${group.measureLength}</td>
+                    <td style="font-weight:700; color:#6b6b6b;">${group.measureLength}</td>
                     <td style="font-weight:800; color:#f8fafc;">${calc.delta.toFixed(1)}</td>
                     <td style="font-weight:800; color:#c084fc;">${calc.tiltRatio}</td>
                     <td>${NDT_GRADE_BADGES[calc.grade] || NDT_GRADE_BADGES['a등급']}</td>
                     <td>
-                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.showNdtDisplacementChart('${group.id}')">그래프</button>
-                        <button class="btn btn-sm btn-outline" style="border-color:#38bdf8; color:#38bdf8; padding:0.15rem 0.45rem;" onclick="window.editNdtDisplacementGroup('${group.id}')">수정</button>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.showNdtDisplacementChart('${group.id}')">그래프</button>
+                        <button class="btn btn-sm btn-outline" style="border-color:#6b6b6b; color:#6b6b6b; padding:0.15rem 0.45rem;" onclick="window.editNdtDisplacementGroup('${group.id}')">수정</button>
                         <button class="btn btn-sm btn-danger-outline" style="padding:0.15rem 0.45rem;" onclick="window.deleteNdtDisplacementGroup('${group.id}')">삭제</button>
                     </td>
                 </tr>
@@ -3983,6 +4919,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const idx = parseInt(e.target.dataset.idx, 10);
                 ndtStrengthSlots[slotIdx].readings[idx] = e.target.value;
                 recalcStrengthSlot(slotIdx);
+                scheduleNdtAutoApply();
             });
         });
         container.querySelectorAll('.ndt-r-value-remove').forEach(el => {
@@ -3992,6 +4929,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 container.innerHTML = rValueChipsHtml(slotIdx);
                 wireRValueChipEvents(slotIdx);
                 recalcStrengthSlot(slotIdx);
+                scheduleNdtAutoApply();
             });
         });
     }
@@ -4005,6 +4943,7 @@ document.addEventListener('DOMContentLoaded', () => {
         slot.readings.push(value !== undefined ? value : '');
         const container = document.getElementById(`ndtRValuesList-${slotIdx}`);
         if (container) { container.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
+        scheduleNdtAutoApply();
     }
 
     function renderNdtStrengthSlots() {
@@ -4022,7 +4961,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="form-group" style="margin:0;">
                     <label class="form-label">📷 R값 측정지 사진 스캔 (사진에서 숫자 자동 인식)</label>
                     <div style="display:flex; gap:0.5rem;">
-                        <button type="button" class="btn ndt-strength-slot-scan-btn" data-slot="${idx}" style="flex:1; background: linear-gradient(135deg, #0284c7, #0369a1); color:white; font-size:0.85rem;">
+                        <button type="button" class="btn ndt-strength-slot-scan-btn" data-slot="${idx}" style="flex:1; background: linear-gradient(135deg, #2a2a2a, #1f1f1f); color:white; font-size:0.85rem;">
                             <i class="fa-solid fa-camera"></i> 📷 측정지 사진으로 자동 인식
                         </button>
                         <input type="file" id="ndtStrengthSlotFile-${idx}" accept="image/*" style="display:none;">
@@ -4032,7 +4971,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="form-group" style="margin:0;">
                     <label class="form-label" style="display:flex; justify-content:space-between; align-items:center;">
                         <span>🔢 R값 (반발경도) — 최대 ${MAX_R_VALUES_PER_SLOT}개, 인식/입력 후 꼭 확인해주세요</span>
-                        <button type="button" class="btn btn-sm btn-outline ndt-strength-slot-add-r" data-slot="${idx}" style="border-color:#38bdf8; color:#38bdf8;"><i class="fa-solid fa-plus"></i> 추가</button>
+                        <button type="button" class="btn btn-sm btn-outline ndt-strength-slot-add-r" data-slot="${idx}" style="border-color:#6b6b6b; color:#6b6b6b;"><i class="fa-solid fa-plus"></i> 추가</button>
                     </label>
                     <div id="ndtRValuesList-${idx}" style="display:flex; flex-wrap:wrap; gap:0.4rem;">${rValueChipsHtml(idx)}</div>
                 </div>
@@ -4055,6 +4994,7 @@ document.addEventListener('DOMContentLoaded', () => {
         container.querySelectorAll('.ndt-strength-slot-location').forEach(el => {
             el.addEventListener('input', (e) => {
                 ndtStrengthSlots[parseInt(e.target.dataset.slot, 10)].location = e.target.value;
+                scheduleNdtAutoApply();
             });
         });
         container.querySelectorAll('.ndt-strength-slot-remove').forEach(el => {
@@ -4063,6 +5003,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtStrengthSlots.splice(idx, 1);
                 renderNdtStrengthSlots();
                 recalcAllStrengthSlots();
+                scheduleNdtAutoApply();
             });
         });
         container.querySelectorAll('.ndt-strength-slot-add-r').forEach(el => {
@@ -4166,7 +5107,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <input type="checkbox" class="ndt-strength-formula-toggle" data-formula="${r.name}" ${r.enabled ? 'checked' : ''} onchange="window.toggleStrengthFormula('${r.name}')" style="cursor:pointer;">
                 </td>
                 <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); ${r.enabled ? '' : 'color:var(--text-muted); text-decoration:line-through;'}">${r.name}</td>
-                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:${r.enabled ? '#0284c7' : 'var(--text-muted)'};">${r.value.toFixed(1)}</td>
+                <td style="padding:0.3rem 0.4rem; border-top:1px solid rgba(2,132,199,0.15); text-align:right; font-weight:800; color:${r.enabled ? '#2a2a2a' : 'var(--text-muted)'};">${r.value.toFixed(1)}</td>
             </tr>
         `).join('') + `
             <tr>
@@ -4297,6 +5238,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const listContainer = document.getElementById(`ndtRValuesList-${slotIdx}`);
             if (listContainer) { listContainer.innerHTML = rValueChipsHtml(slotIdx); wireRValueChipEvents(slotIdx); }
             recalcStrengthSlot(slotIdx);
+            scheduleNdtAutoApply();
             if (statusEl) statusEl.textContent = `✅ ${scanned.length}개 인식됨 — 사진과 비교해서 꼭 확인/수정해주세요! (OCR은 완벽하지 않습니다)`;
         } catch (err) {
             console.error('R값 스캔 실패:', err);
@@ -4332,9 +5274,39 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function setNdtDispDirection(dir, opts = {}) {
+        const normalized = normalizeNdtDispDirSymbol(dir || '←');
+        const hidden = document.getElementById('ndtDispDirection');
+        if (hidden) hidden.value = normalized;
+        document.querySelectorAll('#ndtDispDirectionPad .ndt-dir-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-dir') === normalized);
+        });
+        if (!opts.silent && typeof scheduleNdtAutoApply === 'function') scheduleNdtAutoApply();
+    }
+
+    function bindNdtDispDirectionPad() {
+        const pad = document.getElementById('ndtDispDirectionPad');
+        if (!pad || pad._ndtDirBound) return;
+        pad._ndtDirBound = true;
+        pad.addEventListener('click', (e) => {
+            const btn = e.target.closest('.ndt-dir-btn');
+            if (!btn) return;
+            e.preventDefault();
+            setNdtDispDirection(btn.getAttribute('data-dir'));
+        });
+    }
+
     function openNdtModal(imgX, imgY, existingItem = null, extraOpts = null) {
+        bindNdtDispDirectionPad();
+        window._ndtFormHydrating = true;
+        window.clearTimeout(window._ndtAutoApplyTimer);
+        window._ndtAutoApplyTimer = null;
+
         const modal = document.getElementById('ndtModal');
-        if (!modal) return;
+        if (!modal) {
+            window._ndtFormHydrating = false;
+            return;
+        }
 
         const pinIdEl = document.getElementById('ndtPinId');
         const noEl = document.getElementById('ndtNo');
@@ -4356,7 +5328,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (compEl) compEl.value = existingItem.component || '기둥';
             if (locEl) locEl.value = existingItem.location || '';
             if (heightEl) heightEl.value = existingItem.height || (existingItem.category === '부재변위' ? 'L = 5,000mm' : 'H = 3,000mm');
-            if (dispDirEl) dispDirEl.value = existingItem.dispDirection || '←';
+            setNdtDispDirection(existingItem.dispDirection || '←', { silent: true });
+            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(existingItem.dispDirection || '←');
             if (v1El) v1El.value = existingItem.v1 || '';
             if (v2El) v2El.value = existingItem.v2 || '';
             if (v3El) v3El.value = existingItem.v3 || '';
@@ -4420,7 +5393,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (compEl) compEl.value = '기둥';
             if (locEl) locEl.value = '';
             if (heightEl) heightEl.value = (cat === '부재변위' ? 'L = 5,000mm' : 'H = 3,000mm');
-            if (dispDirEl) dispDirEl.value = extraOpts?.dispDirection || '←';
+            setNdtDispDirection(extraOpts?.dispDirection || '←', { silent: true });
+            if (dispDirEl) dispDirEl.value = normalizeNdtDispDirSymbol(extraOpts?.dispDirection || '←');
             if (v1El) v1El.value = '';
             if (v2El) v2El.value = '';
             if (v3El) v3El.value = '';
@@ -4461,11 +5435,345 @@ document.addEventListener('DOMContentLoaded', () => {
         renderNdtStrengthSlots();
         recalcAllStrengthSlots();
         recalcNdtCarbonation();
+        syncNdtDrawerToCanvasArea();
         modal.style.display = 'flex';
-        modal.classList.add('open');
+        document.body.classList.add('ndt-modal-open');
+        window.requestAnimationFrame(() => {
+            syncNdtDrawerToCanvasArea();
+            modal.classList.add('open');
+            // 신규 마킹은 모달을 여는 순간 바로 저장해, 저장 버튼 없이 도면에 확정한다
+            if (!existingItem) {
+                const created = commitNdtFromForm();
+                if (created) {
+                    const pinIdFresh = document.getElementById('ndtPinId');
+                    if (pinIdFresh) pinIdFresh.value = created.id;
+                }
+            }
+            window._ndtFormHydrating = false;
+            if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+        });
+        // 신규 마킹 후 선택 모드로 복귀 (도면 계속 조작)
+        if (!existingItem && typeof window.setNdtMode === 'function') {
+            window.setNdtMode('PAN');
+        }
+    }
+
+    function isNdtModalOpen() {
+        const modal = document.getElementById('ndtModal');
+        if (!modal) return false;
+        return modal.classList.contains('open') || modal.style.display === 'flex';
+    }
+
+    function syncNdtDrawerToCanvasArea() {
+        const overlay = document.getElementById('ndtModal');
+        if (!overlay) return;
+        const canvasArea = document.getElementById('ndtCanvasContainer');
+        const onNdtTab = window.state.currentTab === 'tab-ndt';
+        if (onNdtTab && canvasArea) {
+            const rect = canvasArea.getBoundingClientRect();
+            if (rect.width >= 40 && rect.height >= 40) {
+                overlay.classList.add('ndt-drawer-in-canvas');
+                overlay.style.top = `${Math.round(rect.top)}px`;
+                overlay.style.left = `${Math.round(rect.left)}px`;
+                overlay.style.width = `${Math.round(rect.width)}px`;
+                overlay.style.height = `${Math.round(rect.height)}px`;
+                return;
+            }
+        }
+        overlay.classList.remove('ndt-drawer-in-canvas');
+        overlay.style.top = '';
+        overlay.style.left = '';
+        overlay.style.width = '';
+        overlay.style.height = '';
+    }
+
+    function closeNdtModal() {
+        flushNdtAutoApply();
+        const modal = document.getElementById('ndtModal');
+        document.body.classList.remove('ndt-modal-open');
+        if (!modal) return;
+        modal.classList.remove('open');
+        window.setTimeout(() => {
+            if (modal && !modal.classList.contains('open')) {
+                modal.style.display = 'none';
+                syncNdtDrawerToCanvasArea();
+            }
+        }, 280);
+        if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+    }
+    window.closeNdtModal = closeNdtModal;
+    window.isNdtModalOpen = isNdtModalOpen;
+
+    function flashNdtAutosaveBadge(mode) {
+        const badge = document.getElementById('ndtAutosaveBadge');
+        if (!badge) return;
+        if (mode === 'saving') {
+            badge.textContent = '적용 중…';
+            badge.classList.add('is-saving');
+            return;
+        }
+        badge.textContent = '자동 적용';
+        badge.classList.remove('is-saving');
+    }
+
+    function commitNdtFromForm() {
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        if (!state.ndtData[key]) state.ndtData[key] = [];
+
+        const pinId = document.getElementById('ndtPinId')?.value;
+        const noStr = document.getElementById('ndtNo')?.value || 'NDT-01';
+        const cat = document.getElementById('ndtCategory')?.value || '강도';
+        const comp = document.getElementById('ndtComponent')?.value || '기둥';
+        // 강도는 위치를 슬롯별로 입력받으므로(공용 위치칸은 숨겨져 비어있음), 하위호환용
+        // 최상위 location은 슬롯 1(또는 값이 있는 첫 슬롯) 것을 쓴다.
+        const firstStrengthSlot = (cat === '강도')
+            ? (ndtStrengthSlots.find(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0) || ndtStrengthSlots[0])
+            : null;
+        const loc = (cat === '강도') ? (firstStrengthSlot?.location || '') : (document.getElementById('ndtLocation')?.value || '');
+        const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
+        const formattedHeight = formatHeightValue(rawHeightStr);
+        const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
+        const v1 = document.getElementById('ndtVal1')?.value || '';
+        const v2 = document.getElementById('ndtVal2')?.value || '';
+        const v3 = document.getElementById('ndtVal3')?.value || '';
+        let avg = document.getElementById('ndtAvgValue')?.value || '';
+        const status = document.getElementById('ndtStatus')?.value || '양호';
+
+        let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
+        let grade = document.getElementById('ndtGrade')?.value || '';
+
+        if (cat === '기울기' || cat === '부재변위') {
+            const hDigits = (formattedHeight || '').replace(/[^0-9.]/g, '');
+            const avgDigits = (avg || '').replace(/[^0-9.-]/g, '');
+            const h = parseFloat(hDigits) || (cat === '부재변위' ? 5000 : 3000);
+            const delta = Math.abs(parseFloat(avgDigits) || 0);
+            const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
+            tiltRatio = calc.tiltRatio;
+            grade = calc.grade;
+        }
+
+        // 부재 실측(단면 규격): 설계치수/마감상태/실측치수 + 단면적비율(c%)·등급 자동 산정
+        // (시설물 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24])
+        // 설계/실측 폭 칸에 "400*400"처럼 폭*춤을 한번에 적어도, 폭/춤을 따로 나눠 적어도 인식된다.
+        const finishState = (cat === '실측') ? (document.getElementById('ndtFinishState')?.value || '') : '';
+        const designParsed = (cat === '실측')
+            ? parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value)
+            : { w: null, d: null };
+        const measuredParsed = (cat === '실측')
+            ? parseNdtDimensionPair(document.getElementById('ndtMeasuredWidth')?.value, document.getElementById('ndtMeasuredDepth')?.value)
+            : { w: null, d: null };
+        const designWidth = designParsed.w;
+        const designDepth = designParsed.d;
+        const measuredWidth = measuredParsed.w;
+        const measuredDepth = measuredParsed.d;
+        // 실측 항목의 avgValue(하위호환용 요약 표시 필드)는 이제 실측 폭 칸 값을 그대로 담는다.
+        if (cat === '실측' && measuredWidth !== null) avg = String(measuredWidth);
+        let sectionRatio = null;
+        let sectionGrade = null;
+        if (cat === '실측') {
+            const sectionCalc = calcSectionGrade(designWidth, designDepth, measuredWidth, measuredDepth);
+            if (sectionCalc) {
+                sectionRatio = sectionCalc.ratio;
+                sectionGrade = sectionCalc.code;
+            }
+        }
+
+        const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
+
+        // 콘크리트 강도(반발경도)는 위치 슬롯별로(최대 3개) R값 목록 + 각도보정 + 추정식 3개
+        // 결과를 각각 저장한다. 최상위 strength* 필드들은 하위호환용으로 첫 슬롯 결과만 담는다.
+        const strengthAngle = document.getElementById('ndtAngle')?.value;
+        const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
+        const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
+        const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
+
+        const computeSlotResult = (slot) => {
+            const calc = calcConcreteStrength(slot.readings, parseFloat(strengthAngle), strengthAgeDays, enabledFormulaNames);
+            const ratio = (calc && !isNaN(designStrengthVal) && designStrengthVal > 0) ? (calc.finalStrength / designStrengthVal) * 100 : null;
+            const gradeObj = ratio !== null ? getStrengthGrade(ratio) : null;
+            return {
+                location: slot.location || '',
+                readings: (slot.readings || []).slice(),
+                results: calc ? calc.results : [],
+                ro: calc ? calc.ro : null,
+                ageDays: calc ? calc.ageDays : null,
+                alpha: calc ? calc.alpha : null,
+                formulaAvg: calc ? calc.formulaAvg : null,
+                finalStrength: calc ? calc.finalStrength : null,
+                ratio,
+                grade: gradeObj ? gradeObj.code : null
+            };
+        };
+
+        const strengthSlotResults = (cat === '강도')
+            ? ndtStrengthSlots
+                .filter(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0 || (s.location || '').trim() !== '')
+                .map(computeSlotResult)
+            : [];
+        // 슬롯을 하나도 안 채웠으면(위치/R값 둘 다 비어있는 슬롯 1개뿐) 빈 배열 대신 최소 1개는
+        // 남겨서(위치 없어도) 완전히 빈 저장이 되지 않게 한다.
+        if (cat === '강도' && strengthSlotResults.length === 0) strengthSlotResults.push(computeSlotResult(ndtStrengthSlots[0] || { location: '', readings: [] }));
+        const firstSlotResult = strengthSlotResults[0] || null;
+
+        const carbDepthVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbDepth')?.value) : NaN;
+        const carbCoverVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbCover')?.value) : NaN;
+        const carbAgeDays = (cat === '탄산화') ? getConcreteAgeInDays() : null;
+        const carbCalc = (cat === '탄산화') ? calcCarbonation(carbDepthVal, carbCoverVal, carbAgeDays !== null ? carbAgeDays / 365 : null) : null;
+
+        const valsArr = (cat === '강도')
+            ? (firstSlotResult ? firstSlotResult.readings.filter(v => v !== '' && v !== null && v !== undefined) : [])
+            : [v1, v2, v3].filter(x => x.trim() !== '');
+        const valuesText = valsArr.join(', ') || '-';
+        const strengthExtra = (cat === '강도') ? {
+            strengthSlots: strengthSlotResults,
+            strengthReadings: firstSlotResult ? firstSlotResult.readings : [],
+            strengthAngle: parseFloat(strengthAngle) || 0,
+            strengthResults: firstSlotResult ? firstSlotResult.results : [],
+            strengthRo: firstSlotResult ? firstSlotResult.ro : null,
+            strengthAgeDays: firstSlotResult ? firstSlotResult.ageDays : null,
+            strengthAlpha: firstSlotResult ? firstSlotResult.alpha : null,
+            strengthFormulaAvg: firstSlotResult ? firstSlotResult.formulaAvg : null,
+            strengthFinal: firstSlotResult ? firstSlotResult.finalStrength : null,
+            designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
+            strengthRatio: firstSlotResult ? firstSlotResult.ratio : null,
+            strengthGrade: firstSlotResult ? firstSlotResult.grade : null
+        } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
+
+        const carbExtra = (cat === '탄산화') ? {
+            carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
+            carbCover: !isNaN(carbCoverVal) ? carbCoverVal : null,
+            carbAgeDays: carbAgeDays,
+            carbRemainMm: carbCalc ? carbCalc.remainMm : null,
+            carbRate: carbCalc ? carbCalc.rate : null,
+            carbLifeYears: carbCalc ? carbCalc.lifeYears : null,
+            carbRemainingLifeYears: carbCalc ? carbCalc.remainingLifeYears : null
+        } : { carbDepth: null, carbCover: null, carbAgeDays: null, carbRemainMm: null, carbRate: null, carbLifeYears: null, carbRemainingLifeYears: null };
+
+        const measureExtra = (cat === '실측')
+            ? { finishState, designWidth, designDepth, measuredWidth, measuredDepth, sectionRatio, sectionGrade }
+            : { finishState: null, designWidth: null, designDepth: null, measuredWidth: null, measuredDepth: null, sectionRatio: null, sectionGrade: null };
+
+        let savedItem = null;
+        if (pinId) {
+            const idx = state.ndtData[key].findIndex(x => x.id === pinId);
+            if (idx >= 0) {
+                const existing = state.ndtData[key][idx];
+                // 폼 자동적용 시 모달 오픈 시점의 _pendingNdtExtra로 덮어쓰지 않음
+                // (변위 방향만 바꿔도 박스 위치가 초기화되던 버그 방지)
+                const liveTargetX = existing.targetX !== undefined ? existing.targetX
+                    : (existing.x !== undefined ? existing.x : extra.targetX);
+                const liveTargetY = existing.targetY !== undefined ? existing.targetY
+                    : (existing.y !== undefined ? existing.y : extra.targetY);
+                const liveBoxX = existing.boxX !== undefined ? existing.boxX : liveTargetX;
+                const liveBoxY = existing.boxY !== undefined ? existing.boxY : liveTargetY;
+                state.ndtData[key][idx] = {
+                    ...existing,
+                    no: noStr,
+                    category: cat,
+                    component: comp,
+                    location: loc,
+                    height: formattedHeight,
+                    dispDirection: dispDir,
+                    targetX: liveTargetX,
+                    targetY: liveTargetY,
+                    boxX: liveBoxX,
+                    boxY: liveBoxY,
+                    v1, v2, v3,
+                    valuesText,
+                    avgValue: avg || valuesText,
+                    status,
+                    tiltRatio,
+                    grade,
+                    ...strengthExtra,
+                    ...carbExtra,
+                    ...measureExtra,
+                    inspectorName: existing.inspectorName || window.state.userName || ''
+                };
+                savedItem = state.ndtData[key][idx];
+                window._pendingNdtExtra = {
+                    targetX: liveTargetX,
+                    targetY: liveTargetY,
+                    boxX: liveBoxX,
+                    boxY: liveBoxY
+                };
+            }
+        } else {
+            const newItem = {
+                id: `ndt_${Date.now()}`,
+                no: noStr,
+                category: cat,
+                component: comp,
+                location: loc,
+                height: formattedHeight,
+                dispDirection: dispDir,
+                targetX: extra.targetX,
+                targetY: extra.targetY,
+                boxX: extra.boxX,
+                boxY: extra.boxY,
+                v1, v2, v3,
+                valuesText,
+                avgValue: avg || valuesText,
+                status,
+                tiltRatio,
+                grade,
+                ...strengthExtra,
+                ...carbExtra,
+                ...measureExtra,
+                inspectorName: window.state.userName || '',
+                x: extra.targetX,
+                y: extra.targetY
+            };
+            state.ndtData[key].push(newItem);
+            savedItem = newItem;
+        }
+
+        saveStateToLocalStorage();
+        return savedItem;
+    }
+
+    function scheduleNdtAutoApply() {
+        if (window._ndtFormHydrating) return;
+        if (!isNdtModalOpen()) return;
+        window.clearTimeout(window._ndtAutoApplyTimer);
+        window._ndtAutoApplyTimer = window.setTimeout(() => {
+            if (window._ndtFormHydrating || !isNdtModalOpen()) return;
+            flashNdtAutosaveBadge('saving');
+            const saved = commitNdtFromForm();
+            if (saved) {
+                const pinIdEl = document.getElementById('ndtPinId');
+                if (pinIdEl && !pinIdEl.value) pinIdEl.value = saved.id;
+            }
+            if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+            flashNdtAutosaveBadge('done');
+        }, 180);
+    }
+
+    function flushNdtAutoApply() {
+        if (window._ndtAutoApplyTimer) {
+            window.clearTimeout(window._ndtAutoApplyTimer);
+            window._ndtAutoApplyTimer = null;
+            if (!window._ndtFormHydrating && isNdtModalOpen()) {
+                const saved = commitNdtFromForm();
+                if (saved) {
+                    const pinIdEl = document.getElementById('ndtPinId');
+                    if (pinIdEl && !pinIdEl.value) pinIdEl.value = saved.id;
+                }
+            }
+        }
+    }
+
+    function bindNdtFormAutoApply() {
+        const body = document.querySelector('#ndtModal .defect-drawer-body');
+        if (!body || body.dataset.autoApplyBound) return;
+        body.dataset.autoApplyBound = '1';
+        body.addEventListener('input', () => scheduleNdtAutoApply());
+        body.addEventListener('change', () => scheduleNdtAutoApply());
     }
 
     function setupNdtModalEvents() {
+        bindNdtFormAutoApply();
         const modal = document.getElementById('ndtModal');
         const btnClose = document.getElementById('btnCloseNdtModal');
         const btnCancel = document.getElementById('btnCancelNdt');
@@ -4608,6 +5916,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (ndtStrengthSlots.length >= MAX_STRENGTH_SLOTS) return;
             ndtStrengthSlots.push({ location: '', readings: [] });
             renderNdtStrengthSlots();
+            scheduleNdtAutoApply();
         });
 
         const ndtAngleEl = document.getElementById('ndtAngle');
@@ -4622,214 +5931,18 @@ document.addEventListener('DOMContentLoaded', () => {
             if (el) el.addEventListener('input', recalcNdtCarbonation);
         });
 
-        function closeNdtModal() {
-            if (modal) {
-                modal.style.display = 'none';
-                modal.classList.remove('open');
-            }
+        function closeNdtModalLocal() {
+            closeNdtModal();
+            if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
         }
 
-        if (btnClose) btnClose.addEventListener('click', closeNdtModal);
-        if (btnCancel) btnCancel.addEventListener('click', closeNdtModal);
+        if (btnClose) btnClose.addEventListener('click', closeNdtModalLocal);
+        if (btnCancel) btnCancel.addEventListener('click', closeNdtModalLocal);
 
         if (btnSave) {
             btnSave.addEventListener('click', () => {
-                const key = `${state.currentBuildingId}_${state.currentFloor}`;
-                if (!state.ndtData[key]) state.ndtData[key] = [];
-
-                const pinId = document.getElementById('ndtPinId')?.value;
-                const noStr = document.getElementById('ndtNo')?.value || 'NDT-01';
-                const cat = document.getElementById('ndtCategory')?.value || '강도';
-                const comp = document.getElementById('ndtComponent')?.value || '기둥';
-                // 강도는 위치를 슬롯별로 입력받으므로(공용 위치칸은 숨겨져 비어있음), 하위호환용
-                // 최상위 location은 슬롯 1(또는 값이 있는 첫 슬롯) 것을 쓴다.
-                const firstStrengthSlot = (cat === '강도')
-                    ? (ndtStrengthSlots.find(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0) || ndtStrengthSlots[0])
-                    : null;
-                const loc = (cat === '강도') ? (firstStrengthSlot?.location || '') : (document.getElementById('ndtLocation')?.value || '');
-                const rawHeightStr = document.getElementById('ndtHeight')?.value || '';
-                const formattedHeight = formatHeightValue(rawHeightStr);
-                const dispDir = document.getElementById('ndtDispDirection')?.value || '←';
-                const v1 = document.getElementById('ndtVal1')?.value || '';
-                const v2 = document.getElementById('ndtVal2')?.value || '';
-                const v3 = document.getElementById('ndtVal3')?.value || '';
-                let avg = document.getElementById('ndtAvgValue')?.value || '';
-                const status = document.getElementById('ndtStatus')?.value || '양호';
-
-                let tiltRatio = document.getElementById('ndtTiltRatio')?.value || '';
-                let grade = document.getElementById('ndtGrade')?.value || '';
-
-                if (cat === '기울기' || cat === '부재변위') {
-                    const hDigits = (formattedHeight || '').replace(/[^0-9.]/g, '');
-                    const avgDigits = (avg || '').replace(/[^0-9.-]/g, '');
-                    const h = parseFloat(hDigits) || (cat === '부재변위' ? 5000 : 3000);
-                    const delta = Math.abs(parseFloat(avgDigits) || 0);
-                    const calc = (cat === '부재변위') ? calcMemberDispGrade(h, delta) : calcTiltGrade(h, delta);
-                    tiltRatio = calc.tiltRatio;
-                    grade = calc.grade;
-                }
-
-                // 부재 실측(단면 규격): 설계치수/마감상태/실측치수 + 단면적비율(c%)·등급 자동 산정
-                // (시설물 안전 및 유지관리 실시 세부지침(건축물편) [표 6.24])
-                // 설계/실측 폭 칸에 "400*400"처럼 폭*춤을 한번에 적어도, 폭/춤을 따로 나눠 적어도 인식된다.
-                const finishState = (cat === '실측') ? (document.getElementById('ndtFinishState')?.value || '') : '';
-                const designParsed = (cat === '실측')
-                    ? parseNdtDimensionPair(document.getElementById('ndtDesignWidth')?.value, document.getElementById('ndtDesignDepth')?.value)
-                    : { w: null, d: null };
-                const measuredParsed = (cat === '실측')
-                    ? parseNdtDimensionPair(document.getElementById('ndtMeasuredWidth')?.value, document.getElementById('ndtMeasuredDepth')?.value)
-                    : { w: null, d: null };
-                const designWidth = designParsed.w;
-                const designDepth = designParsed.d;
-                const measuredWidth = measuredParsed.w;
-                const measuredDepth = measuredParsed.d;
-                // 실측 항목의 avgValue(하위호환용 요약 표시 필드)는 이제 실측 폭 칸 값을 그대로 담는다.
-                if (cat === '실측' && measuredWidth !== null) avg = String(measuredWidth);
-                let sectionRatio = null;
-                let sectionGrade = null;
-                if (cat === '실측') {
-                    const sectionCalc = calcSectionGrade(designWidth, designDepth, measuredWidth, measuredDepth);
-                    if (sectionCalc) {
-                        sectionRatio = sectionCalc.ratio;
-                        sectionGrade = sectionCalc.code;
-                    }
-                }
-
-                const extra = window._pendingNdtExtra || { targetX: 100, targetY: 100, boxX: 100, boxY: 150 };
-
-                // 콘크리트 강도(반발경도)는 위치 슬롯별로(최대 3개) R값 목록 + 각도보정 + 추정식 3개
-                // 결과를 각각 저장한다. 최상위 strength* 필드들은 하위호환용으로 첫 슬롯 결과만 담는다.
-                const strengthAngle = document.getElementById('ndtAngle')?.value;
-                const strengthAgeDays = (cat === '강도') ? getConcreteAgeInDays() : null;
-                const enabledFormulaNames = getEnabledStrengthFormulaNames(window.state.currentBuilding);
-                const designStrengthVal = (cat === '강도') ? parseFloat(document.getElementById('ndtDesignStrength')?.value) : NaN;
-
-                const computeSlotResult = (slot) => {
-                    const calc = calcConcreteStrength(slot.readings, parseFloat(strengthAngle), strengthAgeDays, enabledFormulaNames);
-                    const ratio = (calc && !isNaN(designStrengthVal) && designStrengthVal > 0) ? (calc.finalStrength / designStrengthVal) * 100 : null;
-                    const gradeObj = ratio !== null ? getStrengthGrade(ratio) : null;
-                    return {
-                        location: slot.location || '',
-                        readings: (slot.readings || []).slice(),
-                        results: calc ? calc.results : [],
-                        ro: calc ? calc.ro : null,
-                        ageDays: calc ? calc.ageDays : null,
-                        alpha: calc ? calc.alpha : null,
-                        formulaAvg: calc ? calc.formulaAvg : null,
-                        finalStrength: calc ? calc.finalStrength : null,
-                        ratio,
-                        grade: gradeObj ? gradeObj.code : null
-                    };
-                };
-
-                const strengthSlotResults = (cat === '강도')
-                    ? ndtStrengthSlots
-                        .filter(s => (s.readings || []).filter(v => v !== '' && v !== null && v !== undefined).length > 0 || (s.location || '').trim() !== '')
-                        .map(computeSlotResult)
-                    : [];
-                // 슬롯을 하나도 안 채웠으면(위치/R값 둘 다 비어있는 슬롯 1개뿐) 빈 배열 대신 최소 1개는
-                // 남겨서(위치 없어도) 완전히 빈 저장이 되지 않게 한다.
-                if (cat === '강도' && strengthSlotResults.length === 0) strengthSlotResults.push(computeSlotResult(ndtStrengthSlots[0] || { location: '', readings: [] }));
-                const firstSlotResult = strengthSlotResults[0] || null;
-
-                const carbDepthVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbDepth')?.value) : NaN;
-                const carbCoverVal = (cat === '탄산화') ? parseFloat(document.getElementById('ndtCarbCover')?.value) : NaN;
-                const carbAgeDays = (cat === '탄산화') ? getConcreteAgeInDays() : null;
-                const carbCalc = (cat === '탄산화') ? calcCarbonation(carbDepthVal, carbCoverVal, carbAgeDays !== null ? carbAgeDays / 365 : null) : null;
-
-                const valsArr = (cat === '강도')
-                    ? (firstSlotResult ? firstSlotResult.readings.filter(v => v !== '' && v !== null && v !== undefined) : [])
-                    : [v1, v2, v3].filter(x => x.trim() !== '');
-                const valuesText = valsArr.join(', ') || '-';
-                const strengthExtra = (cat === '강도') ? {
-                    strengthSlots: strengthSlotResults,
-                    strengthReadings: firstSlotResult ? firstSlotResult.readings : [],
-                    strengthAngle: parseFloat(strengthAngle) || 0,
-                    strengthResults: firstSlotResult ? firstSlotResult.results : [],
-                    strengthRo: firstSlotResult ? firstSlotResult.ro : null,
-                    strengthAgeDays: firstSlotResult ? firstSlotResult.ageDays : null,
-                    strengthAlpha: firstSlotResult ? firstSlotResult.alpha : null,
-                    strengthFormulaAvg: firstSlotResult ? firstSlotResult.formulaAvg : null,
-                    strengthFinal: firstSlotResult ? firstSlotResult.finalStrength : null,
-                    designStrength: !isNaN(designStrengthVal) ? designStrengthVal : null,
-                    strengthRatio: firstSlotResult ? firstSlotResult.ratio : null,
-                    strengthGrade: firstSlotResult ? firstSlotResult.grade : null
-                } : { strengthSlots: [], strengthReadings: [], strengthAngle: null, strengthResults: [], strengthRo: null, strengthAgeDays: null, strengthAlpha: null, strengthFormulaAvg: null, strengthFinal: null, designStrength: null, strengthRatio: null, strengthGrade: null };
-
-                const carbExtra = (cat === '탄산화') ? {
-                    carbDepth: !isNaN(carbDepthVal) ? carbDepthVal : null,
-                    carbCover: !isNaN(carbCoverVal) ? carbCoverVal : null,
-                    carbAgeDays: carbAgeDays,
-                    carbRemainMm: carbCalc ? carbCalc.remainMm : null,
-                    carbRate: carbCalc ? carbCalc.rate : null,
-                    carbLifeYears: carbCalc ? carbCalc.lifeYears : null,
-                    carbRemainingLifeYears: carbCalc ? carbCalc.remainingLifeYears : null
-                } : { carbDepth: null, carbCover: null, carbAgeDays: null, carbRemainMm: null, carbRate: null, carbLifeYears: null, carbRemainingLifeYears: null };
-
-                const measureExtra = (cat === '실측')
-                    ? { finishState, designWidth, designDepth, measuredWidth, measuredDepth, sectionRatio, sectionGrade }
-                    : { finishState: null, designWidth: null, designDepth: null, measuredWidth: null, measuredDepth: null, sectionRatio: null, sectionGrade: null };
-
-                if (pinId) {
-                    const idx = state.ndtData[key].findIndex(x => x.id === pinId);
-                    if (idx >= 0) {
-                        state.ndtData[key][idx] = {
-                            ...state.ndtData[key][idx],
-                            no: noStr,
-                            category: cat,
-                            component: comp,
-                            location: loc,
-                            height: formattedHeight,
-                            dispDirection: dispDir,
-                            targetX: extra.targetX,
-                            targetY: extra.targetY,
-                            boxX: extra.boxX,
-                            boxY: extra.boxY,
-                            v1, v2, v3,
-                            valuesText,
-                            avgValue: avg || valuesText,
-                            status,
-                            tiltRatio,
-                            grade,
-                            ...strengthExtra,
-                            ...carbExtra,
-                            ...measureExtra,
-                            inspectorName: state.ndtData[key][idx].inspectorName || window.state.userName || ''
-                        };
-                    }
-                } else {
-                    const newItem = {
-                        id: `ndt_${Date.now()}`,
-                        no: noStr,
-                        category: cat,
-                        component: comp,
-                        location: loc,
-                        height: formattedHeight,
-                        dispDirection: dispDir,
-                        targetX: extra.targetX,
-                        targetY: extra.targetY,
-                        boxX: extra.boxX,
-                        boxY: extra.boxY,
-                        v1, v2, v3,
-                        valuesText,
-                        avgValue: avg || valuesText,
-                        status,
-                        tiltRatio,
-                        grade,
-                        ...strengthExtra,
-                        ...carbExtra,
-                        ...measureExtra,
-                        inspectorName: window.state.userName || '',
-                        x: extra.targetX,
-                        y: extra.targetY
-                    };
-                    state.ndtData[key].push(newItem);
-                }
-
-                saveStateToLocalStorage();
-                drawNdtCanvas();
-                renderNdtSummaryTable();
-                closeNdtModal();
+                // 이미 자동 적용되므로 닫기만 수행 (대기 중인 디바운스 저장 먼저 flush)
+                closeNdtModalLocal();
             });
         }
 
@@ -4837,6 +5950,8 @@ document.addEventListener('DOMContentLoaded', () => {
             btnDelete.addEventListener('click', () => {
                 const pinId = document.getElementById('ndtPinId')?.value;
                 if (pinId && confirm('⚠️ 해당 비파괴 조사 측정 항목을 삭제하시겠습니까?')) {
+                    window.clearTimeout(window._ndtAutoApplyTimer);
+                    window._ndtAutoApplyTimer = null;
                     const key = `${state.currentBuildingId}_${state.currentFloor}`;
                     state.ndtData[key] = (state.ndtData[key] || []).filter(x => x.id !== pinId);
                     saveStateToLocalStorage();
@@ -4887,6 +6002,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const modal = document.getElementById('ndtDisplacementModal');
         if (!modal) return;
         window._pendingNdtDispCoords = { x: imgX, y: imgY };
+        refreshNdtDispActiveTemplate();
 
         const groupIdEl = document.getElementById('ndtDispGroupId');
         const pointIdEl = document.getElementById('ndtDispPointId');
@@ -4900,47 +6016,60 @@ document.addEventListener('DOMContentLoaded', () => {
         const modalTitleEl = modal.querySelector('.modal-header h3');
         const btnDelete = document.getElementById('btnDeleteNdtDispPoint');
         const btnAddAnother = document.getElementById('btnAddAnotherNdtPoint');
+        const btnNewZone = document.getElementById('btnStartNewNdtDispZone');
 
         const cat = (existingGroup ? existingGroup.category : currentNdtCategory) || '변위';
         const isMemberDisp = cat === '부재변위';
 
         if (modalTitleEl) {
             if (isMemberDisp) {
-                modalTitleEl.innerHTML = `<i class="fa-solid fa-arrows-up-down" style="color: #38bdf8;"></i> 🏗️ 부재처짐 (부재변위) 측정`;
+                modalTitleEl.innerHTML = `<i class="fa-solid fa-arrows-up-down" style="color: #6b6b6b;"></i> 🏗️ 부재처짐 (부재변위) 측정`;
             } else {
-                modalTitleEl.innerHTML = `<i class="fa-solid fa-arrows-up-down" style="color: #38bdf8;"></i> 📉 부동침하 기울기 측정`;
+                modalTitleEl.innerHTML = `<i class="fa-solid fa-arrows-up-down" style="color: #6b6b6b;"></i> 📉 부동침하 기울기 측정`;
             }
         }
 
+        const activeGroup = (!existingGroup && !existingPoint) ? getActiveNdtDispGroup() : null;
         const tmpl = window._ndtDisplacementTemplate;
+        const continueGroup = existingGroup && !existingPoint
+            ? existingGroup
+            : ((!existingPoint && activeGroup) ? activeGroup : null);
 
         if (existingGroup && existingPoint) {
             const idx = existingGroup.points.indexOf(existingPoint);
             groupIdEl.value = existingGroup.id;
             pointIdEl.value = existingPoint.id;
             const ptRole = isMemberDisp ? (idx === 0 ? ' [단부 1]' : (idx === existingGroup.points.length - 1 ? ' [단부 2]' : ' [중앙부]')) : '';
-            hintEl.textContent = `${existingGroup.groupNo} 그룹 - ${idx + 1}번 지점${ptRole} 수정`;
+            hintEl.textContent = `${existingGroup.groupNo} 구역 - ${formatNdtDisplacementPointLabel(idx + 1)} 지점${ptRole} 수정`;
             infoBlock.style.display = 'none';
             if (damageRow) damageRow.style.display = 'none';
             levelEl.value = existingPoint.level;
             btnDelete.style.display = '';
-            btnAddAnother.style.display = 'none';
-        } else if (tmpl) {
-            groupIdEl.value = tmpl.groupId;
+            if (btnAddAnother) btnAddAnother.style.display = 'none';
+            if (btnNewZone) btnNewZone.style.display = 'none';
+        } else if (continueGroup || tmpl) {
+            const group = continueGroup || getCurrentFloorDisplacementGroups(cat).find(g => g.id === tmpl.groupId);
+            if (!group) {
+                setActiveNdtDispGroup(null);
+                return openNdtDisplacementModal(imgX, imgY, null, null);
+            }
+            setActiveNdtDispGroup(group);
+            const ptSeq = group.points.length + 1;
+            groupIdEl.value = group.id;
             pointIdEl.value = '';
-            const ptSeq = tmpl.nextPointNo;
             const ptRole = isMemberDisp ? (ptSeq === 1 ? ' (단부 1)' : (ptSeq === 2 ? ' (중앙부)' : ' (단부 2)')) : '';
-            hintEl.textContent = `${tmpl.groupNo} 그룹에 ${tmpl.locationType} 측정 지점 추가 (${ptSeq}번째${ptRole})`;
+            hintEl.textContent = `${group.groupNo} 구역에 측정 지점 추가 ${formatNdtDisplacementPointLabel(ptSeq)}${ptRole} — 구역 안에서 번호가 이어집니다`;
             infoBlock.style.display = 'none';
             if (damageRow) damageRow.style.display = 'none';
             levelEl.value = '';
             btnDelete.style.display = 'none';
-            btnAddAnother.style.display = '';
+            if (btnAddAnother) btnAddAnother.style.display = '';
+            if (btnNewZone) btnNewZone.style.display = '';
         } else {
             groupIdEl.value = '';
             pointIdEl.value = '';
             const ptRole = isMemberDisp ? ' (단부 1)' : '';
-            hintEl.textContent = `새 측정 구역 (${nextDisplacementGroupNo(cat)}) - 1번째 지점${ptRole}`;
+            hintEl.textContent = `새 측정 구역 (${nextDisplacementGroupNo(cat)}) - ${formatNdtDisplacementPointLabel(1)}${ptRole}`;
             infoBlock.style.display = 'flex';
             if (damageRow) damageRow.style.display = isMemberDisp ? 'block' : 'none';
             if (damageEl) damageEl.checked = false;
@@ -4948,7 +6077,8 @@ document.addEventListener('DOMContentLoaded', () => {
             lenEl.value = '';
             levelEl.value = '';
             btnDelete.style.display = 'none';
-            btnAddAnother.style.display = '';
+            if (btnAddAnother) btnAddAnother.style.display = '';
+            if (btnNewZone) btnNewZone.style.display = 'none';
         }
 
         modal.style.display = 'flex';
@@ -4957,7 +6087,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function closeNdtDisplacementModal() {
+        // 활성 구역은 유지 — 다음 마킹에서 같은 구역 (02)(03)… 이어쓰기
         window._ndtDisplacementTemplate = null;
+        refreshNdtDispActiveTemplate();
         const modal = document.getElementById('ndtDisplacementModal');
         if (modal) {
             modal.style.display = 'none';
@@ -5056,10 +6188,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!container) return;
         container.innerHTML = group.points.map((p, idx) => `
             <div class="option-manager-item">
-                <span>${idx + 1}번: ${p.level}mm</span>
+                <span>${formatNdtDisplacementPointLabel(idx + 1)}: ${p.level}mm</span>
                 <button type="button" class="option-manager-item-delete" onclick="window.deleteNdtDisplacementPoint('${group.id}','${p.id}')"><i class="fa-solid fa-trash"></i></button>
             </div>
-        `).join('') || '<div style="color:#94a3b8; font-size:0.85rem; padding:0.5rem;">측정 지점이 없습니다.</div>';
+        `).join('') || '<div style="color:#a3a3a3; font-size:0.85rem; padding:0.5rem;">측정 지점이 없습니다.</div>';
     }
 
     window.deleteNdtDisplacementPoint = function(groupId, pointId) {
@@ -5084,6 +6216,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('⚠️ 해당 측정 구역과 포함된 모든 지점을 삭제하시겠습니까?')) return;
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         state.ndtDisplacementGroups[key] = (state.ndtDisplacementGroups[key] || []).filter(g => g.id !== groupId);
+        if (window._activeNdtDispGroupId === groupId) setActiveNdtDispGroup(null);
         saveStateToLocalStorage();
         drawNdtCanvas();
         renderNdtSummaryTable();
@@ -5095,11 +6228,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnSave) {
             btnSave.addEventListener('click', () => {
                 const saved = commitNdtDisplacement();
+                if (!saved) return;
+                setActiveNdtDispGroup(saved.group);
                 closeNdtDisplacementModal();
-                if (saved) {
-                    drawNdtCanvas();
-                    renderNdtSummaryTable();
-                }
+                drawNdtCanvas();
+                renderNdtSummaryTable();
+                const nextNo = formatNdtDisplacementPointLabel(saved.group.points.length + 1);
+                window.showToast(`${saved.group.groupNo} 구역 저장 · 다음 마킹은 ${nextNo}로 이어집니다`, 'success', 3200);
             });
         }
 
@@ -5107,18 +6242,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (btnAddAnother) {
             btnAddAnother.addEventListener('click', () => {
                 const saved = commitNdtDisplacement();
+                if (!saved) return;
+                setActiveNdtDispGroup(saved.group);
                 closeNdtDisplacementModal();
-                if (saved) {
-                    drawNdtCanvas();
-                    renderNdtSummaryTable();
-                    window._ndtDisplacementTemplate = {
-                        groupId: saved.group.id,
-                        groupNo: saved.group.groupNo,
-                        locationType: saved.group.locationType,
-                        nextPointNo: saved.group.points.length + 1
-                    };
-                    window.showToast(`${saved.group.groupNo} 구역에 이어서 측정합니다. 도면에서 다음 지점을 클릭하세요.`, 'info', 3500);
-                }
+                drawNdtCanvas();
+                renderNdtSummaryTable();
+                window.showToast(`${saved.group.groupNo} 구역에 이어서 측정합니다. 도면에서 다음 지점을 클릭하세요.`, 'info', 3500);
+            });
+        }
+
+        const btnNewZone = document.getElementById('btnStartNewNdtDispZone');
+        if (btnNewZone) {
+            btnNewZone.addEventListener('click', () => {
+                const coords = window._pendingNdtDispCoords || { x: 100, y: 100 };
+                setActiveNdtDispGroup(null);
+                openNdtDisplacementModal(coords.x, coords.y, null, null);
             });
         }
 
@@ -5134,6 +6272,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     group.points = group.points.filter(p => p.id !== pointId);
                     if (group.points.length === 0) {
                         state.ndtDisplacementGroups[key] = groups.filter(g => g.id !== group.id);
+                        if (window._activeNdtDispGroupId === group.id) setActiveNdtDispGroup(null);
+                    } else {
+                        setActiveNdtDispGroup(group);
                     }
                     saveStateToLocalStorage();
                 }
@@ -5167,10 +6308,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (group.category === '부재변위') {
                     group.hasMinorDamage = !!document.getElementById('ndtDispEditHasMinorDamage')?.checked;
                 }
+                setActiveNdtDispGroup(group);
                 saveStateToLocalStorage();
                 drawNdtCanvas();
                 renderNdtSummaryTable();
                 closeNdtDisplacementGroupEditModal();
+                window.showToast(`${group.groupNo} 구역이 활성입니다. 마킹하면 지점 번호가 이어집니다.`, 'info', 3000);
             });
         }
 
@@ -5412,6 +6555,56 @@ document.addEventListener('DOMContentLoaded', () => {
         return defectRank < latestRank;
     }
 
+    // 전회차 양식 등록 시 도면 좌표가 아직 없는 결함 — 목록(전차 미등록)에만 보이고 캔버스에는 그리지 않음
+    function isDefectMapUnregistered(defect) {
+        return !!defect?.mapUnregistered;
+    }
+
+    function filterMapPlacedDefects(defects) {
+        return (defects || []).filter(d => !isDefectMapUnregistered(d));
+    }
+
+    // 손상 유형·분류 필터가 적용된 현재 층 결함 중, 도면에 실제로 그릴 항목만 반환
+    function getCurrentFloorMapPlacedDefects() {
+        return filterMapPlacedDefects(getCurrentFloorFilteredDefects());
+    }
+
+    function startMapRegisterForDefect(defectId) {
+        const defect = getCurrentFloorDefects().find(d => d.id === defectId);
+        if (!defect || !isDefectMapUnregistered(defect)) return;
+        window._pendingMapRegisterDefectId = defectId;
+        setDrawMode('MARK');
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        window.showToast(`「${defect.no || '결함'}」 — 도면에서 마킹할 위치를 클릭·드래그하세요`, 'info', 4500);
+        drawCanvas();
+    }
+
+    function commitMapRegisterFromMarking(boxX, boxY, targetX, targetY) {
+        const defectId = window._pendingMapRegisterDefectId;
+        if (!defectId) return false;
+        const key = getDefectHistoryKey();
+        if (!state.defects[key]) return false;
+        const idx = state.defects[key].findIndex(d => d.id === defectId);
+        if (idx === -1) {
+            window._pendingMapRegisterDefectId = null;
+            return false;
+        }
+        pushDefectHistory();
+        const defect = state.defects[key][idx];
+        defect.x = boxX;
+        defect.y = boxY;
+        defect.targetX = targetX;
+        defect.targetY = targetY;
+        defect.mapUnregistered = false;
+        window._pendingMapRegisterDefectId = null;
+        saveStateToLocalStorage();
+        renderSurveyTable();
+        drawCanvas();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        window.showToast(`${defect.no || '결함'} 도면 배치 완료`, 'success', 2500);
+        return true;
+    }
+
     // "마킹 추가"로 같은 결함을 여러 위치에 표시한 그룹(groupId 공유)을 목록/보고서용으로 한 행으로 합친다.
     // 위치는 지점별 위치를 ' / '로 이어붙이고, 진행/누수/전회차 여부는 멤버 중 하나라도 해당되면 true로 간주.
     function consolidateDefectGroups(defects) {
@@ -5430,6 +6623,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     isProgress: members.some(m => m.isProgress),
                     isLeak: members.some(m => m.isLeak),
                     isCarriedOver: members.some(m => m.isCarriedOver),
+                    mapUnregistered: members.some(m => m.mapUnregistered),
                     isPriorityManage: members.some(m => m.isPriorityManage),
                     isBookmark: members.some(m => m.isBookmark),
                     _groupMemberIds: members.map(m => m.id),
@@ -5607,6 +6801,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const allFloorDefects = getCurrentFloorDefects();
+        const allConsolidated = consolidateDefectGroups(getCurrentFloorDefects());
+        const unregisteredItems = allConsolidated.filter(d => isPreviousRoundDefect(d) && isDefectMapUnregistered(d));
         const defects = consolidateDefectGroups(getCurrentFloorFilteredDefects());
 
         if (summaryEl) {
@@ -5655,7 +6851,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
-        if (defects.length === 0) {
+        if (defects.length === 0 && unregisteredItems.length === 0) {
             if (allFloorDefects.length > 0) {
                 panel.innerHTML = '<div class="defect-list-empty">표시 중인 분류가 없습니다.<br>위 기둥·벽체 / 보·슬래브 / 비구조체 / 마감재 버튼을 켜 주세요.</div>';
             } else {
@@ -5665,9 +6861,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         panel.innerHTML = '';
-        const previousItems = defects.filter(d => isPreviousRoundDefect(d));
+        const previousItems = defects.filter(d => isPreviousRoundDefect(d) && !isDefectMapUnregistered(d));
         const currentItems = defects.filter(d => !isPreviousRoundDefect(d));
 
+        const unregSection = renderDefectListSection('🟣 전차 미등록', unregisteredItems, { unregistered: true });
+        if (unregSection) panel.appendChild(unregSection);
         const prevSection = renderDefectListSection('🕐 전회차 조사항목', previousItems);
         if (prevSection) panel.appendChild(prevSection);
         const curSection = renderDefectListSection('🆕 금회차 조사항목', currentItems);
@@ -5683,20 +6881,66 @@ document.addEventListener('DOMContentLoaded', () => {
         return m ? parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER;
     }
 
+    // 좌측 결함목록용: 균열폭·이격 등 정도를 한눈에 볼 수치 문자열
+    function formatDefectListMeasure(d) {
+        const type = String(d.defectType || '');
+        const isCrack = type.includes('균열');
+        const isGap = type.includes('이격');
+        if (!isCrack && !isGap) return '';
+
+        const withMm = (raw) => {
+            const n = String(raw ?? '').trim();
+            if (!n || n === '-') return '';
+            if (/mm|㎜/i.test(n)) return n.replace(/㎜/g, 'mm');
+            if (/^\d+(\.\d+)?$/.test(n)) return `${n}mm`;
+            return n;
+        };
+
+        if (isCrack) {
+            const cw = d.crackWidth;
+            if (cw !== undefined && cw !== null && String(cw).trim() !== '') {
+                return withMm(cw);
+            }
+        }
+
+        const size = String(d.size || '').trim();
+        if (!size || size === '-') return '';
+
+        const patterns = [
+            /(?:W\s*=\s*|폭\s*[:=]?\s*|이격\s*[:=]?\s*|틈\s*[:=]?\s*)(\d+(?:\.\d+)?)\s*(?:mm|㎜)?/i,
+            /^(\d+(?:\.\d+)?)\s*(?:mm|㎜)\b/i,
+            /^(\d+(?:\.\d+)?)\s*\/\s*\d+/
+        ];
+        for (const re of patterns) {
+            const m = size.match(re);
+            if (m) return withMm(m[1]);
+        }
+
+        // 짧은 규모 텍스트는 그대로 노출 (예: "약 5mm")
+        if (size.length <= 16) return size;
+        return `${size.slice(0, 14)}…`;
+    }
+
     // 결함 1건의 목록 카드(DOM row) 생성 — renderDefectListSection에서 재사용
-    function buildDefectRow(d) {
-        const catClass = d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : '');
+    function buildDefectRow(d, options = {}) {
+        const isUnregistered = options.unregistered || isDefectMapUnregistered(d);
+        const catClass = isUnregistered ? '' : (d.category === '비구조체' ? 'cat-nonstructural' : (d.category === '마감재' ? 'cat-finishing' : ''));
         const numMatch = (d.no || '').match(/\d+/);
         const badgeNo = numMatch ? numMatch[0] : '?';
         const shapeIcon = d.shapeType === 'area' ? '🟧 ' : '';
 
         const row = document.createElement('div');
         row.className = `defect-list-item ${catClass}`.trim();
-        row.title = d.location || '';
+        if (isUnregistered) {
+            row.classList.add('map-unregistered');
+            if (window._pendingMapRegisterDefectId === d.id) row.classList.add('is-pending-map-register');
+        }
+        row.title = isUnregistered ? '클릭 후 도면에서 마킹 위치를 지정하세요' : (d.location || '');
 
         const badge = document.createElement('span');
         badge.className = 'defect-badge-no';
-        if (d.defectType === '상태양호') badge.classList.add('badge-good');
+        if (isUnregistered) badge.classList.add('badge-unregistered');
+        else if (d.defectType === '상태양호') badge.classList.add('badge-good');
         badge.textContent = badgeNo;
         row.appendChild(badge);
 
@@ -5712,6 +6956,15 @@ document.addEventListener('DOMContentLoaded', () => {
         typeLine.className = 'defect-list-item-type';
         typeLine.textContent = d.defectType || '';
         lines.appendChild(typeLine);
+
+        const measureText = formatDefectListMeasure(d);
+        if (measureText) {
+            const measureEl = document.createElement('span');
+            measureEl.className = 'defect-list-item-measure';
+            measureEl.textContent = measureText;
+            measureEl.title = d.size ? `규모: ${d.size}` : '균열폭/이격';
+            lines.appendChild(measureEl);
+        }
 
         row.appendChild(lines);
 
@@ -5736,11 +6989,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         row.addEventListener('click', (e) => {
             if (actions.contains(e.target)) return;
-            window.focusDefectOnCanvas(d.id);
+            if (isUnregistered) startMapRegisterForDefect(d.id);
+            else window.focusDefectOnCanvas(d.id);
         });
         editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d._representative || d);
+            const rep = d._representative || d;
+            openAddDefectModal(rep.x, rep.y, rep.targetX, rep.targetY, rep);
         });
         deleteBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -5757,10 +7012,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 전회차/금회차 구역 하나(제목 + 스크롤 가능한 카드 목록)를 만들어 반환 — 항목이 없으면 null
-    function renderDefectListSection(title, items) {
+    function renderDefectListSection(title, items, options = {}) {
         if (items.length === 0) return null;
         const section = document.createElement('div');
         section.className = 'defect-list-section';
+        if (options.unregistered) section.classList.add('map-unregistered-section');
 
         const header = document.createElement('div');
         header.className = 'defect-list-section-title';
@@ -5769,7 +7025,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const scrollBox = document.createElement('div');
         scrollBox.className = 'defect-list-section-scroll';
-        items.forEach(d => scrollBox.appendChild(buildDefectRow(d)));
+        items.forEach(d => scrollBox.appendChild(buildDefectRow(d, options)));
         section.appendChild(scrollBox);
 
         return section;
@@ -5777,6 +7033,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 영역(면적) 형태 결함 렌더링 — 화면 캔버스와 보고서 캔버스(drawPinSafe) 양쪽에서 공용으로 사용
     // 번호 네모칸은 여기에 고정하지 않고, drawPin이 지시선으로 연결해 그린다.
+    function normalizeAreaFillStyle(v) {
+        return (v === 'hatch' || v === 'none') ? v : 'solid';
+    }
+
+    function normalizeAreaBorderStyle(v) {
+        return v === 'dashed' ? 'dashed' : 'solid';
+    }
+
+    function getAreaFillStyle(defect) {
+        if (defect && defect.areaFillStyle) return normalizeAreaFillStyle(defect.areaFillStyle);
+        return normalizeAreaFillStyle(state && state.areaFillStyle);
+    }
+
+    function getAreaBorderStyle(defect) {
+        if (defect && defect.areaBorderStyle) return normalizeAreaBorderStyle(defect.areaBorderStyle);
+        return normalizeAreaBorderStyle(state && state.areaBorderStyle);
+    }
+
+    function getSelectedAreaFillFromUi() {
+        if (document.getElementById('btnAreaFillHatch')?.classList.contains('active')) return 'hatch';
+        if (document.getElementById('btnAreaFillNone')?.classList.contains('active')) return 'none';
+        return 'solid';
+    }
+
+    function getSelectedAreaBorderFromUi() {
+        if (document.getElementById('btnAreaBorderDashed')?.classList.contains('active')) return 'dashed';
+        return 'solid';
+    }
+
+    function syncDefectAreaStyleUi(fillStyle, borderStyle) {
+        const fill = normalizeAreaFillStyle(fillStyle);
+        const border = normalizeAreaBorderStyle(borderStyle);
+        ['solid', 'hatch', 'none'].forEach(k => {
+            const btn = document.getElementById(k === 'solid' ? 'btnAreaFillSolid' : (k === 'hatch' ? 'btnAreaFillHatch' : 'btnAreaFillNone'));
+            if (btn) btn.classList.toggle('active', k === fill);
+        });
+        ['solid', 'dashed'].forEach(k => {
+            const btn = document.getElementById(k === 'solid' ? 'btnAreaBorderSolid' : 'btnAreaBorderDashed');
+            if (btn) btn.classList.toggle('active', k === border);
+        });
+    }
+
+    function setDefectAreaStylePanelVisible(isArea) {
+        const block = document.getElementById('defectAreaStyleBlock');
+        const arrowBlock = document.querySelector('#defectModal .defect-arrow-block');
+        if (block) block.style.display = isArea ? '' : 'none';
+        if (arrowBlock) arrowBlock.style.display = isArea ? 'none' : '';
+    }
+
+    function paintAreaInterior(ctx, x1, y1, x2, y2, color, fillStyle) {
+        const w = x2 - x1;
+        const h = y2 - y1;
+        if (w <= 0 || h <= 0 || fillStyle === 'none') return;
+        if (fillStyle === 'solid') {
+            ctx.globalAlpha = 0.28;
+            ctx.fillStyle = color;
+            ctx.fillRect(x1, y1, w, h);
+            ctx.globalAlpha = 1;
+            return;
+        }
+        // hatch
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x1, y1, w, h);
+        ctx.clip();
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.7;
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([]);
+        const step = 9;
+        for (let i = -h; i <= w + h; i += step) {
+            ctx.beginPath();
+            ctx.moveTo(x1 + i, y1);
+            ctx.lineTo(x1 + i + h, y2);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+
     function drawAreaRect(ctx, defect, isPreview, forReport) {
         const x1 = Math.min(defect.areaX1, defect.areaX2);
         const y1 = Math.min(defect.areaY1, defect.areaY2);
@@ -5788,17 +7123,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const isPrevRoundDefect = !forReport && isPreviousRoundDefect(defect);
         const roundLineMul = isPrevRoundDefect ? 1.35 : 1.0;
         const mainColor = getDefectColor(defect);
-        const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
+        const activeColor = isBeingDragged ? '#facc15' : mainColor;
+        const fillStyle = getAreaFillStyle(defect);
+        const borderStyle = getAreaBorderStyle(defect);
 
         ctx.save();
-        ctx.globalAlpha = 0.28;
-        ctx.fillStyle = activeColor;
-        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-        ctx.globalAlpha = 1;
+        paintAreaInterior(ctx, x1, y1, x2, y2, activeColor, fillStyle);
         ctx.strokeStyle = activeColor;
         // 영역 테두리는 얇게 — 지시선이 꼽히는 윤곽만 보이게
         ctx.lineWidth = (isBeingDragged ? 1.6 : 1.1) * roundLineMul;
-        if (isPreview) ctx.setLineDash([5, 4]);
+        if (isPreview || borderStyle === 'dashed') ctx.setLineDash([5, 4]);
+        else ctx.setLineDash([]);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.restore();
     }
@@ -5921,20 +7256,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return t0 < t1 - eps;
     }
 
-    // 영역 지시선: 꺾인(L) 경로로 영역 내부를 관통하지 않게 연결
-    function buildAreaLeaderRoute(anchor, attach, areaX1, areaY1, areaX2, areaY2) {
-        const midH = { x: attach.x, y: anchor.y };
-        const midV = { x: anchor.x, y: attach.y };
-        const rx1 = areaX1;
-        const ry1 = areaY1;
-        const rx2 = areaX2;
-        const ry2 = areaY2;
-        const hOk = !segmentCrossesOpenRect(anchor.x, anchor.y, midH.x, midH.y, rx1, ry1, rx2, ry2)
-            && !segmentCrossesOpenRect(midH.x, midH.y, attach.x, attach.y, rx1, ry1, rx2, ry2);
-        if (hOk) return [anchor, midH, attach];
-        const vOk = !segmentCrossesOpenRect(anchor.x, anchor.y, midV.x, midV.y, rx1, ry1, rx2, ry2)
-            && !segmentCrossesOpenRect(midV.x, midV.y, attach.x, attach.y, rx1, ry1, rx2, ry2);
-        if (vOk) return [anchor, midV, attach];
+    // 영역 지시선: 번호칸에서 테두리 부착점까지 직선 (과거 L자 경로는 사용하지 않음)
+    function buildAreaLeaderRoute(anchor, attach) {
         return [anchor, attach];
     }
 
@@ -6071,7 +7394,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 전회차(과거 조사) 결함은 도면에서 더 두껍고 진하게 표시 — 보고서(drawPinSafe)는 구분 없이 그대로 둠
         const isPrevRoundDefect = isPreviousRoundDefect(defect);
         const roundLineMul = isPrevRoundDefect ? 1.6 : 1.0;
-        const activeColor = isBeingDragged ? '#facc15' : (isPrevRoundDefect ? darkenHexColor(mainColor, 0.25) : mainColor);
+        const activeColor = isBeingDragged ? '#facc15' : mainColor;
 
         const targets = (arrows && arrows.length > 0)
             ? arrows
@@ -6115,27 +7438,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     headLen,
                     state.rotationAngle || 0
                 )
-                : (isAreaDefect
-                    ? (() => {
-                        const route = buildAreaLeaderRoute(
-                            anchor,
-                            { x: targetX, y: targetY },
-                            defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
-                        );
-                        const last = route[route.length - 1];
-                        const prev = route[route.length - 2] || anchor;
-                        return { route, ux: last.x - prev.x, uy: last.y - prev.y };
-                    })()
-                    : (() => {
+                : (() => {
                     const ux = targetX - anchor.x;
                     const uy = targetY - anchor.y;
-                    // 영역은 화살촉 inset 없이 테두리까지 직선
+                    // 영역은 화살촉 inset 없이 테두리까지 직선으로 꽂음 (L자 꺾임 없음)
                     const tipBack = isAreaDefect ? 0 : stemInset;
                     const stemEnd = tipBack > 0
                         ? getArrowStemEndPoint(targetX, targetY, ux, uy, tipBack)
                         : { x: targetX, y: targetY };
                     return { route: [anchor, stemEnd], ux, uy };
-                })());
+                })();
 
             ctx.save();
             ctx.beginPath();
@@ -6184,6 +7496,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // fill=false: 투명 내부 + 마킹색 네모 테두리 / fill=true: 기존 채우기
         paintPinBox(ctx, w, h, shapeCfg, activeColor, scale, roundLineMul, isBeingDragged);
+
+        // 마퀴/클릭 선택 강조
+        if (defect.id && typeof selectedDefectIds !== 'undefined' && selectedDefectIds.has(defect.id)) {
+            ctx.save();
+            ctx.strokeStyle = '#6b6b6b';
+            ctx.lineWidth = Math.max(2, 2.4 * scale);
+            ctx.setLineDash([]);
+            ctx.strokeRect(-w / 2 - 3 * scale, -h / 2 - 3 * scale, w + 6 * scale, h + 6 * scale);
+            ctx.restore();
+        }
 
         ctx.fillStyle = getPinBoxTextColor(activeColor, shapeCfg, isBeingDragged);
         ctx.font = `bold ${getPinBoxFontSize(scale)}px sans-serif`;
@@ -6236,12 +7558,268 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
 
-    // --- Dynamic Defect Component(부재 명칭) Presets & Custom Adding/Removing (카테고리별로 완전히 분리) ---
-    const DEFECT_COMPONENT_PRESET = {
-        '구조체': ['기둥', '큰보', '작은보', '슬래브', 'RC벽체', '계단', '기타'],
-        '비구조체': ['조적벽체', '기타'],
-        '마감재': ['기타']
+    // --- Dynamic Defect Component(부재 명칭) — 대·중·소분류 트리 + 플랫 프리셋 ---
+    // 대분류 = 부재 분류(구조체/비구조체/마감재), 소분류 값이 실제 부재 명칭으로 저장됨
+    const DEFECT_COMPONENT_TREE = {
+        '구조체': {
+            '기둥': ['기둥', 'RC기둥', '철골기둥', 'SRC기둥'],
+            '보': ['큰보', '작은보', '보', '캔틸레버보'],
+            '슬래브': ['슬래브', '데크슬래브'],
+            '벽체': ['RC벽체', '내력벽'],
+            '계단': ['계단', '계단참', '계단슬래브'],
+            '기초': ['기초', '독립기초', '매트기초'],
+            '기타': ['기타']
+        },
+        '비구조체': {
+            '벽체': ['조적벽체', '칸막이벽', 'ALC벽'],
+            '창호': ['창호', '문', '셔터'],
+            '천장': ['천장', '반자'],
+            '기타': ['기타']
+        },
+        '마감재': {
+            '외장': ['외장타일', '외장석재', '도장', '금속패널'],
+            '내장': ['내장타일', '수장', '내장도장'],
+            '바닥': ['바닥타일', '바닥마감'],
+            '기타': ['기타']
+        }
     };
+
+    function buildDefectComponentPresetFromTree() {
+        const out = { '구조체': [], '비구조체': [], '마감재': [] };
+        Object.keys(DEFECT_COMPONENT_TREE).forEach((major) => {
+            const seen = new Set();
+            Object.values(DEFECT_COMPONENT_TREE[major] || {}).forEach((leaves) => {
+                (leaves || []).forEach((leaf) => {
+                    if (!seen.has(leaf)) {
+                        seen.add(leaf);
+                        out[major].push(leaf);
+                    }
+                });
+            });
+        });
+        return out;
+    }
+
+    const DEFECT_COMPONENT_PRESET = buildDefectComponentPresetFromTree();
+
+    let _componentCascade = { step: 1, major: '', mid: '' };
+
+    function findDefectComponentCascadePath(leafName, preferredMajor) {
+        const name = (leafName || '').trim();
+        if (!name) return null;
+        const majors = preferredMajor && DEFECT_COMPONENT_TREE[preferredMajor]
+            ? [preferredMajor, ...Object.keys(DEFECT_COMPONENT_TREE).filter(k => k !== preferredMajor)]
+            : Object.keys(DEFECT_COMPONENT_TREE);
+        for (const major of majors) {
+            const mids = DEFECT_COMPONENT_TREE[major] || {};
+            for (const mid of Object.keys(mids)) {
+                if ((mids[mid] || []).includes(name)) return { major, mid, leaf: name };
+            }
+        }
+        return null;
+    }
+
+    function updateDefectComponentCascadeSummary(valueOverride) {
+        const el = document.getElementById('defectComponentCascadeSummary');
+        if (!el) return;
+        const cat = document.getElementById('defectCategory')?.value || '';
+        const name = (valueOverride !== undefined)
+            ? String(valueOverride || '').trim()
+            : getDefectComboValue(
+                document.getElementById('defectComponent'),
+                document.getElementById('defectComponentInput')
+            );
+        const path = findDefectComponentCascadePath(name, cat);
+        if (path) {
+            el.textContent = `${path.major} › ${path.mid} › ${path.leaf}`;
+            return;
+        }
+        if (name) {
+            el.textContent = cat ? `${cat} › ${name}` : name;
+            return;
+        }
+        el.textContent = '대·중·소분류로 선택';
+    }
+
+    function closeDefectComponentCascadeModal() {
+        const modal = document.getElementById('defectComponentCascadeModal');
+        if (!modal) return;
+        modal.classList.remove('open');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+    }
+
+    function renderDefectComponentCascadeGrid() {
+        const grid = document.getElementById('defectCascadeGrid');
+        const crumb = document.getElementById('defectCascadeCrumb');
+        const steps = document.getElementById('defectCascadeSteps');
+        const backBtn = document.getElementById('btnDefectCascadeBack');
+        if (!grid) return;
+
+        const { step, major, mid } = _componentCascade;
+        if (steps) {
+            steps.querySelectorAll('[data-step]').forEach((node) => {
+                const s = Number(node.getAttribute('data-step'));
+                node.classList.toggle('is-active', s === step);
+                node.classList.toggle('is-done', s < step);
+            });
+        }
+        if (backBtn) backBtn.style.visibility = step > 1 ? 'visible' : 'hidden';
+
+        let items = [];
+        let titleHint = '';
+        if (step === 1) {
+            items = Object.keys(DEFECT_COMPONENT_TREE);
+            titleHint = '대분류를 선택하세요';
+            if (crumb) crumb.textContent = titleHint;
+        } else if (step === 2) {
+            items = Object.keys(DEFECT_COMPONENT_TREE[major] || {});
+            titleHint = '중분류를 선택하세요';
+            if (crumb) crumb.textContent = `${major} › ${titleHint}`;
+        } else {
+            items = [...(DEFECT_COMPONENT_TREE[major]?.[mid] || [])];
+            // 커스텀 부재명(해당 대분류)도 소분류에 노출
+            migrateDefectComponentStateShape();
+            const custom = (window.state.customDefectComponents && window.state.customDefectComponents[major]) || [];
+            custom.forEach((c) => {
+                if (c && !items.includes(c)) items.push(c);
+            });
+            titleHint = '소분류(부재 명칭)를 선택하세요';
+            if (crumb) crumb.textContent = `${major} › ${mid} › ${titleHint}`;
+        }
+
+        const currentLeaf = getDefectComboValue(
+            document.getElementById('defectComponent'),
+            document.getElementById('defectComponentInput')
+        );
+        grid.innerHTML = '';
+        items.forEach((label) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'defect-cascade-chip';
+            btn.textContent = label === '기타' ? '기타 부재' : label;
+            if (step === 3 && label === currentLeaf) btn.classList.add('is-selected');
+            if (step === 1 && label === (document.getElementById('defectCategory')?.value || '')) {
+                btn.classList.add('is-selected');
+            }
+            btn.addEventListener('click', () => onDefectComponentCascadePick(label));
+            grid.appendChild(btn);
+        });
+    }
+
+    function onDefectComponentCascadePick(label) {
+        if (_componentCascade.step === 1) {
+            _componentCascade.major = label;
+            _componentCascade.mid = '';
+            _componentCascade.step = 2;
+            const catEl = document.getElementById('defectCategory');
+            if (catEl && catEl.value !== label) {
+                catEl.value = label;
+                catEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            renderDefectComponentCascadeGrid();
+            return;
+        }
+        if (_componentCascade.step === 2) {
+            _componentCascade.mid = label;
+            _componentCascade.step = 3;
+            renderDefectComponentCascadeGrid();
+            return;
+        }
+        applyDefectComponentCascadeSelection(label);
+    }
+
+    function applyDefectComponentCascadeSelection(leaf) {
+        const major = _componentCascade.major || document.getElementById('defectCategory')?.value || '구조체';
+        const catEl = document.getElementById('defectCategory');
+        if (catEl && catEl.value !== major) {
+            catEl.value = major;
+            catEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        populateDefectComponentDropdown(major, leaf);
+        syncDefectComboFields(
+            document.getElementById('defectComponent'),
+            document.getElementById('defectComponentInput'),
+            leaf
+        );
+        updateDefectComponentCascadeSummary(leaf);
+        if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
+        closeDefectComponentCascadeModal();
+        if (typeof window.showToast === 'function') {
+            window.showToast(`부재 명칭: ${major} › ${_componentCascade.mid} › ${leaf}`, 'success', 1800);
+        }
+    }
+
+    function openDefectComponentCascadeModal() {
+        const cat = document.getElementById('defectCategory')?.value || '구조체';
+        const leaf = getDefectComboValue(
+            document.getElementById('defectComponent'),
+            document.getElementById('defectComponentInput')
+        );
+        const path = findDefectComponentCascadePath(leaf, cat);
+        if (path) {
+            _componentCascade = { step: 3, major: path.major, mid: path.mid };
+        } else if (DEFECT_COMPONENT_TREE[cat]) {
+            _componentCascade = { step: 2, major: cat, mid: '' };
+        } else {
+            _componentCascade = { step: 1, major: '', mid: '' };
+        }
+        const modal = document.getElementById('defectComponentCascadeModal');
+        if (!modal) return;
+        modal.style.display = 'flex';
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+        renderDefectComponentCascadeGrid();
+    }
+
+    function setupDefectComponentCascadeEvents() {
+        const openBtn = document.getElementById('btnOpenComponentCascade');
+        if (openBtn && !openBtn.dataset.cascadeBound) {
+            openBtn.dataset.cascadeBound = '1';
+            openBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                openDefectComponentCascadeModal();
+            });
+        }
+        const closeBtn = document.getElementById('btnCloseDefectCascade');
+        if (closeBtn && !closeBtn.dataset.cascadeBound) {
+            closeBtn.dataset.cascadeBound = '1';
+            closeBtn.addEventListener('click', closeDefectComponentCascadeModal);
+        }
+        const keepBtn = document.getElementById('btnDefectCascadeCloseKeep');
+        if (keepBtn && !keepBtn.dataset.cascadeBound) {
+            keepBtn.dataset.cascadeBound = '1';
+            keepBtn.addEventListener('click', () => {
+                closeDefectComponentCascadeModal();
+                const input = document.getElementById('defectComponentInput');
+                if (input) {
+                    input.focus();
+                    input.select?.();
+                }
+            });
+        }
+        const backBtn = document.getElementById('btnDefectCascadeBack');
+        if (backBtn && !backBtn.dataset.cascadeBound) {
+            backBtn.dataset.cascadeBound = '1';
+            backBtn.addEventListener('click', () => {
+                if (_componentCascade.step === 3) {
+                    _componentCascade.step = 2;
+                    _componentCascade.mid = '';
+                } else if (_componentCascade.step === 2) {
+                    _componentCascade.step = 1;
+                    _componentCascade.major = '';
+                }
+                renderDefectComponentCascadeGrid();
+            });
+        }
+        const overlay = document.getElementById('defectComponentCascadeModal');
+        if (overlay && !overlay.dataset.cascadeBound) {
+            overlay.dataset.cascadeBound = '1';
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeDefectComponentCascadeModal();
+            });
+        }
+    }
 
     // 예전 버전(카테고리 구분 없는 배열)으로 저장된 부재 명칭 커스텀/숨김 목록을 카테고리별 객체로 변환
     function migrateDefectComponentStateShape() {
@@ -6314,6 +7892,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (!v) return;
                 ensureDefectComboOption(select, v);
                 if (onChange) onChange(v);
+                if (selectId === 'defectComponent') updateDefectComponentCascadeSummary(v);
                 if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
             });
         });
@@ -6363,6 +7942,7 @@ document.addEventListener('DOMContentLoaded', () => {
             ? currentVal
             : (isDefectComboCustomToken(select.value) ? '' : select.value);
         syncDefectComboFields(select, document.getElementById('defectComponentInput'), resolved);
+        updateDefectComponentCascadeSummary(resolved);
     }
 
     // --- Dynamic Defect Type Presets & Custom Adding ---
@@ -6561,6 +8141,7 @@ document.addEventListener('DOMContentLoaded', () => {
             );
             updateDefectTypeDropdown(e.target.value, currentType);
             populateDefectComponentDropdown(e.target.value, currentComponent);
+            updateDefectComponentCascadeSummary(currentComponent);
         });
     }
 
@@ -6589,6 +8170,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('defectComponentInput'),
                     e.target.value
                 );
+                updateDefectComponentCascadeSummary(e.target.value);
             }
         });
     }
@@ -6656,6 +8238,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     bindDefectComboInputs();
+    setupDefectComponentCascadeEvents();
 
     function setDefectArrowOctant(octant) {
         const v = ((parseInt(octant, 10) || 0) % 8 + 8) % 8;
@@ -6867,13 +8450,15 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     // [ID 접미사, styleSizes 키] — stylePinSize{suffix}/styleArrowSize{suffix} 슬라이더에 사용
-    const STYLE_SIZE_FIELDS = [
+    const DEFECT_STYLE_SIZE_FIELDS = [
         ['DefectStructural', 'defectStructural'],
         ['DefectNonStructural', 'defectNonStructural'],
         ['DefectFinish', 'defectFinish'],
         ['DefectStructuralGood', 'defectStructuralGood'],
         ['DefectNonStructuralGood', 'defectNonStructuralGood'],
-        ['DefectFinishGood', 'defectFinishGood'],
+        ['DefectFinishGood', 'defectFinishGood']
+    ];
+    const NDT_STYLE_SIZE_FIELDS = [
         ['NdtMeasure', 'ndtMeasure'],
         ['NdtStrength', 'ndtStrength'],
         ['NdtCarbonation', 'ndtCarbonation'],
@@ -6881,6 +8466,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ['NdtSettlement', 'ndtSettlement'],
         ['NdtMemberDisp', 'ndtMemberDisp']
     ];
+    const STYLE_SIZE_FIELDS = DEFECT_STYLE_SIZE_FIELDS.concat(NDT_STYLE_SIZE_FIELDS);
 
     // [ID 접미사, styleShapes 키] — styleShape{suffix}/styleFill{suffix}/styleNumFmt{suffix} 컨트롤에 사용
     const STYLE_SHAPE_FIELDS = STYLE_SIZE_FIELDS;
@@ -6901,11 +8487,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function applyFloorMapStyleSettings(floorCode, buildingId) {
         if (!floorCode) return;
         const saved = state.floorMapStyleSettings?.[getFloorMapStyleKey(buildingId, floorCode)];
+        const ndtKept = cloneStyleSizesSubset(state.styleSizes, NDT_STYLE_SIZE_KEYS);
         if (saved) {
-            state.styleSizes = cloneStyleSizesMap(saved.styleSizes);
+            state.styleSizes = mergeStyleSizesSubset(
+                mergeStyleSizesSubset(cloneStyleSizesMap(state._globalStyleSizesFallback), saved.styleSizes),
+                ndtKept
+            );
             state.defectLeaderLineScale = saved.defectLeaderLineScale ?? 1.0;
         } else {
-            state.styleSizes = cloneStyleSizesMap(state._globalStyleSizesFallback) || null;
+            const fallback = cloneStyleSizesMap(state._globalStyleSizesFallback) || null;
+            state.styleSizes = mergeStyleSizesSubset(fallback, ndtKept);
             state.defectLeaderLineScale = state._globalDefectLeaderLineScaleFallback ?? 1.0;
         }
         if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
@@ -6948,6 +8539,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
+    window.applyStyleSizeBarLockUi = function() {
+        const mapLocked = window.state.styleSizeBarLockedMap !== false;
+        const ndtLocked = window.state.styleSizeBarLockedNdt !== false;
+        const mapCb = document.getElementById('styleSizeLockMap');
+        const ndtCb = document.getElementById('styleSizeLockNdt');
+        if (mapCb) mapCb.checked = mapLocked;
+        if (ndtCb) ndtCb.checked = ndtLocked;
+
+        const mapToolbar = document.getElementById('mapStyleSizeToolbar');
+        const ndtToolbar = document.getElementById('ndtStyleSizeToolbar');
+        if (mapToolbar) mapToolbar.classList.toggle('is-size-locked', mapLocked);
+        if (ndtToolbar) ndtToolbar.classList.toggle('is-size-locked', ndtLocked);
+
+        ['stylePinSizeAll', 'styleArrowSizeAll', 'styleLeaderLineScaleAll'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = mapLocked;
+        });
+        ['stylePinSizeNdtCurrent', 'styleArrowSizeNdtCurrent', 'styleLeaderLineScaleNdtCurrent'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.disabled = ndtLocked;
+        });
+
+        const mapIcon = mapCb?.parentElement?.querySelector('i');
+        if (mapIcon) mapIcon.className = mapLocked ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open';
+        const ndtIcon = ndtCb?.parentElement?.querySelector('i');
+        if (ndtIcon) ndtIcon.className = ndtLocked ? 'fa-solid fa-lock' : 'fa-solid fa-lock-open';
+    };
+
     window.syncBulkStyleSlidersUi = function() {
         const pinAllInput = document.getElementById('stylePinSizeAll');
         const pinAllLabel = document.getElementById('stylePinSizeAllLabel');
@@ -6955,8 +8574,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const arrowAllLabel = document.getElementById('styleArrowSizeAllLabel');
         const leaderLineAllInput = document.getElementById('styleLeaderLineScaleAll');
         const leaderLineAllLabel = document.getElementById('styleLeaderLineScaleAllLabel');
-        const sampleKey = 'defectStructural';
-        const sampleSize = getStyleSize(sampleKey);
+        const sampleSize = getStyleSize('defectStructural');
         const pinV = sampleSize.pin;
         const arrowV = sampleSize.arrow;
         const lineV = Math.min(Math.max(parseFloat(getActiveLeaderLineScale() || 1), 0.5), 3.0);
@@ -6966,6 +8584,32 @@ document.addEventListener('DOMContentLoaded', () => {
         if (arrowAllLabel) arrowAllLabel.textContent = `${Math.round(arrowV * 100)}%`;
         if (leaderLineAllInput) leaderLineAllInput.value = lineV;
         if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(lineV * 100)}%`;
+
+        const ndtPinAll = document.getElementById('stylePinSizeNdtCurrent');
+        const ndtPinLabel = document.getElementById('stylePinSizeNdtCurrentLabel');
+        const ndtArrowAll = document.getElementById('styleArrowSizeNdtCurrent');
+        const ndtArrowLabel = document.getElementById('styleArrowSizeNdtCurrentLabel');
+        const ndtLineAll = document.getElementById('styleLeaderLineScaleNdtCurrent');
+        const ndtLineLabel = document.getElementById('styleLeaderLineScaleNdtCurrentLabel');
+        const ndtCatLabel = document.getElementById('ndtStyleCatLabel');
+        const ndtKey = getCurrentNdtStyleKey();
+        const ndtSample = getStyleSize(ndtKey);
+        const ndtPinV = ndtSample.pin;
+        const ndtArrowV = ndtSample.arrow;
+        const ndtLineV = Math.min(Math.max(parseFloat(ndtSample.leader || 1), 0.5), 3.0);
+        if (ndtCatLabel) {
+            const cat = currentNdtCategory || '실측';
+            ndtCatLabel.textContent = (cat === '강도' || cat === '탄산화')
+                ? '강도·탄산화 (크기 동기화)'
+                : getNdtCategoryLabel(cat);
+        }
+        if (ndtPinAll) ndtPinAll.value = ndtPinV;
+        if (ndtPinLabel) ndtPinLabel.textContent = `${Math.round(ndtPinV * 100)}%`;
+        if (ndtArrowAll) ndtArrowAll.value = ndtArrowV;
+        if (ndtArrowLabel) ndtArrowLabel.textContent = `${Math.round(ndtArrowV * 100)}%`;
+        if (ndtLineAll) ndtLineAll.value = ndtLineV;
+        if (ndtLineLabel) ndtLineLabel.textContent = `${Math.round(ndtLineV * 100)}%`;
+        if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
     };
 
     function persistCurrentFloorMapStyleFromSliders() {
@@ -6983,10 +8627,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
             const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
             const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+            const leaderInput = document.getElementById(`styleLeaderSize${suffix}`);
+            const leaderLabel = document.getElementById(`styleLeaderSize${suffix}Label`);
             if (pinInput) pinInput.value = sz.pin;
             if (pinLabel) pinLabel.textContent = `${Math.round(sz.pin * 100)}%`;
             if (arrowInput) arrowInput.value = sz.arrow;
             if (arrowLabel) arrowLabel.textContent = `${Math.round(sz.arrow * 100)}%`;
+            if (leaderInput) leaderInput.value = sz.leader;
+            if (leaderLabel) leaderLabel.textContent = `${Math.round(sz.leader * 100)}%`;
         });
         STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
             const sh = getStyleShape(key);
@@ -7041,31 +8689,45 @@ document.addEventListener('DOMContentLoaded', () => {
             const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
             const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
             const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+            const leaderInput = document.getElementById(`styleLeaderSize${suffix}`);
+            const leaderLabel = document.getElementById(`styleLeaderSize${suffix}Label`);
 
             if (pinInput) {
                 pinInput.addEventListener('input', () => {
-                    if (!state.styleSizes) state.styleSizes = {};
-                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
-                    state.styleSizes[key].pin = parseFloat(pinInput.value);
-                    if (pinLabel) pinLabel.textContent = `${Math.round(state.styleSizes[key].pin * 100)}%`;
+                    const v = parseFloat(pinInput.value);
+                    setStyleSizeFields(key, { pin: v });
+                    if (pinLabel) pinLabel.textContent = `${Math.round(v * 100)}%`;
+                    if (key === 'ndtStrength' || key === 'ndtCarbonation') syncNdtStrengthCarbSizeControlsUi();
+                    if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
                     refreshAllStyleColoredCanvases();
                 });
                 pinInput.addEventListener('change', () => saveStateToLocalStorage());
             }
             if (arrowInput) {
                 arrowInput.addEventListener('input', () => {
-                    if (!state.styleSizes) state.styleSizes = {};
-                    if (!state.styleSizes[key]) state.styleSizes[key] = {};
-                    state.styleSizes[key].arrow = parseFloat(arrowInput.value);
-                    if (arrowLabel) arrowLabel.textContent = `${Math.round(state.styleSizes[key].arrow * 100)}%`;
+                    const v = parseFloat(arrowInput.value);
+                    setStyleSizeFields(key, { arrow: v });
+                    if (arrowLabel) arrowLabel.textContent = `${Math.round(v * 100)}%`;
+                    if (key === 'ndtStrength' || key === 'ndtCarbonation') syncNdtStrengthCarbSizeControlsUi();
+                    if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
                     refreshAllStyleColoredCanvases();
                 });
                 arrowInput.addEventListener('change', () => saveStateToLocalStorage());
             }
+            if (leaderInput) {
+                leaderInput.addEventListener('input', () => {
+                    const v = Math.min(Math.max(parseFloat(leaderInput.value || '1'), 0.5), 3.0);
+                    setStyleSizeFields(key, { leader: v });
+                    if (leaderLabel) leaderLabel.textContent = `${Math.round(v * 100)}%`;
+                    if (key === 'ndtStrength' || key === 'ndtCarbonation') syncNdtStrengthCarbSizeControlsUi();
+                    if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
+                    refreshAllStyleColoredCanvases();
+                });
+                leaderInput.addEventListener('change', () => saveStateToLocalStorage());
+            }
         });
 
-        // 항목마다 핀/화살표 크기를 하나씩 맞추기 번거로우므로, 이 슬라이더 하나로
-        // 전체 카테고리(결함+NDT)의 핀/화살표 크기를 한 번에 같은 값으로 맞춘다.
+        // 결함위치도 일괄: 결함 카테고리만 (NDT와 분리)
         const pinAllInput = document.getElementById('stylePinSizeAll');
         const pinAllLabel = document.getElementById('stylePinSizeAllLabel');
         if (pinAllInput) {
@@ -7073,7 +8735,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const v = parseFloat(pinAllInput.value);
                 if (pinAllLabel) pinAllLabel.textContent = `${Math.round(v * 100)}%`;
                 if (!state.styleSizes) state.styleSizes = {};
-                STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+                DEFECT_STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
                     if (!state.styleSizes[key]) state.styleSizes[key] = {};
                     state.styleSizes[key].pin = v;
                     const pinInput = document.getElementById(`stylePinSize${suffix}`);
@@ -7081,7 +8743,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (pinInput) pinInput.value = v;
                     if (pinLabel) pinLabel.textContent = `${Math.round(v * 100)}%`;
                 });
-                refreshAllStyleColoredCanvases();
+                if (typeof drawCanvas === 'function') drawCanvas();
+                if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
             });
             pinAllInput.addEventListener('change', () => {
                 persistCurrentFloorMapStyleFromSliders();
@@ -7095,7 +8758,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const v = parseFloat(arrowAllInput.value);
                 if (arrowAllLabel) arrowAllLabel.textContent = `${Math.round(v * 100)}%`;
                 if (!state.styleSizes) state.styleSizes = {};
-                STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
+                DEFECT_STYLE_SIZE_FIELDS.forEach(([suffix, key]) => {
                     if (!state.styleSizes[key]) state.styleSizes[key] = {};
                     state.styleSizes[key].arrow = v;
                     const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
@@ -7103,7 +8766,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (arrowInput) arrowInput.value = v;
                     if (arrowLabel) arrowLabel.textContent = `${Math.round(v * 100)}%`;
                 });
-                refreshAllStyleColoredCanvases();
+                if (typeof drawCanvas === 'function') drawCanvas();
             });
             arrowAllInput.addEventListener('change', () => {
                 persistCurrentFloorMapStyleFromSliders();
@@ -7130,13 +8793,98 @@ document.addEventListener('DOMContentLoaded', () => {
                 const v = Math.min(Math.max(parseFloat(leaderLineAllInput.value || '1'), 0.5), 3.0);
                 state.defectLeaderLineScale = v;
                 if (leaderLineAllLabel) leaderLineAllLabel.textContent = `${Math.round(v * 100)}%`;
-                refreshAllStyleColoredCanvases();
+                if (typeof drawCanvas === 'function') drawCanvas();
             });
             leaderLineAllInput.addEventListener('change', () => {
                 persistCurrentFloorMapStyleFromSliders();
                 saveStateToLocalStorage();
             });
         }
+
+        // NDT 툴바: 현재 선택한 조사 항목만 조절 (강도·탄산화 크기는 동기화)
+        const syncNdtModalSizeUi = (key) => {
+            const keys = (key === 'ndtStrength' || key === 'ndtCarbonation')
+                ? ['ndtStrength', 'ndtCarbonation']
+                : [key];
+            keys.forEach((k) => {
+                const entry = NDT_STYLE_SIZE_FIELDS.find(([, x]) => x === k);
+                if (!entry) return;
+                const [suffix] = entry;
+                const sz = getStyleSize(k);
+                const pinInput = document.getElementById(`stylePinSize${suffix}`);
+                const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
+                const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
+                const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+                const leaderInput = document.getElementById(`styleLeaderSize${suffix}`);
+                const leaderLabel = document.getElementById(`styleLeaderSize${suffix}Label`);
+                if (pinInput) pinInput.value = sz.pin;
+                if (pinLabel) pinLabel.textContent = `${Math.round(sz.pin * 100)}%`;
+                if (arrowInput) arrowInput.value = sz.arrow;
+                if (arrowLabel) arrowLabel.textContent = `${Math.round(sz.arrow * 100)}%`;
+                if (leaderInput) leaderInput.value = sz.leader;
+                if (leaderLabel) leaderLabel.textContent = `${Math.round(sz.leader * 100)}%`;
+            });
+        };
+
+        const ndtPinCur = document.getElementById('stylePinSizeNdtCurrent');
+        const ndtPinCurLabel = document.getElementById('stylePinSizeNdtCurrentLabel');
+        if (ndtPinCur) {
+            ndtPinCur.addEventListener('input', () => {
+                const key = getCurrentNdtStyleKey();
+                const v = parseFloat(ndtPinCur.value);
+                if (ndtPinCurLabel) ndtPinCurLabel.textContent = `${Math.round(v * 100)}%`;
+                setStyleSizeFields(key, { pin: v });
+                syncNdtModalSizeUi(key);
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+            ndtPinCur.addEventListener('change', () => saveStateToLocalStorage());
+        }
+        const ndtArrowCur = document.getElementById('styleArrowSizeNdtCurrent');
+        const ndtArrowCurLabel = document.getElementById('styleArrowSizeNdtCurrentLabel');
+        if (ndtArrowCur) {
+            ndtArrowCur.addEventListener('input', () => {
+                const key = getCurrentNdtStyleKey();
+                const v = parseFloat(ndtArrowCur.value);
+                if (ndtArrowCurLabel) ndtArrowCurLabel.textContent = `${Math.round(v * 100)}%`;
+                setStyleSizeFields(key, { arrow: v });
+                syncNdtModalSizeUi(key);
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+            ndtArrowCur.addEventListener('change', () => saveStateToLocalStorage());
+        }
+        const ndtLineCur = document.getElementById('styleLeaderLineScaleNdtCurrent');
+        const ndtLineCurLabel = document.getElementById('styleLeaderLineScaleNdtCurrentLabel');
+        if (ndtLineCur) {
+            ndtLineCur.addEventListener('input', () => {
+                const key = getCurrentNdtStyleKey();
+                const v = Math.min(Math.max(parseFloat(ndtLineCur.value || '1'), 0.5), 3.0);
+                if (ndtLineCurLabel) ndtLineCurLabel.textContent = `${Math.round(v * 100)}%`;
+                setStyleSizeFields(key, { leader: v });
+                syncNdtModalSizeUi(key);
+                if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+            });
+            ndtLineCur.addEventListener('change', () => saveStateToLocalStorage());
+        }
+
+        const mapLockCb = document.getElementById('styleSizeLockMap');
+        if (mapLockCb && !mapLockCb.dataset.lockBound) {
+            mapLockCb.dataset.lockBound = '1';
+            mapLockCb.addEventListener('change', () => {
+                window.state.styleSizeBarLockedMap = !!mapLockCb.checked;
+                if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
+                saveStateToLocalStorage();
+            });
+        }
+        const ndtLockCb = document.getElementById('styleSizeLockNdt');
+        if (ndtLockCb && !ndtLockCb.dataset.lockBound) {
+            ndtLockCb.dataset.lockBound = '1';
+            ndtLockCb.addEventListener('change', () => {
+                window.state.styleSizeBarLockedNdt = !!ndtLockCb.checked;
+                if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
+                saveStateToLocalStorage();
+            });
+        }
+        if (typeof window.applyStyleSizeBarLockUi === 'function') window.applyStyleSizeBarLockUi();
 
         STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
             const shapeInput = document.getElementById(`styleShape${suffix}`);
@@ -7179,6 +8927,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.styleColors = {};
                 state.styleSizes = {};
                 state.styleShapes = {};
+                state.ndtLeaderLineScale = 1.0;
                 STYLE_COLOR_FIELDS.forEach(([inputId, key]) => {
                     const input = document.getElementById(inputId);
                     if (input) input.value = DEFAULT_STYLE_COLORS[key];
@@ -7189,10 +8938,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     const pinLabel = document.getElementById(`stylePinSize${suffix}Label`);
                     const arrowInput = document.getElementById(`styleArrowSize${suffix}`);
                     const arrowLabel = document.getElementById(`styleArrowSize${suffix}Label`);
+                    const leaderInput = document.getElementById(`styleLeaderSize${suffix}`);
+                    const leaderLabel = document.getElementById(`styleLeaderSize${suffix}Label`);
                     if (pinInput) pinInput.value = def.pin;
                     if (pinLabel) pinLabel.textContent = `${Math.round(def.pin * 100)}%`;
                     if (arrowInput) arrowInput.value = def.arrow;
                     if (arrowLabel) arrowLabel.textContent = `${Math.round(def.arrow * 100)}%`;
+                    if (leaderInput) leaderInput.value = def.leader;
+                    if (leaderLabel) leaderLabel.textContent = `${Math.round(def.leader * 100)}%`;
                 });
                 STYLE_SHAPE_FIELDS.forEach(([suffix, key]) => {
                     const def = DEFAULT_STYLE_SHAPES[key];
@@ -7203,6 +8956,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (fillInput) fillInput.checked = def.fill;
                     if (numFmtInput) numFmtInput.value = def.numberFormat;
                 });
+                if (typeof window.syncBulkStyleSlidersUi === 'function') window.syncBulkStyleSlidersUi();
                 refreshAllStyleColoredCanvases();
                 saveStateToLocalStorage();
             });
@@ -7226,6 +8980,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (btnArrow) btnArrow.classList.toggle('active', state.tipShape !== 'circle');
         if (btnCircle) btnCircle.classList.toggle('active', state.tipShape === 'circle');
+    }
+
+    function setupAreaMarkStyleEvents() {
+        const fillBtns = {
+            solid: document.getElementById('btnAreaFillSolid'),
+            hatch: document.getElementById('btnAreaFillHatch'),
+            none: document.getElementById('btnAreaFillNone')
+        };
+        const borderBtns = {
+            solid: document.getElementById('btnAreaBorderSolid'),
+            dashed: document.getElementById('btnAreaBorderDashed')
+        };
+
+        Object.keys(fillBtns).forEach(k => {
+            if (!fillBtns[k]) return;
+            fillBtns[k].addEventListener('click', () => {
+                syncDefectAreaStyleUi(k, getSelectedAreaBorderFromUi());
+                if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
+            });
+        });
+        Object.keys(borderBtns).forEach(k => {
+            if (!borderBtns[k]) return;
+            borderBtns[k].addEventListener('click', () => {
+                syncDefectAreaStyleUi(getSelectedAreaFillFromUi(), k);
+                if (typeof scheduleDefectAutoApply === 'function') scheduleDefectAutoApply();
+            });
+        });
     }
 
     const btnManageComponent = document.getElementById('btnManageComponent');
@@ -7281,10 +9062,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const MOUSE_DRAG_THRESHOLD = 6;
     const TOUCH_DRAG_GRACE_MS = 150; // 이 시간 안에 두 번째 손가락이 닿으면 핀치줌으로 판정하고 드래그 취소
     let isDraggingPin = false;
+    let isDraggingPinGroup = false;
+    let groupDragLastImgX = 0;
+    let groupDragLastImgY = 0;
     let activeDragPin = null;
     let activeDragPart = 'BOX'; // 'BOX', 'TIP', 'AREA_MOVE', or 'AREA_RESIZE'
     let activeResizeXField = null; // 'areaX1' | 'areaX2' | null
     let activeResizeYField = null; // 'areaY1' | 'areaY2' | null
+    // 박스/팁 드래그: 클릭 지점 → 중심 오프셋 (순간 중앙 스냅 방지)
+    let pinDragOffsetX = 0;
+    let pinDragOffsetY = 0;
 
     // 결함위치도 범례 박스 드래그 이동/크기조절 상태
     let isDraggingLegend = false;
@@ -7296,18 +9083,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // lastLegendBoxBounds(도면 원본 픽셀 좌표, 결함 핀과 동일 좌표계) 기준으로 이미지 좌표(imgX, imgY —
     // 핀 히트테스트에 쓰는 것과 동일하게 팬/줌/회전을 역변환한 좌표)가 범례 박스의 크기조절 손잡이/본문
-    // 중 어디에 해당하는지 판정한다.
+    // 중 어디에 해당하는지 판정한다. 영역 마킹과 같이 모서리·변 히트도 지원한다.
     function hitTestLegendBox(imgX, imgY) {
         if (!lastLegendBoxBounds) return null;
         const b = lastLegendBoxBounds;
-        const hs = Math.max(LEGEND_HANDLE_SIZE * (b.scale || 1), 20);
-        const handleX1 = b.x + b.w - hs;
-        const handleY1 = b.y + b.h - hs;
-        if (imgX >= handleX1 && imgX <= b.x + b.w && imgY >= handleY1 && imgY <= b.y + b.h) {
-            return 'handle';
+        const x1 = b.x;
+        const y1 = b.y;
+        const x2 = b.x + b.w;
+        const y2 = b.y + b.h;
+        const cornerR = Math.max(LEGEND_HANDLE_SIZE * (b.scale || 1), 14);
+        const edgeTol = Math.max(8, 6 * (b.scale || 1));
+
+        const corners = [
+            { x: x1, y: y1, cursor: 'nwse-resize' },
+            { x: x2, y: y1, cursor: 'nesw-resize' },
+            { x: x1, y: y2, cursor: 'nesw-resize' },
+            { x: x2, y: y2, cursor: 'nwse-resize' }
+        ];
+        const hitCorner = corners.find(c => Math.hypot(imgX - c.x, imgY - c.y) <= cornerR);
+        if (hitCorner) {
+            return { part: 'handle', cursor: hitCorner.cursor };
         }
-        if (imgX >= b.x && imgX <= b.x + b.w && imgY >= b.y && imgY <= b.y + b.h) {
-            return 'body';
+        if (Math.abs(imgY - y1) <= edgeTol && imgX >= x1 + cornerR && imgX <= x2 - cornerR) {
+            return { part: 'handle', cursor: 'ns-resize' };
+        }
+        if (Math.abs(imgY - y2) <= edgeTol && imgX >= x1 + cornerR && imgX <= x2 - cornerR) {
+            return { part: 'handle', cursor: 'ns-resize' };
+        }
+        if (Math.abs(imgX - x1) <= edgeTol && imgY >= y1 + cornerR && imgY <= y2 - cornerR) {
+            return { part: 'handle', cursor: 'ew-resize' };
+        }
+        if (Math.abs(imgX - x2) <= edgeTol && imgY >= y1 + cornerR && imgY <= y2 - cornerR) {
+            return { part: 'handle', cursor: 'ew-resize' };
+        }
+        if (imgX >= x1 && imgX <= x2 && imgY >= y1 && imgY <= y2) {
+            return { part: 'body', cursor: 'move' };
         }
         return null;
     }
@@ -7320,6 +9130,84 @@ document.addEventListener('DOMContentLoaded', () => {
     let areaCurImgY = 0;
     let areaMoveLastImgX = 0;
     let areaMoveLastImgY = 0;
+
+    // 선택 모드: 좌클릭 드래그로 마퀴 선택 (휠클릭은 도면 이동)
+    // Ctrl/Meta + 마퀴 = 기존 선택에 추가(여러 번 가능)
+    let isMarqueeSelecting = false;
+    let marqueeAdditive = false;
+    let marqueeStartImgX = 0;
+    let marqueeStartImgY = 0;
+    let marqueeCurImgX = 0;
+    let marqueeCurImgY = 0;
+    let selectedDefectIds = new Set();
+    window.getSelectedDefectIds = () => selectedDefectIds;
+
+    function updateMapSelectionBar() {
+        const bar = document.getElementById('mapSelectionBar');
+        const countEl = document.getElementById('mapSelectionCount');
+        if (!bar) return;
+        const n = selectedDefectIds.size;
+        if (n === 0) {
+            bar.hidden = true;
+            return;
+        }
+        bar.hidden = false;
+        if (countEl) countEl.textContent = `${n}개 선택`;
+    }
+
+    function translateDefectBy(d, dx, dy) {
+        if (!d || (!dx && !dy)) return;
+        if (typeof d.x === 'number') d.x += dx;
+        if (typeof d.y === 'number') d.y += dy;
+        if (typeof d.targetX === 'number') d.targetX += dx;
+        if (typeof d.targetY === 'number') d.targetY += dy;
+        if (d.areaX1 !== undefined) {
+            d.areaX1 += dx;
+            d.areaY1 += dy;
+            d.areaX2 += dx;
+            d.areaY2 += dy;
+        }
+    }
+
+    function collectMarqueeHits(x1, y1, x2, y2) {
+        const hits = [];
+        filterMapPlacedDefects(getCurrentFloorDefects()).forEach(d => {
+            if (d.shapeType === 'area' && d.areaX1 !== undefined) {
+                const ax1 = Math.min(d.areaX1, d.areaX2);
+                const ay1 = Math.min(d.areaY1, d.areaY2);
+                const ax2 = Math.max(d.areaX1, d.areaX2);
+                const ay2 = Math.max(d.areaY1, d.areaY2);
+                const overlaps = !(ax2 < x1 || ax1 > x2 || ay2 < y1 || ay1 > y2);
+                if (overlaps) {
+                    hits.push(d.id);
+                    return;
+                }
+            }
+            const px = d.x;
+            const py = d.y;
+            if (px >= x1 && px <= x2 && py >= y1 && py <= y2) {
+                hits.push(d.id);
+            }
+        });
+        return hits;
+    }
+
+    function deleteSelectedDefects() {
+        const ids = [...selectedDefectIds];
+        if (!ids.length || !state.currentBuildingId) return;
+        if (!confirm(`선택한 결함 ${ids.length}건을 삭제할까요? (되돌리기로 복원 가능)`)) return;
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        if (!state.defects[key]) return;
+        pushDefectHistory();
+        ids.forEach(id => removeSingleDefectRecord(key, id));
+        selectedDefectIds.clear();
+        updateMapSelectionBar();
+        saveStateToLocalStorage();
+        renderSurveyTable();
+        drawCanvas();
+        window.showToast?.(`${ids.length}건 삭제됨`, 'success');
+    }
+    window.deleteSelectedDefects = deleteSelectedDefects;
 
     // Multi-Touch Pinch Zoom & Pan Variables
     let isPinching = false;
@@ -7339,13 +9227,22 @@ document.addEventListener('DOMContentLoaded', () => {
     let liveBoxImgY = 0;
 
     function getLiveMarkPinPreviewMeta() {
-        const currentDefects = getCurrentFloorFilteredDefects();
+        const pendingId = window._pendingMapRegisterDefectId;
+        if (pendingId) {
+            const pendingDefect = getCurrentFloorDefects().find(d => d.id === pendingId);
+            if (pendingDefect) {
+                const label = pendingDefect.no || 'NO.??';
+                const scale = getStyleSize(getDefectStyleKey(pendingDefect.category, pendingDefect.defectType)).pin;
+                return { label, scale, defect: pendingDefect };
+            }
+        }
+        const currentDefects = getCurrentFloorMapPlacedDefects();
         const nextSeq = currentDefects.length + 1;
         const nextSeqStr = nextSeq < 10 ? `0${nextSeq}` : `${nextSeq}`;
         const label = `NO.${nextSeqStr}`;
         const defaultCat = document.getElementById('defectCategory')?.value || '구조체';
         const scale = getStyleSize(getDefectStyleKey(defaultCat, '균열')).pin;
-        return { label, scale };
+        return { label, scale, defect: null };
     }
 
     function syncLiveMarkBoxAboveTarget(targetX, targetY) {
@@ -7433,7 +9330,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
     function findHitPinPart(imgX, imgY) {
-        const defects = getCurrentFloorDefects();
+        const defects = filterMapPlacedDefects(getCurrentFloorDefects());
+        // 화살표 끝(TIP)은 여러 개가 살짝 겹칠 수 있어서, z-order 첫 히트가 아니라
+        // 클릭 지점에서 가장 가까운 화살표를 고른다.
+        let bestTip = null; // { defect, dist }
 
         for (let i = defects.length - 1; i >= 0; i--) {
             const d = defects[i];
@@ -7483,18 +9383,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     return { defect: d, part: 'AREA_RESIZE', resizeXField: maxXField, resizeYField: null }; // RIGHT
                 }
 
-                // 번호 칸 / 화살표 끝 — 일반 결함과 동일하게 따로 이동 가능
+                // 번호 칸 — 네모 박스 내부만 / 화살표 끝은 점 히트(가장 가까운 TIP 후보로 모음)
                 const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
                 const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
-                const hitR = Math.hypot(boxDim.w / 2, boxDim.h / 2) + 3 * scale;
                 const bx = d.x || 100;
                 const by = d.y || 100;
-                if (Math.hypot(imgX - bx, imgY - by) <= hitR) {
+                if (isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
                     return { defect: d, part: 'BOX' };
                 }
                 if (d.targetX !== undefined && d.targetY !== undefined) {
-                    if (Math.hypot(imgX - d.targetX, imgY - d.targetY) <= 18 * arrowScale) {
-                        return { defect: d, part: 'TIP' };
+                    const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
+                    const tipR = 18 * arrowScale;
+                    if (distTip <= tipR && (!bestTip || distTip < bestTip.dist)) {
+                        bestTip = { defect: d, dist: distTip };
                     }
                 }
 
@@ -7510,30 +9411,78 @@ document.addEventListener('DOMContentLoaded', () => {
                 continue;
             }
 
-            // 1. Check Hit on Pin Box (x, y)
+            // 1. 번호 박스 — 네모 내부만 드래그 (위에 그려진 박스 우선)
             const bx = d.x || 100;
             const by = d.y || 100;
             const pinStyleKey = getDefectStyleKey(d.category, d.defectType);
             const boxDim = getPinBoxDimensions(scale, formatPinNumberLabel(d.groupNo || d.no || 'NO.01', pinStyleKey), state.ctx);
-            const hitR = Math.hypot(boxDim.w / 2, boxDim.h / 2) + 3 * scale;
-            const distBox = Math.hypot(imgX - bx, imgY - by);
-            if (distBox <= hitR) {
+            if (isPointInsideMarkBox(imgX, imgY, bx, by, boxDim.w, boxDim.h, state.rotationAngle || 0)) {
                 return { defect: d, part: 'BOX' };
             }
 
-            // 2. Check Hit on Arrowhead Tip (targetX, targetY)
+            // 2. 화살표 끝 — 반경 안 후보 중 가장 가까운 것만 나중에 선택
             if (d.targetX !== undefined && d.targetY !== undefined) {
                 const distTip = Math.hypot(imgX - d.targetX, imgY - d.targetY);
-                if (distTip <= 18 * arrowScale) {
-                    return { defect: d, part: 'TIP' };
+                const tipR = 18 * arrowScale;
+                if (distTip <= tipR && (!bestTip || distTip < bestTip.dist)) {
+                    bestTip = { defect: d, dist: distTip };
                 }
             }
         }
+        if (bestTip) return { defect: bestTip.defect, part: 'TIP' };
         return null;
     }
 
-    function handleDragStart(clientX, clientY, isTouch = false, forcePan = false) {
+    /** 히트 결과에 맞는 CSS 커서 (이동=4방향, 변=상하/좌우, 꼭짓점=대각선) */
+    function getCursorForHitInfo(hit) {
+        if (!hit) return null;
+        if (hit.part === 'AREA_RESIZE') {
+            const d = hit.defect;
+            const rx = hit.resizeXField;
+            const ry = hit.resizeYField;
+            if (rx && ry && d) {
+                const minXField = d.areaX1 <= d.areaX2 ? 'areaX1' : 'areaX2';
+                const minYField = d.areaY1 <= d.areaY2 ? 'areaY1' : 'areaY2';
+                const isMinX = rx === minXField;
+                const isMinY = ry === minYField;
+                // 좌상·우하 → ↘↖ / 우상·좌하 → ↙↗
+                return (isMinX === isMinY) ? 'nwse-resize' : 'nesw-resize';
+            }
+            if (ry && !rx) return 'ns-resize';   // 상·하 변
+            if (rx && !ry) return 'ew-resize';   // 좌·우 변
+            return 'nwse-resize';
+        }
+        // BOX / TIP / AREA_MOVE — 드래그로 위치 이동
+        return 'move';
+    }
+
+    function updateMapHoverCursor(clientX, clientY) {
         if (!elements.planCanvas) return;
+        if (state.mode === 'MARK' || state.mode === 'AREA') {
+            elements.planCanvas.style.cursor = 'crosshair';
+            return;
+        }
+        if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup
+            || isDraggingLegend || isResizingLegend || isMarqueeSelecting || isPinching) {
+            return;
+        }
+        const coords = clientToImgCoords(clientX, clientY);
+        const legendHit = hitTestLegendBox(coords.x, coords.y);
+        if (legendHit && legendHit.part === 'handle') {
+            elements.planCanvas.style.cursor = legendHit.cursor || 'nwse-resize';
+            return;
+        }
+        if (legendHit && legendHit.part === 'body') {
+            elements.planCanvas.style.cursor = 'move';
+            return;
+        }
+        const hit = findHitPinPart(coords.x, coords.y);
+        elements.planCanvas.style.cursor = getCursorForHitInfo(hit) || getMapCanvasCursor();
+    }
+
+    function handleDragStart(clientX, clientY, isTouch = false, forcePan = false, mods = {}) {
+        if (!elements.planCanvas) return;
+        const additive = !!(mods.ctrlKey || mods.metaKey);
 
         // 중간 클릭(휠 클릭): MARK/AREA 모드에서도 도면 PAN 이동
         if (forcePan) {
@@ -7562,14 +9511,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // 범례 박스는 결함 핀과 동일한 도면 이미지 좌표계에 붙어있으므로, 핀 히트테스트와 같은
         // imgX/imgY(팬/줌/회전 역변환 좌표)로 판정한다 — 핀 히트테스트보다 우선.
         const legendHit = hitTestLegendBox(imgX, imgY);
-        if (legendHit === 'handle') {
+        if (legendHit && legendHit.part === 'handle') {
             isResizingLegend = true;
             legendResizeStartScale = getLocationMapLegendScale(state.locationMapLegendBox);
             legendResizeStartDist = Math.hypot(imgX - lastLegendBoxBounds.x, imgY - lastLegendBoxBounds.y) || 1;
-            elements.planCanvas.style.cursor = 'nwse-resize';
+            elements.planCanvas.style.cursor = legendHit.cursor || 'nwse-resize';
             return;
         }
-        if (legendHit === 'body') {
+        if (legendHit && legendHit.part === 'body') {
             isDraggingLegend = true;
             legendDragOffsetX = imgX - lastLegendBoxBounds.x;
             legendDragOffsetY = imgY - lastLegendBoxBounds.y;
@@ -7586,10 +9535,33 @@ document.addEventListener('DOMContentLoaded', () => {
         // 실제 이동 시작 여부는 handleDragMove에서 이동임계값을 넘는 순간 판정한다(길게 누를 필요 없음).
         const hitInfo = findHitPinPart(imgX, imgY);
         if (hitInfo) {
-            pendingDragHit = { hitInfo, imgX, imgY };
+            pendingDragHit = { hitInfo, imgX, imgY, additive };
             pendingDragIsTouch = isTouch;
             pendingDragHitStartTime = isTouch ? Date.now() : 0;
+            if (hitInfo.defect && hitInfo.defect.id) {
+                const id = hitInfo.defect.id;
+                if (additive) {
+                    if (selectedDefectIds.has(id)) selectedDefectIds.delete(id);
+                    else selectedDefectIds.add(id);
+                } else if (!selectedDefectIds.has(id) || selectedDefectIds.size <= 1) {
+                    selectedDefectIds = new Set([id]);
+                }
+                // 이미 다중 선택된 핀을 다시 누르면 선택 유지 → 그룹 드래그용
+                updateMapSelectionBar();
+                drawCanvas();
+            }
             return;
+        }
+
+        // 도면 빈곳 좌클릭 → 결함 핀 수정창 닫기
+        if (!isTouch && isDefectModalOpen()) {
+            closeDefectModal();
+            if (state.mode === 'PAN' && !additive) {
+                selectedDefectIds.clear();
+                updateMapSelectionBar();
+                drawCanvas();
+                return;
+            }
         }
 
         if (state.mode === 'MARK') {
@@ -7605,9 +9577,20 @@ document.addEventListener('DOMContentLoaded', () => {
             areaCurImgX = imgX;
             areaCurImgY = imgY;
             drawCanvas();
-        } else {
+        } else if (isTouch) {
+            // 터치(태블릿): 한 손가락으로 도면 이동 유지
             isDragging = true;
             elements.planCanvas.style.cursor = 'grabbing';
+        } else {
+            // 마우스 좌클릭: 빈 곳 드래그 = 마퀴 선택 (Ctrl = 추가 선택, 이동은 휠클릭)
+            isMarqueeSelecting = true;
+            marqueeAdditive = additive;
+            marqueeStartImgX = imgX;
+            marqueeStartImgY = imgY;
+            marqueeCurImgX = imgX;
+            marqueeCurImgY = imgY;
+            elements.planCanvas.style.cursor = 'crosshair';
+            drawCanvas();
         }
     }
 
@@ -7653,23 +9636,77 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!withinTouchGrace && Math.hypot(dx, dy) > threshold) {
                 // 이동임계값을 넘는 순간 바로 드래그 시작(더 이상 길게 누르고 기다릴 필요 없음)
                 pushDefectHistory();
-                isDraggingPin = true;
-                activeDragPin = pendingDragHit.hitInfo.defect;
-                activeDragPart = pendingDragHit.hitInfo.part;
-                activeResizeXField = pendingDragHit.hitInfo.resizeXField || null;
-                activeResizeYField = pendingDragHit.hitInfo.resizeYField || null;
-                if (activeDragPart === 'AREA_MOVE') {
-                    areaMoveLastImgX = pendingDragHit.imgX;
-                    areaMoveLastImgY = pendingDragHit.imgY;
+                const hitDefect = pendingDragHit.hitInfo.defect;
+                const hitPart = pendingDragHit.hitInfo.part;
+                const multiGroup = hitDefect && hitDefect.id
+                    && selectedDefectIds.size > 1
+                    && selectedDefectIds.has(hitDefect.id)
+                    && hitPart !== 'AREA_RESIZE';
+
+                if (multiGroup) {
+                    isDraggingPinGroup = true;
+                    isDraggingPin = true;
+                    activeDragPin = hitDefect;
+                    activeDragPart = 'GROUP';
+                    groupDragLastImgX = pendingDragHit.imgX;
+                    groupDragLastImgY = pendingDragHit.imgY;
+                    pendingDragHit = null;
+                    if (elements.planCanvas) elements.planCanvas.style.cursor = 'move';
+                } else {
+                    isDraggingPin = true;
+                    activeDragPin = hitDefect;
+                    activeDragPart = hitPart;
+                    activeResizeXField = pendingDragHit.hitInfo.resizeXField || null;
+                    activeResizeYField = pendingDragHit.hitInfo.resizeYField || null;
+                    // 누른 순간 좌표 기준으로 오프셋 고정 (임계값 넘긴 뒤 마우스 위치가 아님)
+                    const grabX = pendingDragHit.imgX;
+                    const grabY = pendingDragHit.imgY;
+                    if (hitPart === 'TIP') {
+                        pinDragOffsetX = grabX - (hitDefect.targetX !== undefined ? hitDefect.targetX : hitDefect.x);
+                        pinDragOffsetY = grabY - (hitDefect.targetY !== undefined ? hitDefect.targetY : hitDefect.y);
+                    } else if (hitPart === 'BOX' || !hitPart) {
+                        pinDragOffsetX = grabX - (hitDefect.x || 0);
+                        pinDragOffsetY = grabY - (hitDefect.y || 0);
+                    } else {
+                        pinDragOffsetX = 0;
+                        pinDragOffsetY = 0;
+                    }
+                    if (activeDragPart === 'AREA_MOVE') {
+                        areaMoveLastImgX = pendingDragHit.imgX;
+                        areaMoveLastImgY = pendingDragHit.imgY;
+                    }
+                    pendingDragHit = null;
+                    if (elements.planCanvas) {
+                        elements.planCanvas.style.cursor = getCursorForHitInfo({
+                            defect: hitDefect,
+                            part: hitPart,
+                            resizeXField: activeResizeXField,
+                            resizeYField: activeResizeYField
+                        }) || 'move';
+                    }
                 }
-                pendingDragHit = null;
-                if (elements.planCanvas) elements.planCanvas.style.cursor = 'move';
             } else {
                 return;
             }
         }
 
-        if (isDraggingPin && activeDragPin) {
+        if (isDraggingPinGroup) {
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            const vx = (mouseX - state.view.offsetX) / state.view.scale;
+            const vy = (mouseY - state.view.offsetY) / state.view.scale;
+            const coords = viewToImgCoords(vx, vy);
+            const dx = coords.x - groupDragLastImgX;
+            const dy = coords.y - groupDragLastImgY;
+            if (dx || dy) {
+                filterMapPlacedDefects(getCurrentFloorDefects()).forEach(d => {
+                    if (selectedDefectIds.has(d.id)) translateDefectBy(d, dx, dy);
+                });
+                groupDragLastImgX = coords.x;
+                groupDragLastImgY = coords.y;
+                drawCanvas();
+            }
+        } else if (isDraggingPin && activeDragPin) {
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
             const vx = (mouseX - state.view.offsetX) / state.view.scale;
@@ -7681,15 +9718,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeDragPart === 'TIP') {
                 if (activeDragPin.shapeType === 'area' && activeDragPin.areaX1 !== undefined) {
                     const snapped = projectPointToAreaEdgeCenter(
-                        currentImgX, currentImgY,
+                        currentImgX - pinDragOffsetX, currentImgY - pinDragOffsetY,
                         activeDragPin.areaX1, activeDragPin.areaY1,
                         activeDragPin.areaX2, activeDragPin.areaY2
                     );
                     activeDragPin.targetX = snapped.x;
                     activeDragPin.targetY = snapped.y;
                 } else {
-                    activeDragPin.targetX = currentImgX;
-                    activeDragPin.targetY = currentImgY;
+                    activeDragPin.targetX = currentImgX - pinDragOffsetX;
+                    activeDragPin.targetY = currentImgY - pinDragOffsetY;
                 }
             } else if (activeDragPart === 'AREA_MOVE') {
                 const dx = currentImgX - areaMoveLastImgX;
@@ -7704,14 +9741,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (activeResizeXField) activeDragPin[activeResizeXField] = currentImgX;
                 if (activeResizeYField) activeDragPin[activeResizeYField] = currentImgY;
             } else {
-                activeDragPin.x = currentImgX;
-                activeDragPin.y = currentImgY;
+                const newX = currentImgX - pinDragOffsetX;
+                const newY = currentImgY - pinDragOffsetY;
+                activeDragPin.x = newX;
+                activeDragPin.y = newY;
                 // "마킹 추가"로 묶인 그룹은 박스 위치를 공유하므로 하나를 옮기면 전부 같이 이동
                 if (activeDragPin.groupId) {
                     getCurrentFloorDefects().forEach(d => {
                         if (d.groupId === activeDragPin.groupId && d.id !== activeDragPin.id) {
-                            d.x = currentImgX;
-                            d.y = currentImgY;
+                            d.x = newX;
+                            d.y = newY;
                         }
                     });
                 }
@@ -7730,6 +9769,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const coords = viewToImgCoords(vx, vy);
             areaCurImgX = coords.x;
             areaCurImgY = coords.y;
+            drawCanvas();
+        } else if (isMarqueeSelecting) {
+            const coords = clientToImgCoords(clientX, clientY);
+            marqueeCurImgX = coords.x;
+            marqueeCurImgY = coords.y;
             drawCanvas();
         } else if (isDragging) {
             const dx = clientX - startMouseX;
@@ -7755,7 +9799,7 @@ document.addEventListener('DOMContentLoaded', () => {
             isResizingLegend = false;
             saveStateToLocalStorage();
             if (elements.planCanvas) {
-                elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
+                elements.planCanvas.style.cursor = getMapCanvasCursor();
             }
             return;
         }
@@ -7763,26 +9807,37 @@ document.addEventListener('DOMContentLoaded', () => {
             isDraggingLegend = false;
             saveStateToLocalStorage();
             if (elements.planCanvas) {
-                elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
+                elements.planCanvas.style.cursor = getMapCanvasCursor();
             }
             return;
         }
 
         if (pendingDragHit && !isDraggingPin) {
-            // 이동임계값을 넘지 않고 그냥 뗐음 = 클릭으로 간주 → 수정 모달 오픈
+            // 이동임계값을 넘지 않고 그냥 뗐음 = 클릭으로 간주
             const d = pendingDragHit.hitInfo.defect;
+            const wasAdditive = !!pendingDragHit.additive;
             pendingDragHit = null;
+            // Ctrl 토글 클릭이거나 다중 선택 상태면 내용 수정 모달 열지 않음
+            if (wasAdditive || selectedDefectIds.size > 1) {
+                updateMapSelectionBar();
+                drawCanvas();
+                return;
+            }
+            selectedDefectIds = new Set([d.id]);
+            updateMapSelectionBar();
             openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
             return;
         }
         pendingDragHit = null;
 
-        if (isDraggingPin) {
+        if (isDraggingPin || isDraggingPinGroup) {
             isDraggingPin = false;
+            isDraggingPinGroup = false;
             activeDragPin = null;
             activeResizeXField = null;
             activeResizeYField = null;
             saveStateToLocalStorage();
+            updateMapSelectionBar();
             drawCanvas();
         }
 
@@ -7795,7 +9850,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 syncLiveMarkBoxAboveTarget(markTargetImgX, markTargetImgY);
             }
             markingHasMoved = false;
-            openAddDefectModal(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
+            if (window._pendingMapRegisterDefectId) {
+                commitMapRegisterFromMarking(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
+            } else {
+                openAddDefectModal(liveBoxImgX, liveBoxImgY, markTargetImgX, markTargetImgY);
+            }
+            setDrawMode('PAN');
             drawCanvas();
         }
 
@@ -7807,17 +9867,47 @@ document.addEventListener('DOMContentLoaded', () => {
             const y2 = Math.max(areaStartImgY, areaCurImgY);
             if (Math.hypot(x2 - x1, y2 - y1) < 15) {
                 // 너무 작게 그려짐(단순 클릭) - 무시하고 취소
+                setDrawMode('PAN');
                 drawCanvas();
             } else {
                 openAddDefectModal(x1, y1, undefined, undefined, null, { x1, y1, x2, y2 });
+                setDrawMode('PAN');
                 drawCanvas();
             }
         }
 
+        if (isMarqueeSelecting) {
+            isMarqueeSelecting = false;
+            const x1 = Math.min(marqueeStartImgX, marqueeCurImgX);
+            const y1 = Math.min(marqueeStartImgY, marqueeCurImgY);
+            const x2 = Math.max(marqueeStartImgX, marqueeCurImgX);
+            const y2 = Math.max(marqueeStartImgY, marqueeCurImgY);
+            const tiny = Math.hypot(x2 - x1, y2 - y1) < 6;
+            if (!marqueeAdditive) selectedDefectIds.clear();
+            if (!tiny) {
+                collectMarqueeHits(x1, y1, x2, y2).forEach(id => {
+                    if (marqueeAdditive) {
+                        if (selectedDefectIds.has(id)) selectedDefectIds.delete(id);
+                        else selectedDefectIds.add(id);
+                    } else {
+                        selectedDefectIds.add(id);
+                    }
+                });
+            }
+            marqueeAdditive = false;
+            updateMapSelectionBar();
+            drawCanvas();
+        }
+
         isDragging = false;
         if (elements.planCanvas) {
-            elements.planCanvas.style.cursor = state.mode === 'MARK' ? 'crosshair' : (state.mode === 'AREA' ? 'crosshair' : 'grab');
+            elements.planCanvas.style.cursor = getMapCanvasCursor();
         }
+    }
+
+    function getMapCanvasCursor() {
+        if (state.mode === 'MARK' || state.mode === 'AREA') return 'crosshair';
+        return 'default';
     }
 
     if (elements.planCanvas) {
@@ -7828,7 +9918,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 handleDragStart(e.clientX, e.clientY, false, true);
                 return;
             }
-            if (e.button === 0) handleDragStart(e.clientX, e.clientY);
+            if (e.button === 0) {
+                handleDragStart(e.clientX, e.clientY, false, false, {
+                    ctrlKey: e.ctrlKey,
+                    metaKey: e.metaKey
+                });
+            }
         });
 
         elements.planCanvas.addEventListener('auxclick', (e) => {
@@ -7836,11 +9931,23 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         window.addEventListener('mousemove', (e) => {
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragMove(e.clientX, e.clientY);
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
+                handleDragMove(e.clientX, e.clientY);
+            }
+        });
+
+        elements.planCanvas.addEventListener('mousemove', (e) => {
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) return;
+            updateMapHoverCursor(e.clientX, e.clientY);
+        });
+
+        elements.planCanvas.addEventListener('mouseleave', () => {
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) return;
+            elements.planCanvas.style.cursor = getMapCanvasCursor();
         });
 
         window.addEventListener('mouseup', (e) => {
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) handleDragEnd(e.clientX, e.clientY);
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) handleDragEnd(e.clientX, e.clientY);
         });
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
@@ -7854,7 +9961,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 markingHasMoved = false;
                 isDragging = false;
                 isDraggingPin = false;
+                isDraggingPinGroup = false;
                 isAreaDrag = false;
+                isMarqueeSelecting = false;
                 activeDragPin = null;
                 isDraggingLegend = false;
                 isResizingLegend = false;
@@ -7893,7 +10002,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     drawCanvas();
                 }
             } else if (!isPinching && e.touches.length === 1) {
-                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
                     handleDragMove(e.touches[0].clientX, e.touches[0].clientY);
                 }
             }
@@ -7906,7 +10015,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else {
                 const t = e.changedTouches && e.changedTouches[0];
-                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
+                if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
                     handleDragEnd(t ? t.clientX : undefined, t ? t.clientY : undefined);
                 }
             }
@@ -7915,7 +10024,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('touchcancel', (e) => {
             isPinching = false;
             const t = e.changedTouches && e.changedTouches[0];
-            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || pendingDragHit || isDraggingLegend || isResizingLegend) {
+            if (isDragging || isMarkingDrag || isAreaDrag || isDraggingPin || isDraggingPinGroup || pendingDragHit || isDraggingLegend || isResizingLegend || isMarqueeSelecting) {
                 handleDragEnd(t ? t.clientX : undefined, t ? t.clientY : undefined);
             }
         });
@@ -7934,7 +10043,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
     }
 
+    function syncDefectDrawerToCanvasArea() {
+        const overlay = elements.defectModal || document.getElementById('defectModal');
+        if (!overlay) return;
+
+        const canvasArea = document.getElementById('canvasContainer');
+        const onMapTab = window.state.currentTab === 'tab-map';
+        if (onMapTab && canvasArea) {
+            const rect = canvasArea.getBoundingClientRect();
+            if (rect.width >= 40 && rect.height >= 40) {
+                overlay.classList.add('defect-drawer-in-canvas');
+                overlay.style.top = `${Math.round(rect.top)}px`;
+                overlay.style.left = `${Math.round(rect.left)}px`;
+                overlay.style.width = `${Math.round(rect.width)}px`;
+                overlay.style.height = `${Math.round(rect.height)}px`;
+                return;
+            }
+        }
+
+        overlay.classList.remove('defect-drawer-in-canvas');
+        overlay.style.top = '';
+        overlay.style.left = '';
+        overlay.style.width = '';
+        overlay.style.height = '';
+    }
+
     function closeDefectModal() {
+        flushDefectAutoApply();
+        if (typeof closeDefectComponentCascadeModal === 'function') closeDefectComponentCascadeModal();
         window._defectMarkingTemplate = null;
         window._pendingPinCoords = null;
         window._pendingAreaRect = null;
@@ -7944,11 +10080,13 @@ document.addEventListener('DOMContentLoaded', () => {
             window.setTimeout(() => {
                 if (elements.defectModal && !elements.defectModal.classList.contains('open')) {
                     elements.defectModal.style.display = 'none';
+                    syncDefectDrawerToCanvasArea();
                 }
             }, 280);
         }
         drawCanvas();
     }
+    window.closeDefectModal = closeDefectModal;
 
     function openAddDefectModal(boxX, boxY, targetX, targetY, existingPin = null, areaRect = null) {
         window._defectFormHydrating = true;
@@ -8090,13 +10228,25 @@ document.addEventListener('DOMContentLoaded', () => {
             titleEl.textContent = existingPin ? '📍 결함 핀 수정' : '📍 결함 핀 등록';
         }
 
+        const isAreaModal = !!(existingPin && existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) || !!areaRect || !!window._pendingAreaRect;
+        setDefectAreaStylePanelVisible(isAreaModal);
+        if (isAreaModal) {
+            const src = existingPin || window._defectMarkingTemplate || null;
+            syncDefectAreaStyleUi(
+                (src && src.areaFillStyle) || state.areaFillStyle || 'solid',
+                (src && src.areaBorderStyle) || state.areaBorderStyle || 'solid'
+            );
+        }
+
         window._defectPhotosDirty = false;
         window._defectEditSessionHistoryPushed = !!existingPin ? false : true;
 
         if (elements.defectModal) {
+            syncDefectDrawerToCanvasArea();
             elements.defectModal.style.display = 'flex';
             document.body.classList.add('defect-modal-open');
             window.requestAnimationFrame(async () => {
+                syncDefectDrawerToCanvasArea();
                 if (elements.defectModal) elements.defectModal.classList.add('open');
                 // 신규 마킹은 모달을 여는 순간 바로 저장해, 저장 버튼 없이 도면에 확정한다
                 if (!existingPin) {
@@ -8125,7 +10275,7 @@ document.addEventListener('DOMContentLoaded', () => {
         previewList.innerHTML = photos.map((src, idx) => `
             <div style="display:inline-block; position:relative; margin-right:12px; margin-top:8px; text-align:center;">
                 <div style="position:relative; display:inline-block;">
-                    <img src="${src}" style="width:75px; height:75px; object-fit:cover; border-radius:6px; border:1px solid #38bdf8; cursor:pointer;" title="클릭시 사진 마킹 드로잉 모달 오픈" onclick="window.annotatePendingPhoto(${idx})">
+                    <img src="${src}" style="width:75px; height:75px; object-fit:cover; border-radius:6px; border:1px solid #6b6b6b; cursor:pointer;" title="클릭시 사진 마킹 드로잉 모달 오픈" onclick="window.annotatePendingPhoto(${idx})">
                     <span style="position:absolute; top:-6px; right:-6px; background:#ef4444; color:#fff; border-radius:50%; width:20px; height:20px; text-align:center; font-size:13px; font-weight:bold; cursor:pointer; line-height:20px;" onclick="window.removePendingPhoto(${idx})">×</span>
                 </div>
                 <button type="button" class="btn btn-sm btn-outline" style="display:block; width:75px; margin-top:4px; font-size:0.7rem; padding:0.1rem 0.2rem; border-color:#f43f5e; color:#fb7185;" onclick="window.annotatePendingPhoto(${idx})">
@@ -8368,6 +10518,27 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCloseDefectModal) {
         btnCloseDefectModal.addEventListener('click', closeDefectModal);
     }
+    window.addEventListener('resize', () => {
+        if (elements.defectModal && elements.defectModal.classList.contains('open')) {
+            syncDefectDrawerToCanvasArea();
+        }
+        const ndtModalEl = document.getElementById('ndtModal');
+        if (ndtModalEl && ndtModalEl.classList.contains('open')) {
+            syncNdtDrawerToCanvasArea();
+        }
+    });
+    const appContentEl = document.querySelector('.app-content');
+    if (appContentEl) {
+        appContentEl.addEventListener('scroll', () => {
+            if (elements.defectModal && elements.defectModal.classList.contains('open')) {
+                syncDefectDrawerToCanvasArea();
+            }
+            const ndtModalEl = document.getElementById('ndtModal');
+            if (ndtModalEl && ndtModalEl.classList.contains('open')) {
+                syncNdtDrawerToCanvasArea();
+            }
+        }, { passive: true });
+    }
 
     const btnCancelDefect = document.getElementById('btnCancelDefect');
     if (btnCancelDefect) {
@@ -8422,6 +10593,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const isCrackType = dTypeVal === '균열';
         const crackWidthVal = isCrackType ? (document.getElementById('defectCrackWidth')?.value || '') : '';
         const crackLengthVal = isCrackType ? (document.getElementById('defectCrackLength')?.value || '') : '';
+        const areaFillVal = getSelectedAreaFillFromUi();
+        const areaBorderVal = getSelectedAreaBorderFromUi();
 
         let savedDefect = null;
 
@@ -8445,6 +10618,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].isPriorityManage = isPriorityManage;
                 state.defects[key][idx].forceArrowDir = forceArrowDir;
                 state.defects[key][idx].arrowOctant = arrowOctant;
+                if (state.defects[key][idx].shapeType === 'area') {
+                    state.defects[key][idx].areaFillStyle = areaFillVal;
+                    state.defects[key][idx].areaBorderStyle = areaBorderVal;
+                    state.areaFillStyle = areaFillVal;
+                    state.areaBorderStyle = areaBorderVal;
+                }
                 invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
                 if (!state.defects[key][idx].inspectorName) {
@@ -8489,6 +10668,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 newDefect.areaY1 = window._pendingAreaRect.y1;
                 newDefect.areaX2 = window._pendingAreaRect.x2;
                 newDefect.areaY2 = window._pendingAreaRect.y2;
+                newDefect.areaFillStyle = areaFillVal;
+                newDefect.areaBorderStyle = areaBorderVal;
+                state.areaFillStyle = areaFillVal;
+                state.areaBorderStyle = areaBorderVal;
             } else if (window._defectMarkingTemplate && window._defectMarkingTemplate.groupId) {
                 // "마킹 추가" 체인의 연속 마킹 — 같은 그룹으로 묶어서 도면에는 화살표만 늘어나도록 표시
                 newDefect.groupId = window._defectMarkingTemplate.groupId;
@@ -8541,6 +10724,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (typeof renderSurveyTable === 'function') renderSurveyTable();
             flashDefectAutosaveBadge('done');
         }, 180);
+    }
+
+    function flushDefectAutoApply() {
+        if (!window._defectAutoApplyTimer) return;
+        window.clearTimeout(window._defectAutoApplyTimer);
+        window._defectAutoApplyTimer = null;
+        if (window._defectFormHydrating || !isDefectModalOpen()) return;
+        // 탭 전환·닫기 직전: 대기 중인 자동 적용을 즉시 반영 (비동기 사진은 다음 저장에)
+        const needHistory = !window._defectEditSessionHistoryPushed;
+        if (needHistory) window._defectEditSessionHistoryPushed = true;
+        Promise.resolve(commitDefectFromForm({
+            pushHistory: needHistory,
+            uploadPhotos: !!window._defectPhotosDirty
+        })).then((saved) => {
+            if (saved) {
+                const pinIdEl = document.getElementById('defectPinId');
+                if (pinIdEl && !pinIdEl.value) pinIdEl.value = saved.id;
+            }
+        }).catch(() => {});
     }
 
     function bindDefectFormAutoApply() {
@@ -8618,6 +10820,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     crackLength: saved.crackLength,
                     forceArrowDir: !!saved.forceArrowDir,
                     arrowOctant: ((parseInt(saved.arrowOctant, 10) || 0) % 8 + 8) % 8,
+                    areaFillStyle: saved.areaFillStyle || getAreaFillStyle(saved),
+                    areaBorderStyle: saved.areaBorderStyle || getAreaBorderStyle(saved),
                     groupId: isArea ? null : saved.groupId,
                     groupNo: isArea ? null : saved.groupNo,
                     boxX: saved.x,
@@ -8667,8 +10871,12 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Mode Toggle (PAN vs MARK vs AREA)
+    // Mode Toggle (PAN=선택 vs MARK vs AREA)
     function setDrawMode(mode) {
+        if (mode === 'PAN' && window._pendingMapRegisterDefectId) {
+            window._pendingMapRegisterDefectId = null;
+            if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        }
         state.mode = mode;
         const pan = document.getElementById('btnModePan');
         const mark = document.getElementById('btnModeMark');
@@ -8681,7 +10889,7 @@ document.addEventListener('DOMContentLoaded', () => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
         if (elements.planCanvas) {
-            elements.planCanvas.style.cursor = mode === 'MARK' || mode === 'AREA' ? 'crosshair' : 'grab';
+            elements.planCanvas.style.cursor = getMapCanvasCursor();
         }
     }
 
@@ -8693,6 +10901,71 @@ document.addEventListener('DOMContentLoaded', () => {
         btnModeMark.addEventListener('click', () => setDrawMode('MARK'));
         if (btnModeArea) btnModeArea.addEventListener('click', () => setDrawMode('AREA'));
     }
+
+    // 도면 탭 단축키: D=핀 마킹, A=영역 마킹, Esc=수정창 닫기+선택모드
+    // 비파괴 탭: D=NDT 마킹, Esc=등록창 닫기+이동모드
+    window.addEventListener('keydown', (e) => {
+        const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+        const typing = (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable);
+        const k = e.key.toLowerCase();
+
+        if (window.state.currentTab === 'tab-ndt') {
+            if (k === 'escape') {
+                e.preventDefault();
+                if (isNdtModalOpen()) closeNdtModal();
+                const dispModal = document.getElementById('ndtDisplacementModal');
+                if (dispModal && dispModal.classList.contains('open')) closeNdtDisplacementModal();
+                const dispEditModal = document.getElementById('ndtDisplacementGroupEditModal');
+                if (dispEditModal && dispEditModal.classList.contains('open')) closeNdtDisplacementGroupEditModal();
+                if (window._activeNdtDispGroupId) {
+                    setActiveNdtDispGroup(null);
+                    if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                    window.showToast('측정 구역 연결을 해제했습니다. 다음 마킹은 새 구역으로 시작합니다.', 'info', 2800);
+                }
+                if (selectedNdtIds.size > 0) {
+                    selectedNdtIds.clear();
+                    updateNdtSelectionBar();
+                    if (typeof drawNdtCanvas === 'function') drawNdtCanvas();
+                }
+                if (typeof window.setNdtMode === 'function') window.setNdtMode('PAN');
+                return;
+            }
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedNdtIds.size > 0 && !isNdtModalOpen() && !typing) {
+                e.preventDefault();
+                deleteSelectedNdtMarks();
+                return;
+            }
+            if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+            if (k === 'd') {
+                e.preventDefault();
+                if (typeof window.setNdtMode === 'function') window.setNdtMode('MARK');
+            }
+            return;
+        }
+        if (window.state.currentTab !== 'tab-map') return;
+        if (k === 'escape') {
+            e.preventDefault();
+            const cascadeModal = document.getElementById('defectComponentCascadeModal');
+            if (cascadeModal && cascadeModal.classList.contains('open')) {
+                closeDefectComponentCascadeModal();
+                return;
+            }
+            if (typeof isDefectModalOpen === 'function' && isDefectModalOpen()) {
+                closeDefectModal();
+            }
+            setDrawMode('PAN');
+            return;
+        }
+        if (typing) return;
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (k === 'd') {
+            e.preventDefault();
+            setDrawMode('MARK');
+        } else if (k === 'a') {
+            e.preventDefault();
+            setDrawMode('AREA');
+        }
+    });
 
     // 모바일 전용 하단 모드/도구 버튼
     const mobileBtnModePan = document.getElementById('mobileBtnModePan');
@@ -8750,10 +11023,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             });
             state.defects[key] = [];
+            selectedDefectIds.clear();
+            updateMapSelectionBar();
             saveStateToLocalStorage();
             renderSurveyTable();
             drawCanvas();
             window.showToast('현재 층 결함을 모두 초기화했습니다.', 'success');
+        });
+    }
+
+    const btnDeleteSelectedEl = document.getElementById('btnDeleteSelectedDefects');
+    if (btnDeleteSelectedEl) {
+        btnDeleteSelectedEl.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            deleteSelectedDefects();
         });
     }
 
@@ -8762,6 +11046,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const tag = (e.target && e.target.tagName || '').toUpperCase();
         if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (e.target && e.target.isContentEditable)) return;
         if (!document.getElementById('tab-map')?.classList.contains('active')) return;
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedDefectIds.size > 0 && !isDefectModalOpen()) {
+            e.preventDefault();
+            deleteSelectedDefects();
+            return;
+        }
         if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'z') {
             e.preventDefault();
             undoDefectChange();
@@ -8847,9 +11136,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function getGrade3FloorPrefix(floorCode) {
         const raw = String(floorCode || '');
         const c = raw.toUpperCase().trim();
-        // 옥상층/옥탑층은 floorCode 값 자체가 "ROOF" 같은 고정 코드가 아니라 "옥상층"/"옥탑층"처럼
-        // 층 이름을 직접 입력해서 등록되는 경우가 많아, 코드 매칭보다 원문 포함 여부를 먼저 본다.
-        if (raw.includes('옥탑') || c.includes('PH')) return 'RT';
+        // 옥상층/옥탑층/옥탑 지붕층은 코드(ROOF/PH/PH_ROOF)뿐 아니라 "옥상층"처럼 직접 입력된 이름도 인식
+        if (raw.includes('옥탑') && raw.includes('지붕')) return 'RT';
+        if (raw.includes('옥탑') || c === 'PH' || c === 'PH_ROOF' || c.includes('PH')) return 'RT';
         if (raw.includes('옥상') || c === 'ROOF') return 'R';
         const bMatch = c.match(/^B(\d+)F$/);
         if (bMatch) return `B${bMatch[1]}`;
@@ -8961,18 +11250,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderScreenSurveyCellHtml(colKey, d, ctx) {
         const text = getSurveyCellText(colKey, d, ctx);
         switch (colKey) {
-            case 'no': return `<strong style="color:#0284c7; font-size:0.95rem;">${text}</strong>`;
+            case 'no': return `<strong style="color:#2a2a2a; font-size:0.95rem;">${text}</strong>`;
             case 'location': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
             case 'component': return `<span style="font-weight:700; color:#1e293b;">${text}</span>`;
-            case 'defectType': return `<span style="font-weight:700; color:#0369a1;">${text}</span>`;
+            case 'defectType': return `<span style="font-weight:700; color:#1f1f1f;">${text}</span>`;
             case 'inspectionContent': return `<span style="font-weight:700; color:#1e293b; white-space:pre-line;">${text}</span>`;
-            case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#94a3b8'};">${text}</span>`;
+            case 'category': return `<span style="font-weight:800; font-size:1.15rem; color:${text === '○' ? '#ef4444' : '#a3a3a3'};">${text}</span>`;
             case 'size': case 'crackWidth': case 'crackLength': return text;
-            case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};">${text}</span>`;
-            case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};">${text}</span>`;
+            case 'progress': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '진행중' ? '#dc2626' : '#a3a3a3'};">${text}</span>`;
+            case 'leak': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '누수중' ? '#2a2a2a' : '#a3a3a3'};">${text}</span>`;
             case 'cause': return `<span style="font-weight:700; color:#334155;">🔍 ${text}</span>`;
-            case 'priorityManage': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#94a3b8'};">${text}</span>`;
-            case 'remark': return `<span style="font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};">${text}</span>`;
+            case 'priorityManage': return `<span style="font-weight:800; font-size:0.92rem; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#a3a3a3'};">${text}</span>`;
+            case 'remark': return `<span style="font-weight:700; color:${text !== '-' ? '#2563eb' : '#a3a3a3'};">${text}</span>`;
             default: return text;
         }
     }
@@ -8981,16 +11270,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function getSurveyCellColorStyle(colKey, d, ctx) {
         const text = getSurveyCellText(colKey, d, ctx);
         switch (colKey) {
-            case 'no': return 'font-weight:700; color:#0284c7;';
+            case 'no': return 'font-weight:700; color:#2a2a2a;';
             case 'location': return 'font-weight:700;';
             case 'component': return 'font-weight:700;';
-            case 'defectType': return 'font-weight:700; color:#0369a1;';
-            case 'category': return `font-weight:800; color:${text === '○' ? '#ef4444' : '#94a3b8'};`;
-            case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#94a3b8'};`;
-            case 'leak': return `font-weight:800; color:${text === '누수중' ? '#0284c7' : '#94a3b8'};`;
+            case 'defectType': return 'font-weight:700; color:#1f1f1f;';
+            case 'category': return `font-weight:800; color:${text === '○' ? '#ef4444' : '#a3a3a3'};`;
+            case 'progress': return `font-weight:800; color:${text === '진행중' ? '#dc2626' : '#a3a3a3'};`;
+            case 'leak': return `font-weight:800; color:${text === '누수중' ? '#2a2a2a' : '#a3a3a3'};`;
             case 'cause': return 'font-weight:700;';
-            case 'priorityManage': return `font-weight:800; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#94a3b8'};`;
-            case 'remark': return `font-weight:700; color:${text !== '-' ? '#2563eb' : '#94a3b8'};`;
+            case 'priorityManage': return `font-weight:800; color:${text === '중점관리' ? getStyleColor('priorityManage') : '#a3a3a3'};`;
+            case 'remark': return `font-weight:700; color:${text !== '-' ? '#2563eb' : '#a3a3a3'};`;
             default: return '';
         }
     }
@@ -9224,7 +11513,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         if (photoItems.length === 0) {
-            elements.photoAlbumGrid.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:3rem; color:#94a3b8; font-weight:600;"><i class="fa-solid fa-camera" style="font-size:2.5rem; color:#cbd5e1; display:block; margin-bottom:0.8rem;"></i>📷 등록된 현장 결함 사진이 없습니다.</div>`;
+            elements.photoAlbumGrid.innerHTML = `<div style="grid-column:1/-1; text-align:center; padding:3rem; color:#a3a3a3; font-weight:600;"><i class="fa-solid fa-camera" style="font-size:2.5rem; color:#cbd5e1; display:block; margin-bottom:0.8rem;"></i>📷 등록된 현장 결함 사진이 없습니다.</div>`;
             return;
         }
 
@@ -9234,7 +11523,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <img src="${p.src}" style="width:100%; height:100%; object-fit:cover;">
                 </div>
                 <div style="padding: 0.8rem; text-align: center;">
-                    <div style="font-size: 1rem; font-weight: 800; color: #0369a1;">
+                    <div style="font-size: 1rem; font-weight: 800; color: #1f1f1f;">
                         ${p.label}. ${p.title}
                     </div>
                 </div>
@@ -9303,26 +11592,18 @@ document.addEventListener('DOMContentLoaded', () => {
                         safeHeadLen,
                         0
                     )
-                    : (isAreaDefectSafe
-                        ? (() => {
-                            const route = buildAreaLeaderRoute(
-                                anchor,
-                                { x: tipX, y: tipY },
-                                defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
-                            );
-                            const last = route[route.length - 1];
-                            const prev = route[route.length - 2] || anchor;
-                            return { route, ux: last.x - prev.x, uy: last.y - prev.y };
-                        })()
-                        : (() => {
+                    : (() => {
                         const ux = tipX - anchor.x;
                         const uy = tipY - anchor.y;
-                        const tipBack = useCircleTipSafe ? stemInset : safeHeadLen * Math.cos(Math.PI / 6);
+                        // 영역은 테두리까지 직선 (L자 꺾임 없음)
+                        const tipBack = isAreaDefectSafe
+                            ? 0
+                            : (useCircleTipSafe ? stemInset : safeHeadLen * Math.cos(Math.PI / 6));
                         const stemEnd = tipBack <= 0
                             ? { x: tipX, y: tipY }
                             : getArrowStemEndPoint(tipX, tipY, ux, uy, tipBack);
                         return { route: [anchor, stemEnd], ux, uy };
-                    })());
+                    })();
                 ctx.save();
                 ctx.beginPath();
                 ctx.moveTo(leader.route[0].x, leader.route[0].y);
@@ -9369,6 +11650,199 @@ document.addEventListener('DOMContentLoaded', () => {
             console.warn('drawPinSafe error:', e);
         }
     }
+
+    /**
+     * 벡터 PDF 출력: drawPinSafe와 동일한 비율/지시선/방향지정 계산 결과만 반환
+     * (좌표는 도면 이미지 픽셀 기준)
+     */
+    window.buildVectorPinDrawPlan = function(defect, arrows, measureCtx) {
+        if (!defect || defect.mapUnregistered) return null;
+        if (defect.shapeType === 'area' && defect.areaX1 !== undefined) {
+            ensureAreaPinPlacement(defect);
+        }
+        const boxX = defect.x || 100;
+        const boxY = defect.y || 100;
+        const styleKey = getDefectStyleKey(defect.category, defect.defectType);
+        const color = getDefectColor(defect);
+        const shapeCfg = getDefectPinShapeCfg(defect, styleKey);
+        const useCircleTip = state.tipShape === 'circle';
+        const sizes = getStyleSize(styleKey);
+        const pinScale = sizes.pin;
+        const arrowScale = sizes.arrow;
+        const label = formatDefectPinLabel(defect, styleKey);
+        const boxDim = measurePinBoxDimensions(measureCtx || null, label, pinScale, 1);
+        const fontSize = getPinBoxFontSize(pinScale);
+        const borderW = getPinBoxBorderWidth(pinScale, 1, false);
+        const lineW = getDefectLeaderLineWidth(pinScale, 1, false);
+
+        const targets = (arrows && arrows.length > 0)
+            ? arrows
+            : (defect.targetX !== undefined && defect.targetY !== undefined
+                ? [{ targetX: defect.targetX, targetY: defect.targetY, forceArrowDir: defect.forceArrowDir, arrowOctant: defect.arrowOctant }]
+                : []);
+
+        const isAreaDefect = defect.shapeType === 'area' && defect.areaX1 !== undefined;
+        const leaders = [];
+        targets.forEach(t => {
+            if (t.targetX === undefined || t.targetY === undefined) return;
+            let tipX = t.targetX;
+            let tipY = t.targetY;
+            if (isAreaDefect) {
+                const attach = getAreaCenterBorderAttach(
+                    boxX, boxY,
+                    defect.areaX1, defect.areaY1, defect.areaX2, defect.areaY2
+                );
+                tipX = attach.x;
+                tipY = attach.y;
+            }
+            const anchor = getPinLeaderBoxAnchor(boxX, boxY, tipX, tipY, boxDim.w, boxDim.h, 0);
+            const headLen = 11 * arrowScale;
+            const forcedDir = isAreaDefect ? { enabled: false } : resolveForcedArrowDirection(t, defect);
+            const stemInset = useCircleTip
+                ? 4.5 * arrowScale
+                : headLen * Math.cos(Math.PI / 6);
+            const leader = forcedDir.enabled
+                ? buildForcedLeaderRoute(
+                    { x: tipX, y: tipY },
+                    boxX, boxY, boxDim.w, boxDim.h,
+                    pinScale, arrowScale, forcedDir.octant,
+                    stemInset, headLen, 0
+                )
+                : (() => {
+                    const ux = tipX - anchor.x;
+                    const uy = tipY - anchor.y;
+                    // 영역은 테두리까지 직선 (L자 꺾임 없음)
+                    const tipBack = isAreaDefect
+                        ? 0
+                        : (useCircleTip ? stemInset : headLen * Math.cos(Math.PI / 6));
+                    const stemEnd = tipBack <= 0
+                        ? { x: tipX, y: tipY }
+                        : getArrowStemEndPoint(tipX, tipY, ux, uy, tipBack);
+                    return { route: [anchor, stemEnd], ux, uy };
+                })();
+
+            leaders.push({
+                route: leader.route,
+                tipX,
+                tipY,
+                ux: leader.ux,
+                uy: leader.uy,
+                headLen,
+                useCircleTip,
+                skipArrowHead: isAreaDefect
+            });
+        });
+
+        return {
+            color,
+            label,
+            boxX,
+            boxY,
+            boxW: boxDim.w,
+            boxH: boxDim.h,
+            fontSize,
+            borderW,
+            lineW,
+            fill: !!shapeCfg.fill,
+            leaders,
+            area: isAreaDefect ? {
+                x1: Math.min(defect.areaX1, defect.areaX2),
+                y1: Math.min(defect.areaY1, defect.areaY2),
+                x2: Math.max(defect.areaX1, defect.areaX2),
+                y2: Math.max(defect.areaY1, defect.areaY2),
+                fillStyle: getAreaFillStyle(defect),
+                borderStyle: getAreaBorderStyle(defect)
+            } : null
+        };
+    };
+
+    /** NDT 핀 → 벡터 PDF용 (결함위치도 buildVectorPinDrawPlan과 동일 비율) */
+    window.buildVectorNdtPinDrawPlan = function(item, measureCtx, allItems) {
+        if (!item) return null;
+        let boxX = item.boxX !== undefined ? item.boxX : (item.x || 100);
+        let boxY = item.boxY !== undefined ? item.boxY : (item.y || 100);
+        const targetX = item.targetX !== undefined ? item.targetX : (item.x || boxX);
+        const targetY = item.targetY !== undefined ? item.targetY : (item.y || boxY);
+        const cat = item.category || '강도';
+        const ndtStyleKey = getNdtStyleKey(cat);
+        const color = getStyleColor(ndtStyleKey);
+        const shapeCfg = getStyleShape(ndtStyleKey);
+        const useCircleTip = state.tipShape === 'circle' || cat === '강도' || cat === '탄산화';
+        const sizes = getStyleSize(ndtStyleKey);
+        const pinScale = sizes.pin;
+        const arrowScale = sizes.arrow;
+
+        let noStr = item.no || 'NO.01';
+        if (noStr.startsWith('기울기-') || noStr.startsWith('NDT-') || noStr.startsWith('변위-')) {
+            const numPart = noStr.replace(/^[^\d]+/, '');
+            noStr = `NO.${numPart.length === 1 ? '0' + numPart : numPart}`;
+        }
+        const label = formatPinNumberLabel(noStr, ndtStyleKey);
+        const isTiltCallout = (cat === '기울기' || cat === '변위' || cat === '부재변위');
+        const isTypeCallout = (cat === '강도' || cat === '탄산화');
+        const typeLabel = isTypeCallout ? getNdtStrengthCarbTypeLabel(cat) : null;
+
+        let boxDim;
+        let fontSize;
+        let col1W = null;
+        if (isTiltCallout) {
+            boxDim = { w: 168 * pinScale, h: 44 * pinScale };
+            fontSize = Math.round(15 * pinScale);
+        } else if (isTypeCallout) {
+            const dims = measureNdtTypeCalloutDimensions(measureCtx || null, label, typeLabel, pinScale);
+            boxDim = { w: dims.boxW, h: dims.boxH };
+            fontSize = dims.fontType;
+            col1W = dims.col1W;
+        } else {
+            boxDim = measurePinBoxDimensions(measureCtx || null, label, pinScale, 1);
+            fontSize = getPinBoxFontSize(pinScale);
+        }
+        const borderW = getPinBoxBorderWidth(pinScale, 1, false, getNdtLeaderLineScale(ndtStyleKey));
+        const lineW = getNdtLeaderLineWidth(pinScale, false, ndtStyleKey);
+
+        const leaders = [];
+        if (targetX !== undefined && targetY !== undefined) {
+            const anchor = isTiltCallout
+                ? { x: boxX, y: boxY }
+                : getPinLeaderBoxAnchor(boxX, boxY, targetX, targetY, boxDim.w, boxDim.h, 0);
+            const headLen = 11 * arrowScale;
+            const stemInset = useCircleTip ? 4.5 * arrowScale : headLen * Math.cos(Math.PI / 6);
+            const ux = targetX - anchor.x;
+            const uy = targetY - anchor.y;
+            const stemEnd = stemInset > 0
+                ? getArrowStemEndPoint(targetX, targetY, ux, uy, stemInset)
+                : { x: targetX, y: targetY };
+            leaders.push({
+                route: [anchor, stemEnd],
+                tipX: targetX,
+                tipY: targetY,
+                ux,
+                uy,
+                headLen,
+                useCircleTip: true,
+                skipArrowHead: false
+            });
+        }
+
+        return {
+            color,
+            label,
+            typeLabel,
+            col1W,
+            boxX,
+            boxY,
+            boxW: boxDim.w,
+            boxH: boxDim.h,
+            fontSize,
+            borderW,
+            lineW,
+            fill: isTypeCallout ? false : !!shapeCfg.fill,
+            leaders,
+            area: null,
+            tiltCallout: isTiltCallout,
+            typeCallout: isTypeCallout
+        };
+    };
 
     // 지하/지상 여부가 다르면 아무리 문자열이 비슷해도(예: "B1F"가 "1F"를 포함) 매칭하지
     // 않는다. 지하1층 조회에 지상1층 도면이 잘못 걸리는 사고를 막기 위함.
@@ -9571,7 +12045,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const items = ensureLocationMapLegendInitialized();
         listEl.innerHTML = items.map((item, idx) => `
             <div class="style-cat-card legend-modal-row" data-legend-idx="${idx}" style="display:flex; align-items:center; gap:0.45rem; margin-bottom:0.35rem;">
-                <button type="button" class="legend-drag-handle" draggable="true" title="드래그하여 순서 변경" aria-label="순서 변경" style="border:none;background:transparent;padding:0.2rem 0.15rem;color:#94a3b8;cursor:grab;flex-shrink:0;line-height:1;">
+                <button type="button" class="legend-drag-handle" draggable="true" title="드래그하여 순서 변경" aria-label="순서 변경" style="border:none;background:transparent;padding:0.2rem 0.15rem;color:#a3a3a3;cursor:grab;flex-shrink:0;line-height:1;">
                     <i class="fa-solid fa-grip-vertical"></i>
                 </button>
                 <input type="color" value="${item.color}" onchange="window.recolorLocationMapLegendItem(${idx}, this.value)">
@@ -9662,6 +12136,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const LEGEND_DEFAULT_SCALE = 4;
     const LEGEND_SCALE_MIN = 0.35;
     const LEGEND_SCALE_MAX = 40;
+    // 범례 글자/표 크기는 도면 원본 픽셀에 절대값으로 그리므로, 해상도가 다른 도면에
+    // 같은 scale을 쓰면 작은 도면에선 크게·큰 도면에선 작게 보인다. 기준 해상도로 나눠
+    // 상대 크기를 맞춘다(압축 도면 maxDim≈2200 근처를 기준으로 둠).
+    const LEGEND_FIT_REF_PX = 2000;
 
     function getLocationMapLegendScale(box) {
         const b = box || state.locationMapLegendBox || {};
@@ -9670,6 +12148,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function clampLegendScale(scale) {
         return Math.min(Math.max(LEGEND_SCALE_MIN, scale), LEGEND_SCALE_MAX);
+    }
+
+    function getLegendFitFactor(imgW, imgH) {
+        const dim = Math.max(Number(imgW) || 0, Number(imgH) || 0, 1);
+        return dim / LEGEND_FIT_REF_PX;
+    }
+
+    /** 실제 그리기용 스케일 = 사용자 배율 × 도면 해상도 보정 */
+    function resolveLocationMapLegendDrawScale(box, imgW, imgH) {
+        return Math.max(0.2, getLocationMapLegendScale(box) * getLegendFitFactor(imgW, imgH));
     }
 
     // 결함위치도에 색상 범례를 그린다. 위치(x,y)는 결함 핀처럼 도면 원본 픽셀 좌표라서, 이 함수를
@@ -9778,7 +12266,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const box = state.locationMapLegendBox || {};
-        const scale = getLocationMapLegendScale(box);
+        const scale = resolveLocationMapLegendDrawScale(box, imgW, imgH);
         const dims = measureLocationMapLegendTable(ctx, items, scale);
         const { col1W, col2W, boxW, boxH, rowH, headerRowH, fontSize, cellPadX, cellPadY } = dims;
         const margin = 16 * scale;
@@ -9788,7 +12276,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         ctx.save();
         ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#94a3b8';
+        ctx.strokeStyle = '#a3a3a3';
         ctx.lineWidth = lineW;
 
         // 배경 + 외곽
@@ -9850,12 +12338,42 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    /** 결함위치도 범례 표 → 벡터 PDF용 (화면 drawLocationMapLegend와 동일 치수) */
+    window.buildVectorLegendDrawPlan = function(measureCtx, imgW, imgH) {
+        const items = getActiveLocationMapLegend().map(enrichLocationMapLegendItem);
+        if (!items.length) return null;
+        const box = state.locationMapLegendBox || {};
+        const scale = resolveLocationMapLegendDrawScale(box, imgW, imgH);
+        const dims = measureLocationMapLegendTable(measureCtx || null, items, scale);
+        const margin = 16 * scale;
+        const boxX = (box.x !== undefined) ? box.x : margin;
+        const boxY = (box.y !== undefined) ? box.y : (imgH || 0) - dims.boxH - margin;
+        return {
+            boxX, boxY,
+            boxW: dims.boxW,
+            boxH: dims.boxH,
+            col1W: dims.col1W,
+            col2W: dims.col2W,
+            rowH: dims.rowH,
+            headerRowH: dims.headerRowH,
+            fontSize: dims.fontSize,
+            lineW: Math.max(1, 1.2 * scale),
+            scale,
+            items: items.map(it => ({
+                colorName: resolveLegendColorName(it),
+                label: it.label || '',
+                color: it.color || '#1e293b'
+            }))
+        };
+    };
+
     function renderFloorPlanCanvasDataUrl(floorCode) {
         try {
             const bldg = window.state.currentBuilding || {};
             const currentBldgId = bldg.id || state.currentBuildingId || 'default';
             const key = `${currentBldgId}_${floorCode}`;
-            const defects = state.defects[key] || (state.currentFloor === floorCode ? getCurrentFloorDefects() : []);
+            const rawDefects = state.defects[key] || (state.currentFloor === floorCode ? getCurrentFloorDefects() : []);
+            const defects = filterMapPlacedDefects(rawDefects);
 
             // 1. Check preloaded image cache or image source for this floor (건물별로 구분된 캐시 키 사용)
             let loadedImg = state.floorImageCache ? state.floorImageCache[`${currentBldgId}_${floorCode}`] : null;
@@ -10001,7 +12519,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.translate(-imgW / 2, -imgH / 2);
 
                         ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                        ndtItems.forEach(item => drawNdtPin(ctx, item));
+                        ndtItems.forEach(item => drawNdtPin(ctx, item, ndtItems));
                         displacementGroups.forEach(g => drawNdtDisplacementGroup(ctx, g));
                     } else {
                         const scale = Math.min(cw / imgW, ch / imgH);
@@ -10012,7 +12530,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         ctx.scale(scale, scale);
 
                         ctx.drawImage(imgObj, 0, 0, imgW, imgH);
-                        ndtItems.forEach(item => drawNdtPin(ctx, item));
+                        ndtItems.forEach(item => drawNdtPin(ctx, item, ndtItems));
                         displacementGroups.forEach(g => drawNdtDisplacementGroup(ctx, g));
                     }
                     ctx.restore();
@@ -10179,7 +12697,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
-                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin:0;">
                                     1. ${floorDisplayLabel} 상태조사표
                                 </h2>
                             </div>
@@ -10205,12 +12723,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 ${getActiveSurveyColumns().map(c => `<td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; white-space:pre-line; ${getSurveyCellColorStyle(c.key, d, cellCtx)}">${getSurveyCellText(c.key, d, cellCtx)}</td>`).join('')}
                                             </tr>
                                         `;
-                                    }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#94a3b8;">${floorDisplayLabel}에 등록된 결함이 없습니다.</td></tr>`}
+                                    }).join('') : `<tr><td colspan="${getActiveSurveyColumns().length}" style="padding:2rem; color:#a3a3a3;">${floorDisplayLabel}에 등록된 결함이 없습니다.</td></tr>`}
                                 </tbody>
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10235,10 +12753,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             </div>
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.6rem;">
-                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin:0;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin:0;">
                                     2. ${floorDisplayLabel} 현장 결함 사진첩 (총 ${photoItems.length}개 사진)
                                 </h2>
-                                <span style="font-size:0.78rem; background:#e0f2fe; color:#0369a1; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
+                                <span style="font-size:0.78rem; background:#e0f2fe; color:#1f1f1f; font-weight:700; padding:0.15rem 0.5rem; border-radius:12px;">
                                     사진첩 페이지 ${pPageIdx + 1} / ${photoPages.length} (규격 6개 배치)
                                 </span>
                             </div>
@@ -10251,7 +12769,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 <img src="${p.src}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;">
                                             </div>
                                             <div style="padding: 0.3rem; text-align: center;">
-                                                <div style="font-size:0.84rem; font-weight:800; color:#0369a1;">
+                                                <div style="font-size:0.84rem; font-weight:800; color:#1f1f1f;">
                                                     ${p.label}. ${p.title}
                                                 </div>
                                             </div>
@@ -10260,13 +12778,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                 </div>
                             ` : `
                                 <div style="width: 100%; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; margin-top: 2rem;">
-                                    <i class="fa-solid fa-camera" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                    <i class="fa-solid fa-camera" style="font-size: 2.8rem; color: #a3a3a3; margin-bottom: 0.8rem; display: block;"></i>
                                     📷 ${floorDisplayLabel}에 첨부된 현장 결함 사진이 없습니다.
                                 </div>
                             `}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10282,26 +12800,26 @@ document.addEventListener('DOMContentLoaded', () => {
                             <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                         </div>
 
-                        <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                        <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                             3. ${floorDisplayLabel} 결함 위치도 (도면 마킹 평면도)
                         </h2>
 
                         ${drawingDataUrl ? `
-                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                            <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                 <img src="${drawingDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                             </div>
                         ` : `
                             <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                <i class="fa-solid fa-map-location-dot" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                <i class="fa-solid fa-map-location-dot" style="font-size: 2.8rem; color: #a3a3a3; margin-bottom: 0.8rem; display: block;"></i>
                                 📍 ${floorDisplayLabel} 등록된 평면도 도면이 없습니다.<br>
-                                <span style="font-size: 0.88rem; color: #94a3b8; font-weight: 500; margin-top: 0.4rem; display: inline-block;">
+                                <span style="font-size: 0.88rem; color: #a3a3a3; font-weight: 500; margin-top: 0.4rem; display: inline-block;">
                                     (층별 도면 점검 탭에서 평면도 이미지를 등록하시면 결함 위치도가 자동으로 완성됩니다)
                                 </span>
                             </div>
                         `}
 
                         <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                            <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                            <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                             <span>📄 스마트 건축물 안전점검 시스템</span>
                         </div>
                     </div>
@@ -10334,7 +12852,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo1}. ${floorDisplayLabel} 비파괴 장비 조사 (부재 실측) 결과표
                             </h2>
 
@@ -10359,7 +12877,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                         const ratioText = (item.sectionRatio !== undefined && item.sectionRatio !== null) ? `${item.sectionRatio.toFixed(1)}%` : '-';
                                         return `
                                         <tr>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${item.no || 'NO.01'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.component || '기둥'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-family:monospace;">${designText}</td>
@@ -10370,13 +12888,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                         </tr>
                                     `;
                                     }).join('') : `
-                                        <tr><td colspan="8" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
+                                        <tr><td colspan="8" style="padding: 2rem; color: #a3a3a3;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
                                     `}
                                 </tbody>
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10389,23 +12907,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo2}. ${floorDisplayLabel} 비파괴 장비 조사 (부재 실측) 위치도
                             </h2>
 
                             ${measureDrawingUrl ? `
-                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                     <img src="${measureDrawingUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                 </div>
                             ` : `
                                 <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                    <i class="fa-solid fa-ruler" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                    <i class="fa-solid fa-ruler" style="font-size: 2.8rem; color: #a3a3a3; margin-bottom: 0.8rem; display: block;"></i>
                                     📍 부재 실측 마킹 데이터가 첨부되지 않았습니다.
                                 </div>
                             `}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10422,7 +12940,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo1}. ${floorDisplayLabel} 비파괴 장비 조사 (강도·탄산화) 결과표
                             </h2>
 
@@ -10441,7 +12959,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <tbody>
                                     ${strengthCarbNdtItems.length > 0 ? strengthCarbNdtItems.map(item => `
                                         <tr>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${item.no || 'NO.01'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.category}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.component || '기둥'}</td>
@@ -10450,13 +12968,13 @@ document.addEventListener('DOMContentLoaded', () => {
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${item.status || '양호'}</td>
                                         </tr>
                                     `).join('') : `
-                                        <tr><td colspan="7" style="padding: 2rem; color: #94a3b8;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
+                                        <tr><td colspan="7" style="padding: 2rem; color: #a3a3a3;">등록된 비파괴 조사 측정 데이터가 없습니다.</td></tr>
                                     `}
                                 </tbody>
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10469,23 +12987,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo2}. ${floorDisplayLabel} 비파괴 장비 조사 (강도·탄산화) 위치도
                             </h2>
 
                             ${stdDrawingUrl ? `
-                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                     <img src="${stdDrawingUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                 </div>
                             ` : `
                                 <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                    <i class="fa-solid fa-microscope" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                    <i class="fa-solid fa-microscope" style="font-size: 2.8rem; color: #a3a3a3; margin-bottom: 0.8rem; display: block;"></i>
                                     📍 강도/탄산화 마킹 데이터가 첨부되지 않았습니다.
                                 </div>
                             `}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10502,7 +13020,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo1}. ${floorDisplayLabel} 외벽 기울기 측정 결과표
                             </h2>
 
@@ -10525,12 +13043,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                         const h = parseFloat(hDigits) || 3000;
                                         const delta = Math.abs(parseFloat(avgDigits) || 0);
                                         const calc = calcTiltGrade(h, delta);
-                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#0284c7' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
+                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#2a2a2a' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
                                         return `
                                         <tr>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${item.no || 'NO.01'}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${item.no || 'NO.01'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0;">${item.location || '위치미지정'}</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${fmtH}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#2a2a2a;">${fmtH}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${item.avgValue || '-'}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${item.tiltRatio || calc.tiltRatio}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${item.grade || calc.grade}</td>
@@ -10540,7 +13058,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10553,23 +13071,23 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo2}. ${floorDisplayLabel} 외벽 기울기 측정 위치도
                             </h2>
 
                             ${tiltDrawingUrl ? `
-                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                     <img src="${tiltDrawingUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                 </div>
                             ` : `
                                 <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px dashed #cbd5e1; border-radius: 8px; padding: 4rem 2rem; background: #f8fafc; text-align: center; color: #64748b; font-weight: 700; font-size: 1.05rem; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                                    <i class="fa-solid fa-compass-drafting" style="font-size: 2.8rem; color: #94a3b8; margin-bottom: 0.8rem; display: block;"></i>
+                                    <i class="fa-solid fa-compass-drafting" style="font-size: 2.8rem; color: #a3a3a3; margin-bottom: 0.8rem; display: block;"></i>
                                     📍 외벽 기울기 마킹 데이터가 첨부되지 않았습니다.
                                 </div>
                             `}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10586,7 +13104,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo1}. ${floorDisplayLabel} 부동침하 기울기 측정 결과표
                             </h2>
 
@@ -10604,12 +13122,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <tbody>
                                     ${settlementGroups.map(group => {
                                         const calc = calcGroupDisplacement(group);
-                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#0284c7' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
+                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#2a2a2a' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
                                         return `
                                         <tr>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${group.groupNo}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${group.groupNo}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${group.locationType} (${group.points.length}개 지점)</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${group.measureLength}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#2a2a2a;">${group.measureLength}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${calc.delta.toFixed(1)}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${calc.tiltRatio}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${calc.grade}</td>
@@ -10619,7 +13137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10632,18 +13150,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo2}. ${floorDisplayLabel} 부동침하 기울기 측정 위치도
                             </h2>
 
                             ${settlementDrawingUrl ? `
-                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                     <img src="${settlementDrawingUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                 </div>
                             ` : ''}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10658,18 +13176,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                                 </div>
 
-                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                     ${curGraphNo}. ${floorDisplayLabel} 부동침하 기울기 그래프 (${group.groupNo})
                                 </h2>
 
                                 ${chartDataUrl ? `
-                                    <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                    <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                         <img src="${chartDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                     </div>
                                 ` : ''}
 
                                 <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                    <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                    <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                     <span>📄 스마트 건축물 안전점검 시스템</span>
                                 </div>
                             </div>
@@ -10687,7 +13205,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo1}. ${floorDisplayLabel} 부재처짐 (부재변위) 측정 결과표
                             </h2>
 
@@ -10705,12 +13223,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <tbody>
                                     ${memberDispGroups.map(group => {
                                         const calc = calcGroupDisplacement(group);
-                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#0284c7' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
+                                        const gradeColor = calc.grade === 'a등급' ? '#16a34a' : (calc.grade === 'b등급' ? '#2a2a2a' : (calc.grade === 'c등급' ? '#ca8a04' : '#dc2626'));
                                         return `
                                         <tr>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#0284c7;">${group.groupNo}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#2a2a2a;">${group.groupNo}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700;">${group.locationType} (${group.points.length}개 지점)</td>
-                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#0284c7;">${group.measureLength}</td>
+                                            <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:700; color:#2a2a2a;">${group.measureLength}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#16a34a;">${calc.delta.toFixed(1)}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:#9333ea;">${calc.tiltRatio}</td>
                                             <td style="padding:0.4rem 0.3rem; border:1px solid #e2e8f0; font-weight:800; color:${gradeColor};">${calc.grade}</td>
@@ -10720,7 +13238,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             </table>
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10733,18 +13251,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                             </div>
 
-                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                            <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                 ${curSecNo2}. ${floorDisplayLabel} 부재처짐 (부재변위) 측정 위치도
                             </h2>
 
                             ${memberDispDrawingUrl ? `
-                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                     <img src="${memberDispDrawingUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                 </div>
                             ` : ''}
 
                             <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                 <span>📄 스마트 건축물 안전점검 시스템</span>
                             </div>
                         </div>
@@ -10759,18 +13277,18 @@ document.addEventListener('DOMContentLoaded', () => {
                                     <h1 style="font-size:0.75rem; font-weight:700; color:#000000; margin:0;">${reportTitleHeader}</h1>
                                 </div>
 
-                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #0284c7; padding-left: 0.5rem; margin-bottom: 0.5rem;">
+                                <h2 style="font-size:1.02rem; font-weight:800; color:#0f172a; border-left: 4px solid #2a2a2a; padding-left: 0.5rem; margin-bottom: 0.5rem;">
                                     ${curGraphNo}. ${floorDisplayLabel} 부재처짐 그래프 (${group.groupNo})
                                 </h2>
 
                                 ${chartDataUrl ? `
-                                    <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #0284c7; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
+                                    <div style="width: 100%; height: 222mm; max-height: 222mm; border: 2px solid #2a2a2a; border-radius: 6px; overflow: hidden; background: #ffffff; text-align: center; padding: 2px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;">
                                         <img src="${chartDataUrl}" style="width: 100%; height: 100%; object-fit: contain; border-radius: 4px; display: block; margin: 0 auto;">
                                     </div>
                                 ` : ''}
 
                                 <div style="margin-top: auto; padding-top: 0.6rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: #475569;">
-                                    <span>🏢 점검수행기관: <strong style="color: #0369a1; font-weight: 800;">${compName}</strong></span>
+                                    <span>🏢 점검수행기관: <strong style="color: #1f1f1f; font-weight: 800;">${compName}</strong></span>
                                     <span>📄 스마트 건축물 안전점검 시스템</span>
                                 </div>
                             </div>
@@ -12500,7 +15018,7 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.fillRect(0, 0, cw, ch);
 
         if (!defectsArray || defectsArray.length === 0) {
-            ctx.fillStyle = '#94a3b8';
+            ctx.fillStyle = '#a3a3a3';
             ctx.font = '14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('등록된 결함 데이터가 없습니다.', cw / 2, ch / 2);
@@ -12521,7 +15039,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const total = defectsArray.length;
         const colors = {
             '균열': '#ef4444',
-            '누수': '#3b82f6',
+            '누수': '#525252',
             '백태': '#cbd5e1',
             '철근노출': '#f97316',
             '박리/박락': '#eab308',
@@ -12610,7 +15128,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 recognition.stop();
                 if (btnElement) {
                     btnElement.style.background = '';
-                    btnElement.style.color = '#38bdf8';
+                    btnElement.style.color = '#6b6b6b';
                     btnElement.innerHTML = '<i class="fa-solid fa-microphone"></i> 🎤 음성입력';
                 }
             };
@@ -12619,7 +15137,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 window.showToast('음성 인식 감지 오류: ' + event.error, 'error');
                 if (btnElement) {
                     btnElement.style.background = '';
-                    btnElement.style.color = '#38bdf8';
+                    btnElement.style.color = '#6b6b6b';
                     btnElement.innerHTML = '<i class="fa-solid fa-microphone"></i> 🎤 음성입력';
                 }
             };
@@ -12845,6 +15363,17 @@ document.addEventListener('DOMContentLoaded', () => {
         reader.readAsArrayBuffer(file);
     };
 
+    function updateImportDefectExcelHelpText() {
+        const helpEl = document.getElementById('importDefectExcelHelpText');
+        const prevRound = document.getElementById('importDefectExcelPrevRound')?.checked === true;
+        if (!helpEl) return;
+        if (prevRound) {
+            helpEl.innerHTML = '엑셀로 가져온 결함은 <b>전차(전회차) 조사내용</b>으로 등록됩니다. 도면에는 자동 배치되지 않습니다.<br>좌측 <b>「전차 미등록」</b> 목록에서 결함을 클릭한 뒤, 도면에서 마킹 위치를 직접 지정하세요.';
+        } else {
+            helpEl.innerHTML = '엑셀로 가져온 결함은 <b>전차(전회차) 조사내용</b>으로 등록됩니다.<br>도면 좌측 상단에 임시 배치되므로, 좌측 목록에서 각 결함을 클릭해 정확한 위치로 <b>직접 드래그</b>해주세요.';
+        }
+    }
+
     function openImportDefectExcelModal() {
         const sheets = window._importExcelSheets || [];
         const floors = window._importExcelFloors || [];
@@ -12903,6 +15432,7 @@ document.addEventListener('DOMContentLoaded', () => {
             modal.style.display = 'flex';
             modal.classList.add('open');
         }
+        updateImportDefectExcelHelpText();
     }
 
     function closeImportDefectExcelModal() {
@@ -12968,9 +15498,11 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         const mergeByNo = document.getElementById('importDefectExcelMergeByNo')?.checked !== false;
+        const importPrevRound = document.getElementById('importDefectExcelPrevRound')?.checked === true;
 
         let totalImported = 0;
         let totalMatched = 0;
+        let totalUnregistered = 0;
         let floorsTouched = 0;
 
         sheets.forEach(sheetInfo => {
@@ -13045,6 +15577,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     existing.crackLength = isGood ? '' : crackLengthRaw;
                     existing.isProgress = isGood ? false : resolveImportFlag(progressRaw);
                     existing.isLeak = isGood ? false : resolveImportFlag(leakRaw);
+                    // 엑셀 가져오기는 항상 전차(전회차) 조사내용으로 분류
+                    existing.isCarriedOver = true;
+                    if (importPrevRound) {
+                        const hasMapCoords = existing.x !== undefined && existing.y !== undefined;
+                        existing.mapUnregistered = !hasMapCoords;
+                    } else if (existing.mapUnregistered) {
+                        existing.mapUnregistered = false;
+                    }
                     matchedThisFloor++;
                     return;
                 }
@@ -13053,14 +15593,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 const seqStr = seq < 10 ? `0${seq}` : `${seq}`;
                 const no = noRawTrimmed || `NO.${seqStr}`;
 
-                const col = i % gridCols;
-                const rowIdx = Math.floor(i / gridCols);
-                const boxX = marginX + col * stepX;
-                const boxY = marginY + rowIdx * stepY;
-
-                const importSurveyRound = getCurrentSurveyRoundKey();
-                // 가져온 결함들이 등록된 회차는 정의상 "지금까지 중 가장 최신"이므로 최신 회차 기준점을 전진시킨다.
-                advanceLatestSurveyRound(window.state.currentBuilding, importSurveyRound);
                 const newDefect = {
                     id: 'pin-' + Date.now() + '-' + floorCode + '-' + i,
                     no,
@@ -13074,15 +15606,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     crackLength: isGood ? '' : crackLengthRaw,
                     isProgress: isGood ? false : resolveImportFlag(progressRaw),
                     isLeak: isGood ? false : resolveImportFlag(leakRaw),
-                    isCarriedOver: false,
-                    surveyRound: importSurveyRound,
                     photos: [],
-                    inspectorName: window.state.userName || '',
-                    x: boxX,
-                    y: boxY,
-                    targetX: boxX - 35,
-                    targetY: boxY + 35
+                    inspectorName: window.state.userName || ''
                 };
+
+                if (importPrevRound) {
+                    newDefect.isCarriedOver = true;
+                    newDefect.mapUnregistered = true;
+                    totalUnregistered++;
+                } else {
+                    const col = i % gridCols;
+                    const rowIdx = Math.floor(i / gridCols);
+                    const boxX = marginX + col * stepX;
+                    const boxY = marginY + rowIdx * stepY;
+                    newDefect.isCarriedOver = true;
+                    newDefect.mapUnregistered = false;
+                    newDefect.x = boxX;
+                    newDefect.y = boxY;
+                    newDefect.targetX = boxX - 35;
+                    newDefect.targetY = boxY + 35;
+                }
                 state.defects[key].push(newDefect);
                 importedThisFloor++;
             });
@@ -13103,11 +15646,16 @@ document.addEventListener('DOMContentLoaded', () => {
         saveStateToLocalStorage();
         renderSurveyTable();
         drawCanvas();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
         closeImportDefectExcelModal();
 
         const parts = [];
-        if (totalMatched > 0) parts.push(`같은 번호 핀 ${totalMatched}건은 위치 유지하고 내용만 업데이트`);
-        if (totalImported > 0) parts.push(`신규 ${totalImported}건은 새로 생성(도면 좌측 상단에 임시 배치, 직접 드래그 필요)`);
+        if (totalMatched > 0) parts.push(`같은 번호 핀 ${totalMatched}건은 위치 유지하고 전차 조사내용만 업데이트`);
+        if (importPrevRound && totalUnregistered > 0) {
+            parts.push(`전차 ${totalUnregistered}건은 「전차 미등록」 목록에 추가(도면 미표시, 좌측에서 클릭 후 마킹)`);
+        } else if (totalImported > 0) {
+            parts.push(`전차 조사내용 ${totalImported}건 신규 등록(도면 좌측 상단 임시 배치, 직접 드래그 필요)`);
+        }
         window.showToast(`${floorsTouched}개 층 반영 완료 — ${parts.join(' / ')}`, 'success', 8000);
     };
 
@@ -13123,6 +15671,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (btnCancelImportDefectExcel) btnCancelImportDefectExcel.addEventListener('click', closeImportDefectExcelModal);
     const btnConfirmImportDefectExcel = document.getElementById('btnConfirmImportDefectExcel');
     if (btnConfirmImportDefectExcel) btnConfirmImportDefectExcel.addEventListener('click', window.confirmImportDefectExcel);
+    const importPrevRoundCheckbox = document.getElementById('importDefectExcelPrevRound');
+    if (importPrevRoundCheckbox) importPrevRoundCheckbox.addEventListener('change', updateImportDefectExcelHelpText);
 
     // 엑셀 시트 이름으로 쓸 수 없는 문자를 제거하고 31자로 자르며, 중복되면 뒤에 번호를 붙인다
     function sanitizeSheetName(name, usedNames) {
@@ -13328,7 +15878,11 @@ document.addEventListener('DOMContentLoaded', () => {
         await Promise.all(floors.map(fc => {
             const drawingDocId = `${bldg.id}_${fc}`;
             _idbPersistedDrawingKeys.delete(drawingDocId);
-            const jobs = [idbDelete('floorDrawings', drawingDocId)];
+            _idbPersistedPdfKeys.delete(drawingDocId);
+            const jobs = [
+                idbDelete('floorDrawings', drawingDocId),
+                idbDelete('floorDrawingPdfs', drawingDocId)
+            ];
             if (companyDrawings) {
                 jobs.push(companyDrawings.doc(drawingDocId).delete().catch(e => {
                     failCount++;
@@ -13373,7 +15927,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const docId = getCompanyDocId();
 
             const sanitizedBuildings = (window.state.buildings || []).map(b => {
-                const { floorDrawings, ...rest } = b;
+                const { floorDrawings, floorDrawingPdfs, ...rest } = b;
                 return rest;
             });
 
@@ -13395,6 +15949,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 styleColors: window.state.styleColors || null,
                 styleSizes: window.state.styleSizes || null,
                 defectLeaderLineScale: (window.state.defectLeaderLineScale !== undefined ? window.state.defectLeaderLineScale : 1.0),
+                ndtLeaderLineScale: (window.state.ndtLeaderLineScale !== undefined ? window.state.ndtLeaderLineScale : 1.0),
+                styleSizeBarLockedMap: window.state.styleSizeBarLockedMap !== false,
+                styleSizeBarLockedNdt: window.state.styleSizeBarLockedNdt !== false,
                 floorMapStyleSettings: window.state.floorMapStyleSettings || null,
                 styleShapes: window.state.styleShapes || null,
                 locationMapLegend: window.state.locationMapLegend || null,
@@ -13461,6 +16018,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (data.defectLeaderLineScale !== undefined) {
                         window.state.defectLeaderLineScale = data.defectLeaderLineScale;
                         window.state._globalDefectLeaderLineScaleFallback = data.defectLeaderLineScale;
+                        isChanged = true;
+                    }
+                    if (data.ndtLeaderLineScale !== undefined) {
+                        window.state.ndtLeaderLineScale = data.ndtLeaderLineScale;
+                        isChanged = true;
+                    }
+                    if (data.styleSizeBarLockedMap !== undefined) {
+                        window.state.styleSizeBarLockedMap = !!data.styleSizeBarLockedMap;
+                        isChanged = true;
+                    }
+                    if (data.styleSizeBarLockedNdt !== undefined) {
+                        window.state.styleSizeBarLockedNdt = !!data.styleSizeBarLockedNdt;
                         isChanged = true;
                     }
                     if (data.floorMapStyleSettings) {
@@ -13804,7 +16373,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const pendingSnap = await companyRef.collection('pendingRequests').orderBy('requestedAt', 'desc').get();
             if (pendingBox) {
                 if (pendingSnap.empty) {
-                    pendingBox.innerHTML = '<div style="font-size:0.82rem; color:#94a3b8; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">대기중인 신청이 없습니다.</div>';
+                    pendingBox.innerHTML = '<div style="font-size:0.82rem; color:#a3a3a3; padding:0.6rem; text-align:center; border:1px dashed #cbd5e1; border-radius:6px;">대기중인 신청이 없습니다.</div>';
                 } else {
                     pendingBox.innerHTML = pendingSnap.docs.map(docSnap => {
                         const d = docSnap.data();
@@ -13925,22 +16494,22 @@ document.addEventListener('DOMContentLoaded', () => {
             tabLogin.addEventListener('click', () => {
                 currentAuthTab = 'login';
                 tabLogin.classList.add('active');
-                tabLogin.style.background = '#0284c7';
+                tabLogin.style.background = '#2a2a2a';
                 tabLogin.style.color = '#ffffff';
                 tabRegister.classList.remove('active');
                 tabRegister.style.background = 'transparent';
-                tabRegister.style.color = '#94a3b8';
+                tabRegister.style.color = '#a3a3a3';
                 applyAuthTabUI();
             });
 
             tabRegister.addEventListener('click', () => {
                 currentAuthTab = 'register';
                 tabRegister.classList.add('active');
-                tabRegister.style.background = '#0284c7';
+                tabRegister.style.background = '#2a2a2a';
                 tabRegister.style.color = '#ffffff';
                 tabLogin.classList.remove('active');
                 tabLogin.style.background = 'transparent';
-                tabLogin.style.color = '#94a3b8';
+                tabLogin.style.color = '#a3a3a3';
                 applyAuthTabUI();
             });
         }
@@ -14070,6 +16639,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupLocationMapLegendModalEvents === 'function') setupLocationMapLegendModalEvents();
         if (typeof setupSurveyRoundReassignModalEvents === 'function') setupSurveyRoundReassignModalEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
+        if (typeof setupAreaMarkStyleEvents === 'function') setupAreaMarkStyleEvents();
         showLoginOverlay();
     }
 
