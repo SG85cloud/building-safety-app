@@ -12098,7 +12098,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // 화면(스크린) 상태조사표 한 셀의 스타일 있는 HTML을 만든다 (renderSurveyTable에서 사용)
+    // 화면(스크린) 상태조사표 한 셀의 스타일 있는 HTML을 만든다 (읽기 전용 표시용)
     function renderScreenSurveyCellHtml(colKey, d, ctx) {
         const text = getSurveyCellText(colKey, d, ctx);
         switch (colKey) {
@@ -12117,6 +12117,186 @@ document.addEventListener('DOMContentLoaded', () => {
             default: return text;
         }
     }
+
+    function escapeSurveyAttr(val) {
+        return String(val == null ? '' : val)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    // 상태조사표 인라인 편집 셀 (타이핑 / 선택)
+    function renderInlineSurveyCellHtml(colKey, d, ctx) {
+        const id = d.id;
+        const stop = 'onclick="event.stopPropagation()" onmousedown="event.stopPropagation()"';
+        const textInput = (field, value, placeholder, extraClass) =>
+            `<input type="text" class="survey-inline-input${extraClass ? ' ' + extraClass : ''}" ${stop}` +
+            ` value="${escapeSurveyAttr(value)}" placeholder="${escapeSurveyAttr(placeholder || '')}"` +
+            ` onchange="window.updateSurveyInlineField('${id}','${field}',this.value)"` +
+            ` onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}">`;
+
+        switch (colKey) {
+            case 'no':
+            case 'floorGroup':
+            case 'remark':
+                return renderScreenSurveyCellHtml(colKey, d, ctx);
+            case 'category': {
+                const v = d.category || '구조체';
+                return `<select class="survey-inline-select survey-inline-category" ${stop}` +
+                    ` onchange="window.updateSurveyInlineField('${id}','category',this.value)">` +
+                    `<option value="구조체"${v === '구조체' ? ' selected' : ''}>구조체 ○</option>` +
+                    `<option value="비구조체"${v === '비구조체' ? ' selected' : ''}>비구조체</option>` +
+                    `<option value="마감재"${v === '마감재' ? ' selected' : ''}>마감재</option>` +
+                    `</select>`;
+            }
+            case 'progress':
+                return `<select class="survey-inline-select survey-inline-progress" ${stop}` +
+                    ` onchange="window.updateSurveyInlineField('${id}','progress',this.value)">` +
+                    `<option value="0"${!d.isProgress ? ' selected' : ''}>-</option>` +
+                    `<option value="1"${d.isProgress ? ' selected' : ''}>진행중</option>` +
+                    `</select>`;
+            case 'leak':
+                return `<select class="survey-inline-select survey-inline-leak" ${stop}` +
+                    ` onchange="window.updateSurveyInlineField('${id}','leak',this.value)">` +
+                    `<option value="0"${!d.isLeak ? ' selected' : ''}>-</option>` +
+                    `<option value="1"${d.isLeak ? ' selected' : ''}>누수중</option>` +
+                    `</select>`;
+            case 'priorityManage':
+                return `<select class="survey-inline-select" ${stop}` +
+                    ` onchange="window.updateSurveyInlineField('${id}','priorityManage',this.value)">` +
+                    `<option value="0"${!d.isPriorityManage ? ' selected' : ''}>-</option>` +
+                    `<option value="1"${d.isPriorityManage ? ' selected' : ''}>중점관리</option>` +
+                    `</select>`;
+            case 'location':
+                return textInput('location', d.location || '', '위치');
+            case 'component':
+                return textInput('component', d.component || '', '부재종류');
+            case 'defectType':
+                return textInput('defectType', d.defectType || '', '조사내용');
+            case 'cause':
+                return textInput('cause', d.cause || '', '원인');
+            case 'size': {
+                const isCrack = d.defectType === '균열';
+                const isGood = d.defectType === '상태양호';
+                if (isGood) return '<span style="color:#a3a3a3;">-</span>';
+                let val = '';
+                if (isCrack && (d.crackWidth !== undefined && d.crackWidth !== '' || d.crackLength !== undefined && d.crackLength !== '')) {
+                    val = `${d.crackWidth !== undefined && d.crackWidth !== '' ? d.crackWidth : '-'}/${d.crackLength !== undefined && d.crackLength !== '' ? d.crackLength : '-'}`;
+                } else {
+                    val = (d.size != null) ? String(d.size) : '';
+                }
+                return textInput('size', val, isCrack ? '폭/길이' : '결함크기');
+            }
+            case 'crackWidth':
+                return (d.defectType === '균열')
+                    ? textInput('crackWidth', d.crackWidth != null ? d.crackWidth : '', 'mm')
+                    : '<span style="color:#a3a3a3;">-</span>';
+            case 'crackLength':
+                return (d.defectType === '균열')
+                    ? textInput('crackLength', d.crackLength != null ? d.crackLength : '', 'm')
+                    : '<span style="color:#a3a3a3;">-</span>';
+            case 'inspectionContent':
+                return `<div class="survey-inline-stack" ${stop}>` +
+                    textInput('component', d.component || '', '부재', 'survey-inline-narrow') +
+                    textInput('defectType', d.defectType || '', '조사내용', 'survey-inline-narrow') +
+                    textInput('size', (d.defectType === '상태양호') ? '' : ((d.size != null) ? String(d.size) : ''), '크기', 'survey-inline-narrow') +
+                    `</div>`;
+            default:
+                return renderScreenSurveyCellHtml(colKey, d, ctx);
+        }
+    }
+
+    // 상태조사표 인라인 수정 저장 — 그룹 결함은 동일 필드를 멤버 전체에 반영(위치는 대표만)
+    window.updateSurveyInlineField = function(defectId, field, rawValue) {
+        if (window.event) window.event.stopPropagation();
+        const key = `${state.currentBuildingId}_${state.currentFloor}`;
+        const list = state.defects[key] || [];
+        const consolidated = consolidateDefectGroups(list).find(d =>
+            d.id === defectId || (d._groupMemberIds && d._groupMemberIds.indexOf(defectId) !== -1)
+        );
+        const memberIds = (consolidated && consolidated._groupMemberIds && consolidated._groupMemberIds.length)
+            ? consolidated._groupMemberIds.slice()
+            : [defectId];
+        const isGroup = memberIds.length > 1;
+        const targetIds = (field === 'location' && isGroup) ? [defectId] : memberIds;
+        const value = (rawValue == null) ? '' : String(rawValue);
+
+        targetIds.forEach(id => {
+            const defect = list.find(d => d.id === id);
+            if (!defect) return;
+            switch (field) {
+                case 'category':
+                    defect.category = value || '구조체';
+                    break;
+                case 'progress':
+                    defect.isProgress = value === '1' || value === '진행중';
+                    break;
+                case 'leak':
+                    defect.isLeak = value === '1' || value === '누수중';
+                    break;
+                case 'priorityManage':
+                    defect.isPriorityManage = value === '1' || value === '중점관리';
+                    break;
+                case 'location':
+                    defect.location = value;
+                    break;
+                case 'component':
+                    defect.component = value;
+                    break;
+                case 'defectType':
+                    defect.defectType = value;
+                    if (value === '상태양호') {
+                        defect.cause = '';
+                        defect.size = '';
+                        defect.crackWidth = '';
+                        defect.crackLength = '';
+                        defect.isProgress = false;
+                        defect.isLeak = false;
+                    }
+                    break;
+                case 'cause':
+                    defect.cause = value;
+                    break;
+                case 'size': {
+                    if (defect.defectType === '균열') {
+                        const m = value.match(/^([^/]*)\/(.*)$/);
+                        if (m) {
+                            defect.crackWidth = m[1].trim().replace(/mm$/i, '');
+                            defect.crackLength = m[2].trim().replace(/m$/i, '');
+                        } else {
+                            defect.size = value;
+                        }
+                    } else {
+                        defect.size = value;
+                    }
+                    break;
+                }
+                case 'crackWidth':
+                    defect.crackWidth = value.replace(/mm$/i, '').trim();
+                    break;
+                case 'crackLength':
+                    defect.crackLength = value.replace(/m$/i, '').trim();
+                    break;
+                default:
+                    break;
+            }
+        });
+
+        saveStateToLocalStorage();
+        if (typeof drawCanvas === 'function') drawCanvas();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        if (field === 'defectType' || field === 'category' || field === 'size') {
+            const defects = consolidateDefectGroups(getCurrentFloorDefects());
+            if (typeof window.renderDefectStatisticsChart === 'function') {
+                window.renderDefectStatisticsChart('surveyChartCanvas', defects);
+            }
+        }
+        // 상태양호로 바꾼 뒤에는 크기/진행/누수 UI를 맞추기 위해 표만 다시 그림
+        if (field === 'defectType' && value === '상태양호') {
+            renderSurveyTable();
+        }
+    };
 
     // PDF/엑셀 상태조사표 셀의 인라인 색상/굵기 스타일 (텍스트는 getSurveyCellText로 통일, 테두리/여백은 각 출력물에서 처리)
     function getSurveyCellColorStyle(colKey, d, ctx) {
@@ -12143,9 +12323,7 @@ document.addEventListener('DOMContentLoaded', () => {
         theadEl.innerHTML = `<tr>${columns.map(c => `<th>${c.label}</th>`).join('')}<th>등록자</th><th>관리</th></tr>`;
     }
 
-    // 상태조사표 행을 클릭하면 "결함 핀 상세 정보 등록" 모달을 그 결함 내용으로 채워서 바로 연다
-    // (좌측 "등록된 결함 목록"의 ✏️ 수정 버튼과 동일한 경로 — 결함원인/결함크기 등 아무 항목이나
-    // 바로 고칠 수 있도록, 별도의 표 안 인라인 입력칸을 새로 만들지 않고 기존 편집 폼을 재사용한다).
+    // 상태조사표 행: 셀에서 바로 수정. 상세 모달은 "상세" 버튼으로 연다.
     window.openSurveyRowEditModal = function(defectId) {
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         const defect = (state.defects[key] || []).find(d => d.id === defectId);
@@ -12203,10 +12381,13 @@ document.addEventListener('DOMContentLoaded', () => {
             const deleteAction = isGroup ? `window.deleteDefectGroup('${d.groupId}')` : `deleteDefectById('${d.id}')`;
 
             return `
-                <tr style="cursor:pointer;" title="클릭하면 이 결함을 바로 수정합니다" onclick="window.openSurveyRowEditModal('${d.id}')">
-                    ${columns.map(c => `<td>${renderScreenSurveyCellHtml(c.key, d, ctx)}</td>`).join('')}
+                <tr>
+                    ${columns.map(c => `<td>${renderInlineSurveyCellHtml(c.key, d, ctx)}</td>`).join('')}
                     <td><span class="badge badge-info">${d.inspectorName || '-'}</span></td>
-                    <td><button type="button" class="btn btn-sm btn-danger-outline" onclick="event.stopPropagation(); ${deleteAction}">삭제</button></td>
+                    <td class="survey-row-actions">
+                        <button type="button" class="btn btn-sm btn-outline" onclick="event.stopPropagation(); window.openSurveyRowEditModal('${d.id}')" title="상세 모달">상세</button>
+                        <button type="button" class="btn btn-sm btn-danger-outline" onclick="event.stopPropagation(); ${deleteAction}">삭제</button>
+                    </td>
                 </tr>
             `;
         }).join('');

@@ -2,9 +2,8 @@
 window.BSA = window.BSA || { tabs: {}, shared: {} };
 
 /**
- * 가로 overflow 표 영역에서 touch-action:pan-x 때문에 세로 페이지 스크롤이
- * 막히는 문제를 보완한다. 세로 우세 제스처는 .app-content 스크롤로 전달하고,
- * 가로 우세는 브라우저의 pan-x(표 횡스크롤)에 맡긴다.
+ * overflow-y:hidden + touch-action:pan-x 인 표에서 세로 제스처를
+ * .app-content로 넘긴다. (조사표는 표 자체가 상하·좌우 스크롤이므로 제외)
  */
 window.BSA.shared.bindHScrollVerticalPassthrough = function (selector) {
     const nodes = typeof selector === 'string'
@@ -43,7 +42,6 @@ window.BSA.shared.bindHScrollVerticalPassthrough = function (selector) {
             }
 
             if (axis === 'v') {
-                // pan-x만 허용된 요소에서는 세로 기본 스크롤이 없으므로 수동 전달
                 e.preventDefault();
                 const scroller = document.querySelector('.app-content');
                 if (scroller) scroller.scrollTop -= (y - lastY);
@@ -59,7 +57,7 @@ window.BSA.shared.bindHScrollVerticalPassthrough = function (selector) {
 window.BSA.shared.bindSurveyNdtTableScrollPassthrough = function () {
     const bind = window.BSA.shared.bindHScrollVerticalPassthrough;
     if (typeof bind !== 'function') return;
-    bind('#tab-survey .table-container');
+    // 조사표(.table-container)는 CSS로 2축 스크롤 — 여기선 비파괴 결과표만
     bind('#tab-ndt .table-responsive, #tab-ndt .table-container');
 };
 
@@ -72,20 +70,14 @@ window.BSA.tabs['tab-survey'] = {
         '손상 유형 통계 차트',
         '표 컬럼 설정 (정밀/제3종)',
         '엑셀 저장 · 외부 엑셀 가져오기',
-        '결함 직접 등록 / 행 클릭 수정',
-        '모바일: 표 횡스크롤 영역에서도 세로 페이지 스크롤'
+        '결함 직접 등록 / 행 인라인 수정',
+        '모바일: 조사목록 영역 상하·좌우 스크롤 (헤더 sticky)'
     ],
     ownerHint: 'app.js SURVEY TABLE & ALBUM + Excel 엔진',
     enter: function () {
         if (typeof window.renderSurveyTable === 'function') window.renderSurveyTable();
-        if (typeof window.BSA.shared.bindSurveyNdtTableScrollPassthrough === 'function') {
-            window.BSA.shared.bindSurveyNdtTableScrollPassthrough();
-        }
         setTimeout(function () {
             if (typeof window.renderSurveyTable === 'function') window.renderSurveyTable();
-            if (typeof window.BSA.shared.bindSurveyNdtTableScrollPassthrough === 'function') {
-                window.BSA.shared.bindSurveyNdtTableScrollPassthrough();
-            }
         }, 120);
     }
 };

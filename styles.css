@@ -1953,6 +1953,61 @@ body {
     background-color: #f4f4f4 !important;
 }
 
+.survey-inline-input,
+.survey-inline-select {
+    width: 100%;
+    min-width: 4.8rem;
+    max-width: 16rem;
+    box-sizing: border-box;
+    font: inherit;
+    font-weight: 700;
+    font-size: 0.82rem;
+    line-height: 1.25;
+    padding: 0.28rem 0.4rem;
+    border: 1px solid #d4d4d4;
+    border-radius: 6px;
+    background: #fff;
+    color: #171717;
+    text-align: center;
+}
+.survey-inline-select {
+    min-width: 5.8rem;
+    cursor: pointer;
+    appearance: auto;
+}
+.survey-inline-select.survey-inline-category {
+    font-weight: 800;
+    color: #b91c1c;
+}
+.survey-inline-select.survey-inline-progress option[value="1"],
+.survey-inline-select.survey-inline-leak option[value="1"] {
+    color: #b91c1c;
+}
+.survey-inline-input:focus,
+.survey-inline-select:focus {
+    outline: none;
+    border-color: #737373;
+    box-shadow: 0 0 0 2px rgba(115, 115, 115, 0.2);
+}
+.survey-inline-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.22rem;
+    min-width: 7.5rem;
+}
+.survey-inline-input.survey-inline-narrow {
+    max-width: none;
+    text-align: left;
+}
+.survey-row-actions {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 0.25rem;
+    justify-content: center;
+    white-space: nowrap;
+}
+
 .survey-stats-panel {
     background: #2a2a2a;
     padding: 1rem 1.2rem;
@@ -5018,11 +5073,15 @@ body {
         height: auto !important;
     }
 
+    /* 조사목록: 화면 높이 안에서 상하·좌우 모두 스크롤 (표 중간에 걸려도 세로 가능) */
     #tab-survey .table-container {
+        max-height: min(70dvh, calc(100dvh - 10.5rem));
         overflow-x: auto;
-        overflow-y: hidden;
+        overflow-y: auto;
         -webkit-overflow-scrolling: touch;
-        touch-action: pan-x;
+        touch-action: pan-x pan-y;
+        overscroll-behavior-x: contain;
+        overscroll-behavior-y: auto;
         padding: 0.3rem;
         margin-bottom: 0.8rem;
     }
@@ -5037,6 +5096,13 @@ body {
         min-width: 100%;
         table-layout: auto;
         font-size: 0.78rem;
+    }
+    #tab-survey .survey-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fafafa !important;
+        box-shadow: 0 1px 0 #d0d0d0;
     }
     #tab-survey .survey-table th,
     #tab-survey .survey-table td {

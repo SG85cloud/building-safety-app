@@ -1,8 +1,8 @@
 /* ==========================================================================
-   ?¤ë§ˆ??ê±´ì¶•ë¬??ˆì „?ê? ?œìŠ¤??Service Worker (PWA Offline Engine v61.0)
+   ???????????????? ?????Service Worker (PWA Offline Engine v61.0)
    ========================================================================== */
 
-const CACHE_NAME = 'building-safety-v63.8';
+const CACHE_NAME = 'building-safety-v64.0';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -89,7 +89,7 @@ self.addEventListener('fetch', (event) => {
                     if (accept.includes('text/html')) {
                         return caches.match('./index.html');
                     }
-                    return new Response('?¤í”„?¼ì¸ ?íƒœ?´ë©° ???Œì¼?€ ìºì‹œ???†ìŠµ?ˆë‹¤.', {
+                    return new Response('?????? ?????? ??????? ??????????.', {
                         status: 503,
                         statusText: 'Offline',
                         headers: { 'Content-Type': 'text/plain; charset=utf-8' }
