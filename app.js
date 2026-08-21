@@ -531,6 +531,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.BSA && typeof window.BSA.applyTabChrome === 'function') {
             window.BSA.applyTabChrome(targetTabId);
         }
+        // 탭 전환 시 도면 제스처 잔여값으로 전역 touchmove preventDefault가 스크롤을 막지 않게
+        try {
+            if (typeof window.resetCanvasTouchGestures === 'function') {
+                window.resetCanvasTouchGestures();
+            }
+            document.body.classList.remove('dragging-pin');
+            document.body.style.touchAction = '';
+            document.body.style.overflow = '';
+        } catch (_e) { /* ignore */ }
         if (window.BSA && typeof window.BSA.enterTab === 'function') {
             window.BSA.enterTab(targetTabId);
         } else if (targetTabId === 'tab-home' && typeof window.renderDashboard === 'function') {
@@ -1501,33 +1510,61 @@ document.addEventListener('DOMContentLoaded', () => {
         resizeCanvas();
     }
 
+    /** 화면 선명도용 DPR — 업로드/서버 용량과 무관. GPU·메모리 한도 내로 캡 */
+    function getSafeCanvasDpr(cssW, cssH) {
+        const raw = window.devicePixelRatio || 1;
+        let dpr = Math.min(Math.max(raw, 1), 2.5);
+        const maxSide = 4096; // 대부분 모바일 GPU 안전권
+        const maxPixels = 8 * 1024 * 1024;
+        let bw = cssW * dpr;
+        let bh = cssH * dpr;
+        if (bw > maxSide || bh > maxSide) {
+            dpr *= maxSide / Math.max(bw, bh);
+            bw = cssW * dpr;
+            bh = cssH * dpr;
+        }
+        if (bw * bh > maxPixels) {
+            dpr *= Math.sqrt(maxPixels / (bw * bh));
+        }
+        return Math.max(1, Math.min(dpr, 2.5));
+    }
+
     function resizeCanvas() {
         const container = elements.canvasContainer || document.getElementById('canvasContainer');
         const canvas = state.canvas || document.getElementById('planCanvas');
         if (!canvas) return;
 
-        let w = container ? (container.clientWidth || container.offsetWidth) : 0;
-        let h = container ? (container.clientHeight || container.offsetHeight) : 0;
+        let cssW = container ? (container.clientWidth || container.offsetWidth) : 0;
+        let cssH = container ? (container.clientHeight || container.offsetHeight) : 0;
 
-        // 컨테이너 실측이 아직 없으면 뷰포트로 추정 — 예전 모바일 380px 상한은 도면이 회색 여백에 잘리게 만듦
-        if (w <= 50) w = Math.max(200, window.innerWidth - 24);
-        if (h <= 50) {
-            h = Math.max(280, Math.floor(window.innerHeight * 0.62));
+        if (cssW <= 50) cssW = Math.max(200, window.innerWidth - 24);
+        if (cssH <= 50) {
+            cssH = Math.max(280, Math.floor(window.innerHeight * 0.62));
         }
 
-        const nextW = Math.max(1, Math.floor(w));
-        const nextH = Math.max(1, Math.floor(h));
-        if (canvas.width !== nextW || canvas.height !== nextH) {
-            canvas.width = nextW;
-            canvas.height = nextH;
+        cssW = Math.max(1, Math.floor(cssW));
+        cssH = Math.max(1, Math.floor(cssH));
+        const dpr = getSafeCanvasDpr(cssW, cssH);
+        const bw = Math.max(1, Math.round(cssW * dpr));
+        const bh = Math.max(1, Math.round(cssH * dpr));
+
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        if (canvas.width !== bw || canvas.height !== bh) {
+            canvas.width = bw;
+            canvas.height = bh;
         }
+        state.canvasDpr = dpr;
+        state.canvasCssW = cssW;
+        state.canvasCssH = cssH;
+        if (!state.ctx) state.ctx = canvas.getContext('2d');
         drawCanvas();
     }
 
     function fitToScreen() {
         if (!state.canvas) return;
-        const cw = state.canvas.width;
-        const ch = state.canvas.height;
+        const cw = state.canvasCssW || state.canvas.width;
+        const ch = state.canvasCssH || state.canvas.height;
 
         let imgW = 1200;
         let imgH = 700;
@@ -1749,9 +1786,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const targetScale = 1.6;
         const v = imgToViewCoords(centerImgX, centerImgY);
+        const cssW = state.canvasCssW || state.canvas.width;
+        const cssH = state.canvasCssH || state.canvas.height;
         state.view.scale = targetScale;
-        state.view.offsetX = state.canvas.width / 2 - v.x * targetScale;
-        state.view.offsetY = state.canvas.height / 2 - v.y * targetScale;
+        state.view.offsetX = cssW / 2 - v.x * targetScale;
+        state.view.offsetY = cssH / 2 - v.y * targetScale;
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(targetScale * 100)}%`;
 
         activeDragPin = defect;
@@ -1765,9 +1804,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function drawCanvas() {
         if (!state.ctx || !state.canvas) return;
         const ctx = state.ctx;
-        const cw = state.canvas.width;
-        const ch = state.canvas.height;
+        const dpr = state.canvasDpr || 1;
+        const cw = state.canvasCssW || Math.round(state.canvas.width / dpr);
+        const ch = state.canvasCssH || Math.round(state.canvas.height / dpr);
 
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, cw, ch);
         ctx.fillStyle = '#e2e8f0';
         ctx.fillRect(0, 0, cw, ch);
@@ -1860,7 +1901,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.canvas && state.currentFloor) {
             try {
                 if (!state.floorSnapshots) state.floorSnapshots = {};
-                state.floorSnapshots[state.currentFloor] = state.canvas.toDataURL('image/png');
+                // 스냅샷은 CSS 해상도 JPEG로 — HiDPI 백버퍼를 그대로 저장하면 용량·서버 한도 초과
+                const snapW = state.canvasCssW || state.canvas.width;
+                const snapH = state.canvasCssH || state.canvas.height;
+                if ((state.canvasDpr || 1) > 1.05) {
+                    const off = document.createElement('canvas');
+                    off.width = snapW;
+                    off.height = snapH;
+                    off.getContext('2d').drawImage(state.canvas, 0, 0, snapW, snapH);
+                    state.floorSnapshots[state.currentFloor] = off.toDataURL('image/jpeg', 0.82);
+                } else {
+                    state.floorSnapshots[state.currentFloor] = state.canvas.toDataURL('image/jpeg', 0.82);
+                }
             } catch(e) {}
         }
 
@@ -1883,6 +1935,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let ndtRotationAngle = 0;
     let ndtBgImage = null;
     let isNdtDragging = false;
+    let ndtTouchMayPageScroll = false; // 모바일: 세로 스와이프면 페이지 스크롤 허용
+    let ndtTouchStartedOnCanvas = false; // 도면에서 시작한 터치만 스크롤 잠금(preventDefault)
     let isNdtMarkingDrag = false;
     let isDraggingNdtDisplacement = false;
     let activeDragNdtDisplacementGroup = null;
@@ -1925,6 +1979,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let ndtMarqueeStartY = 0;
     let ndtMarqueeCurX = 0;
     let ndtMarqueeCurY = 0;
+    let ndtMarqueeStartClientX = 0;
+    let ndtMarqueeStartClientY = 0;
+    let ndtSuppressMouseUntil = 0; // 터치 후 합성 mouse 이벤트로 마퀴/오선택 방지
     let selectedNdtIds = new Set(); // pin id 또는 disp_<groupId>
     window.getSelectedNdtIds = () => selectedNdtIds;
 
@@ -1934,6 +1991,48 @@ document.addEventListener('DOMContentLoaded', () => {
             pendingNdtLongPressTimer = null;
         }
         pendingNdtPinArmed = false;
+    }
+
+    function pruneSelectedNdtIds() {
+        if (!selectedNdtIds.size) return 0;
+        const pinIds = new Set(getCurrentFloorNdtData().map(x => x && x.id).filter(Boolean));
+        const key = state.currentBuildingId ? `${state.currentBuildingId}_${state.currentFloor}` : '';
+        const groups = (key && state.ndtDisplacementGroups && state.ndtDisplacementGroups[key]) || [];
+        const dispKeys = new Set(groups.map(g => g && g.id).filter(Boolean).map(id => `disp_${id}`));
+        const next = new Set();
+        selectedNdtIds.forEach((id) => {
+            const s = String(id);
+            if (s.startsWith('disp_')) {
+                if (dispKeys.has(s)) next.add(s);
+            } else if (pinIds.has(id)) {
+                next.add(id);
+            }
+        });
+        selectedNdtIds = next;
+        return selectedNdtIds.size;
+    }
+
+    function isNdtDrawingTouchTarget(target) {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!target.closest('#ndtCanvasContainer, #ndtCanvas');
+    }
+
+    function releaseNdtScrollLockFromOutsideTouch() {
+        ndtTouchStartedOnCanvas = false;
+        ndtTouchMayPageScroll = false;
+        isNdtDragging = false;
+        isNdtPinching = false;
+        isNdtMarkingDrag = false;
+        isNdtDisplacementMarking = false;
+        isNdtMarqueeSelecting = false;
+        // 진행 중 핀 드래그는 유지하지 않음 — 도면 밖 터치면 페이지 스크롤 우선
+        if (!isDraggingNdtPin && !isDraggingNdtPinGroup && !isDraggingNdtDisplacement) {
+            pendingNdtPinHit = null;
+            pendingNdtDispHit = null;
+            clearPendingNdtLongPress();
+        }
+        document.body.classList.remove('dragging-pin');
+        document.body.style.touchAction = '';
     }
 
     function ndtClientToImg(clientX, clientY) {
@@ -1951,7 +2050,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const bar = document.getElementById('ndtSelectionBar');
         const countEl = document.getElementById('ndtSelectionCount');
         if (!bar) return;
-        const n = selectedNdtIds.size;
+        const n = pruneSelectedNdtIds();
         if (n === 0) {
             bar.hidden = true;
             return;
@@ -2019,8 +2118,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function deleteSelectedNdtMarks() {
+        pruneSelectedNdtIds();
         const ids = [...selectedNdtIds];
-        if (!ids.length || !state.currentBuildingId) return;
+        if (!ids.length || !state.currentBuildingId) {
+            updateNdtSelectionBar();
+            if (typeof window.showToast === 'function') {
+                window.showToast('삭제할 마킹이 선택되지 않았습니다.', 'info');
+            }
+            return;
+        }
         if (!confirm(`선택한 비파괴 마킹 ${ids.length}건을 삭제할까요?`)) return;
         const key = `${state.currentBuildingId}_${state.currentFloor}`;
         const pinIds = ids.filter(id => !String(id).startsWith('disp_'));
@@ -2868,13 +2974,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = document.getElementById('ndtCanvas');
         if (!canvas || !container) return;
 
-        let w = container.clientWidth || container.offsetWidth || (window.innerWidth - 40);
-        let h = container.clientHeight || container.offsetHeight;
+        let cssW = container.clientWidth || container.offsetWidth || (window.innerWidth - 40);
+        let cssH = container.clientHeight || container.offsetHeight;
         const isMobile = window.innerWidth <= 768;
-        if (h <= 50) h = isMobile ? 360 : 420;
+        if (cssH <= 50) cssH = isMobile ? 360 : 420;
 
-        canvas.width = w;
-        canvas.height = h;
+        cssW = Math.max(1, Math.floor(cssW));
+        cssH = Math.max(1, Math.floor(cssH));
+        const dpr = getSafeCanvasDpr(cssW, cssH);
+        const bw = Math.max(1, Math.round(cssW * dpr));
+        const bh = Math.max(1, Math.round(cssH * dpr));
+
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        if (canvas.width !== bw || canvas.height !== bh) {
+            canvas.width = bw;
+            canvas.height = bh;
+        }
+        window._ndtCanvasDpr = dpr;
+        window._ndtCanvasCssW = cssW;
+        window._ndtCanvasCssH = cssH;
         drawNdtCanvas();
     }
 
@@ -2910,8 +3029,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.fitNdtCanvas = function() {
         const canvas = document.getElementById('ndtCanvas');
         if (!canvas) return;
-        const cw = canvas.width;
-        const ch = canvas.height;
+        const cw = window._ndtCanvasCssW || canvas.clientWidth || canvas.width;
+        const ch = window._ndtCanvasCssH || canvas.clientHeight || canvas.height;
         let imgW = ndtBgImage ? (ndtBgImage.naturalWidth || ndtBgImage.width || 1200) : 1200;
         let imgH = ndtBgImage ? (ndtBgImage.naturalHeight || ndtBgImage.height || 700) : 700;
 
@@ -2935,8 +3054,8 @@ document.addEventListener('DOMContentLoaded', () => {
         let fx = focalX;
         let fy = focalY;
         if (fx == null && canvas) {
-            fx = canvas.width / 2;
-            fy = canvas.height / 2;
+            fx = (window._ndtCanvasCssW || canvas.clientWidth || canvas.width) / 2;
+            fy = (window._ndtCanvasCssH || canvas.clientHeight || canvas.height) / 2;
         }
         if (fx != null && fy != null) {
             applyFocalZoom(ndtView, fx, fy, factor, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
@@ -2988,9 +3107,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const canvas = document.getElementById('ndtCanvas');
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
-        const cw = canvas.width;
-        const ch = canvas.height;
+        const dpr = window._ndtCanvasDpr || 1;
+        const cw = window._ndtCanvasCssW || Math.round(canvas.width / dpr);
+        const ch = window._ndtCanvasCssH || Math.round(canvas.height / dpr);
 
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, cw, ch);
         ctx.fillStyle = '#d0d0d0';
         ctx.fillRect(0, 0, cw, ch);
@@ -3704,6 +3825,8 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas._ndtBound = true;
 
         canvas.addEventListener('mousedown', (e) => {
+            // 터치 직후 합성 마우스 → 빈 곳 마퀴/오선택 방지
+            if (ndtActivePointerIsTouch || Date.now() < ndtSuppressMouseUntil) return;
             if (e.button === 1) {
                 e.preventDefault();
                 ndtStartMouseX = e.clientX;
@@ -3814,6 +3937,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtMarqueeStartY = vy;
                 ndtMarqueeCurX = vx;
                 ndtMarqueeCurY = vy;
+                ndtMarqueeStartClientX = e.clientX;
+                ndtMarqueeStartClientY = e.clientY;
                 canvas.style.cursor = 'crosshair';
                 drawNdtCanvas();
             }
@@ -4041,7 +4166,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 const y1 = Math.min(ndtMarqueeStartY, ndtMarqueeCurY);
                 const x2 = Math.max(ndtMarqueeStartX, ndtMarqueeCurX);
                 const y2 = Math.max(ndtMarqueeStartY, ndtMarqueeCurY);
-                const tiny = Math.hypot(x2 - x1, y2 - y1) < 6;
+                // 화면 픽셀 기준으로 탭/드래그 구분 (이미지 좌표 임계값은 줌아웃 시 오선택 유발)
+                const screenDist = Math.hypot(
+                    (e.clientX || 0) - ndtMarqueeStartClientX,
+                    (e.clientY || 0) - ndtMarqueeStartClientY
+                );
+                const tiny = screenDist < 10;
                 if (!ndtMarqueeAdditive) selectedNdtIds.clear();
                 if (!tiny) {
                     collectNdtMarqueeHits(x1, y1, x2, y2).forEach((id) => {
@@ -4115,8 +4245,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         canvas.addEventListener('touchstart', (e) => {
+            ndtTouchStartedOnCanvas = true;
             if (e.touches.length === 1 && !isNdtPinching) {
-                if (e.cancelable) e.preventDefault();
                 const touch = e.touches[0];
                 const pt = ndtClientToImg(touch.clientX, touch.clientY);
                 const vx = pt.x;
@@ -4127,10 +4257,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 ndtInitialOffsetX = ndtView.offsetX;
                 ndtInitialOffsetY = ndtView.offsetY;
                 ndtActivePointerIsTouch = true;
+                ndtTouchMayPageScroll = false;
+                ndtSuppressMouseUntil = Date.now() + 700;
+                isNdtMarqueeSelecting = false;
                 clearPendingNdtLongPress();
 
                 const hitPin = findNdtPinAt(vx, vy);
                 if (hitPin) {
+                    if (e.cancelable) e.preventDefault();
                     const id = hitPin.item && hitPin.item.id;
                     if (id) {
                         if (ndtAddSelectEnabled) {
@@ -4164,10 +4298,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentNdtCategory === '변위' || currentNdtCategory === '부재변위') {
                     const hitDisp = findNdtDisplacementHit(vx, vy);
                     if (hitDisp) {
+                        if (e.cancelable) e.preventDefault();
                         pendingNdtDispHit = { hit: hitDisp, grabX: vx, grabY: vy };
                         return;
                     }
                     if (ndtMode === 'MARK') {
+                        if (e.cancelable) e.preventDefault();
                         isNdtDisplacementMarking = true;
                         window._ndtDispMarkCoords = { x: vx, y: vy };
                         return;
@@ -4175,14 +4311,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 if (ndtMode === 'MARK') {
+                    if (e.cancelable) e.preventDefault();
                     isNdtMarkingDrag = true;
                     window._ndtMarkStartCoords = { x: vx, y: vy };
                     window._ndtMarkCurrentCoords = { x: vx, y: vy };
+                } else if (window.innerWidth <= 1024) {
+                    // 모바일 PAN: 한손가락은 즉시 페이지 스크롤 (도면 팬은 가로 확정 후에만)
+                    ndtTouchMayPageScroll = true;
+                    isNdtDragging = false;
                 } else {
+                    ndtTouchMayPageScroll = false;
                     isNdtDragging = true;
                 }
             } else if (e.touches.length >= 2) {
                 isNdtDragging = false;
+                ndtTouchMayPageScroll = false;
                 isNdtPinching = true;
                 hideTouchLoupe(NDT_LOUPE_ID);
                 const rect = canvas.getBoundingClientRect();
@@ -4197,6 +4340,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
 
         window.addEventListener('touchmove', (e) => {
+            // 조사표 등 다른 탭 / 도면 밖에서 시작한 터치 → 스크롤 잠금 금지
+            if (window.state && window.state.currentTab !== 'tab-ndt') return;
+            if (!ndtTouchStartedOnCanvas) return;
             if (isNdtPinching && e.touches.length >= 2) {
                 if (e.cancelable) e.preventDefault();
                 const canvas = document.getElementById('ndtCanvas');
@@ -4350,16 +4496,50 @@ document.addEventListener('DOMContentLoaded', () => {
                 const touch = e.touches[0];
                 const dx = touch.clientX - ndtStartMouseX;
                 const dy = touch.clientY - ndtStartMouseY;
+                if (e.cancelable) e.preventDefault();
                 ndtView.offsetX = ndtInitialOffsetX + dx;
                 ndtView.offsetY = ndtInitialOffsetY + dy;
                 drawNdtCanvas();
+            } else if (!isNdtPinching && ndtTouchMayPageScroll && e.touches.length === 1) {
+                // 모바일: 세로·대각선은 스크롤에 맡기고, 가로가 뚜렷할 때만 도면 팬 시작
+                const touch = e.touches[0];
+                const dx = touch.clientX - ndtStartMouseX;
+                const dy = touch.clientY - ndtStartMouseY;
+                const absX = Math.abs(dx);
+                const absY = Math.abs(dy);
+                if (absX < 12 && absY < 12) return;
+                if (absX > absY * 1.35) {
+                    ndtTouchMayPageScroll = false;
+                    isNdtDragging = true;
+                    if (e.cancelable) e.preventDefault();
+                    ndtView.offsetX = ndtInitialOffsetX + dx;
+                    ndtView.offsetY = ndtInitialOffsetY + dy;
+                    drawNdtCanvas();
+                } else {
+                    // 세로 우선 → preventDefault 하지 않음 (즉시 페이지 스크롤)
+                    ndtTouchMayPageScroll = false;
+                }
             }
         }, { passive: false });
 
         window.addEventListener('touchend', (e) => {
             if (isNdtPinching && e.touches.length < 2) isNdtPinching = false;
             clearPendingNdtLongPress();
+            // 합성 mouse(down/up)가 마퀴 선택을 시작하지 않도록 잠시 차단
+            ndtSuppressMouseUntil = Date.now() + 700;
+            const t = e.changedTouches && e.changedTouches[0];
+            const tapMoved = t
+                ? Math.hypot(t.clientX - ndtStartMouseX, t.clientY - ndtStartMouseY)
+                : 99;
+            const wasEmptyTap = ndtTouchStartedOnCanvas
+                && !pendingNdtPinHit && !pendingNdtDispHit
+                && !isDraggingNdtPin && !isDraggingNdtDisplacement && !isDraggingNdtPinGroup
+                && !isNdtMarkingDrag && !isNdtDisplacementMarking && !isNdtPinching
+                && ndtMode === 'PAN' && tapMoved < 14;
+
             ndtActivePointerIsTouch = false;
+            ndtTouchMayPageScroll = false;
+            if (e.touches.length === 0) ndtTouchStartedOnCanvas = false;
             hideTouchLoupe(NDT_LOUPE_ID);
             if (pendingNdtPinHit && !isDraggingNdtPin) {
                 const item = pendingNdtPinHit.item;
@@ -4442,7 +4622,28 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
             isNdtDragging = false;
+
+            // 선택 모드에서 빈 곳 탭 → 선택 해제 (삭제 바 숨김)
+            if (wasEmptyTap) {
+                if (selectedNdtIds.size) {
+                    selectedNdtIds.clear();
+                    updateNdtSelectionBar();
+                    drawNdtCanvas();
+                } else {
+                    updateNdtSelectionBar();
+                }
+            }
         });
+
+        // 도면 밖 터치 시작 → 스크롤 잠금 즉시 해제
+        if (!document._ndtOutsideScrollUnlockBound) {
+            document._ndtOutsideScrollUnlockBound = true;
+            document.addEventListener('touchstart', (e) => {
+                if (window.state && window.state.currentTab !== 'tab-ndt') return;
+                if (isNdtDrawingTouchTarget(e.target)) return;
+                releaseNdtScrollLockFromOutsideTouch();
+            }, { capture: true, passive: true });
+        }
 
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
@@ -9335,13 +9536,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let pendingDragArmed = false; // 길게 누름 완료 → 이후 이동 시 드래그 허용
     let pendingDragLongPressTimer = null;
     let activePointerIsTouch = false; // 현재 제스처가 터치인지 (합성 마우스 무시·돋보기용)
+    let mapTouchStartedOnCanvas = false; // 도면에서 시작한 터치만 스크롤 잠금
     const TOUCH_DRAG_THRESHOLD = 14; // 터치는 손가락 흔들림이 커서 마우스보다 넉넉한 이동임계값 필요
     const MOUSE_DRAG_THRESHOLD = 6;
     const TOUCH_LONG_PRESS_MS = 500; // 모바일: 선택 후 이만큼 눌러야 핀 이동 가능 (드래그 모드 ON이면 생략)
     const MAP_LOUPE_ID = 'mapTouchLoupe';
     const NDT_LOUPE_ID = 'ndtTouchLoupe';
-    const TOUCH_LOUPE_SIZE = 148;
-    const TOUCH_LOUPE_ZOOM = 2.4;
+    const TOUCH_LOUPE_SIZE = 168;
+    // 1.0 = 손가락 아래를 그대로 위로 옮겨 보여줌 (실제 도면/화면은 확대하지 않음)
+    const TOUCH_LOUPE_ZOOM = 1.0;
     let mobileQuickDragEnabled = false; // 우측 레일 '드래그' — 길게 누르기 없이 이동
     let mobileAddSelectEnabled = false; // 우측 레일 '추가' — 터치마다 선택 토글
     let isDraggingPin = false;
@@ -9798,6 +10001,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const containerRect = container.getBoundingClientRect();
         const localX = clientX - canvasRect.left;
         const localY = clientY - canvasRect.top;
+        // CSS→백버퍼 비율 (HiDPI 반영). ZOOM=1이면 손가락 아래를 1:1로 옮겨 표시
         const scaleX = sourceCanvas.width / Math.max(canvasRect.width, 1);
         const scaleY = sourceCanvas.height / Math.max(canvasRect.height, 1);
         const srcW = (TOUCH_LOUPE_SIZE / TOUCH_LOUPE_ZOOM) * scaleX;
@@ -9805,8 +10009,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const srcX = localX * scaleX - srcW / 2;
         const srcY = localY * scaleY - srcH / 2;
 
-        const gap = 28;
-        // 항상 손가락 위쪽 (아래로 뒤집지 않음)
+        const gap = 32;
+        // 항상 손가락 위쪽 — 가려진 점을 "옮겨서" 보여줌 (뷰포트 줌 없음)
         const desiredTopVp = clientY - TOUCH_LOUPE_SIZE - gap;
         // 도면 컨테이너 안에서 위쪽에 온전히 들어갈 수 있는지
         const fitsAboveInContainer = desiredTopVp >= containerRect.top + 4;
@@ -10384,6 +10588,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Touch Events (Galaxy Tab & Smartphone Support with Multi-Touch Pinch Zoom & Pan)
         elements.planCanvas.addEventListener('touchstart', (e) => {
+            mapTouchStartedOnCanvas = true;
             if (e.touches.length === 1 && !isPinching) {
                 if (e.cancelable) e.preventDefault();
                 handleDragStart(e.touches[0].clientX, e.touches[0].clientY, true);
@@ -10417,6 +10622,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
 
         window.addEventListener('touchmove', (e) => {
+            // 결함위치도가 아니거나, 도면 밖에서 시작한 터치 → 스크롤 잠금 금지
+            if (window.state && window.state.currentTab !== 'tab-map') return;
+            if (!mapTouchStartedOnCanvas) return;
             if (isPinching && e.touches.length >= 2) {
                 if (e.cancelable) e.preventDefault();
                 const rect = elements.planCanvas.getBoundingClientRect();
@@ -10447,6 +10655,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }, { passive: false });
 
         window.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0) mapTouchStartedOnCanvas = false;
             if (isPinching) {
                 if (e.touches.length < 2) {
                     isPinching = false;
@@ -10458,6 +10667,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         });
+
+        // 도면 밖 터치 시작 → 스크롤 잠금 해제 (결함목록·툴바 등)
+        if (!document._mapOutsideScrollUnlockBound) {
+            document._mapOutsideScrollUnlockBound = true;
+            document.addEventListener('touchstart', (e) => {
+                if (window.state && window.state.currentTab !== 'tab-map') return;
+                const t = e.target;
+                if (t && typeof t.closest === 'function' && t.closest('#canvasContainer, #planCanvas')) return;
+                mapTouchStartedOnCanvas = false;
+                isDragging = false;
+                isMarkingDrag = false;
+                isAreaDrag = false;
+                isPinching = false;
+                pendingDragHit = null;
+                isMarqueeSelecting = false;
+                activePointerIsTouch = false;
+                document.body.classList.remove('dragging-pin');
+                document.body.style.touchAction = '';
+            }, { capture: true, passive: true });
+        }
 
         window.addEventListener('touchcancel', (e) => {
             isPinching = false;
@@ -11046,8 +11275,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const arrowOctant = ((parseInt(document.getElementById('defectArrowOctant')?.value || '0', 10) % 8) + 8) % 8;
         const photosVal = window._pendingPhotos || [];
         const isCrackType = dTypeVal === '균열';
+        const isGoodType = dTypeVal === '상태양호';
         const crackWidthVal = isCrackType ? (document.getElementById('defectCrackWidth')?.value || '') : '';
         const crackLengthVal = isCrackType ? (document.getElementById('defectCrackLength')?.value || '') : '';
+        const sizeVal = isGoodType ? '' : (document.getElementById('defectSize')?.value || '');
+        const causeSaveVal = isGoodType ? '' : causeVal;
         const areaFillVal = getSelectedAreaFillFromUi();
         const areaBorderVal = getSelectedAreaBorderFromUi();
 
@@ -11062,8 +11294,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.defects[key][idx].component = compVal;
                 state.defects[key][idx].location = locVal;
                 state.defects[key][idx].defectType = dTypeVal;
-                state.defects[key][idx].cause = causeVal;
-                state.defects[key][idx].size = document.getElementById('defectSize')?.value || '';
+                state.defects[key][idx].cause = causeSaveVal;
+                state.defects[key][idx].size = sizeVal;
                 state.defects[key][idx].crackWidth = crackWidthVal;
                 state.defects[key][idx].crackLength = crackLengthVal;
                 state.defects[key][idx].isProgress = isProgress;
@@ -11098,8 +11330,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 component: compVal,
                 location: locVal,
                 defectType: dTypeVal,
-                cause: causeVal,
-                size: document.getElementById('defectSize')?.value || '',
+                cause: causeSaveVal,
+                size: sizeVal,
                 crackWidth: crackWidthVal,
                 crackLength: crackLengthVal,
                 isProgress: isProgress,
@@ -11671,9 +11903,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Zoom Buttons
     const btnZoomIn = document.getElementById('btnZoomIn');
     if (btnZoomIn) btnZoomIn.addEventListener('click', () => {
-        const canvas = elements.planCanvas || state.canvas;
-        const cx = canvas ? canvas.width / 2 : 0;
-        const cy = canvas ? canvas.height / 2 : 0;
+        const cx = (state.canvasCssW || state.canvas?.width || 0) / 2;
+        const cy = (state.canvasCssH || state.canvas?.height || 0) / 2;
         applyFocalZoom(state.view, cx, cy, 1.2, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
@@ -11681,9 +11912,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const btnZoomOut = document.getElementById('btnZoomOut');
     if (btnZoomOut) btnZoomOut.addEventListener('click', () => {
-        const canvas = elements.planCanvas || state.canvas;
-        const cx = canvas ? canvas.width / 2 : 0;
-        const cy = canvas ? canvas.height / 2 : 0;
+        const cx = (state.canvasCssW || state.canvas?.width || 0) / 2;
+        const cy = (state.canvasCssH || state.canvas?.height || 0) / 2;
         applyFocalZoom(state.view, cx, cy, 1 / 1.2, VIEW_MIN_SCALE, VIEW_MAX_SCALE);
         if (elements.zoomScaleText) elements.zoomScaleText.textContent = `${Math.round(state.view.scale * 100)}%`;
         drawCanvas();
@@ -11828,12 +12058,16 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'defectType': return d.defectType || '';
             case 'category': return d.category === '구조체' ? '○' : '-';
             case 'size': {
+                // 상태양호는 규모 없음 → 원인(cause)과 같이 '-' 표기
+                // (과거 코드가 빈 size에 'W=0.2mm' 플레이스홀더를 넣어 조사표에 잘못 노출됨)
+                if (isGood) return '-';
                 if (isCrack && (d.crackWidth !== undefined && d.crackWidth !== '' || d.crackLength !== undefined && d.crackLength !== '')) {
                     const w = (d.crackWidth !== undefined && d.crackWidth !== '') ? d.crackWidth : '-';
                     const l = (d.crackLength !== undefined && d.crackLength !== '') ? d.crackLength : '-';
                     return `${w}/${l}`;
                 }
-                return d.size || 'W=0.2mm';
+                const sizeVal = (d.size != null) ? String(d.size).trim() : '';
+                return sizeVal || '-';
             }
             case 'crackWidth': {
                 if (!isCrack) return '-';
@@ -13160,7 +13394,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const ndtCanvasEl = document.getElementById('ndtCanvas');
             if (ndtCanvasEl && state.currentFloor === floorCode) {
                 try {
-                    return ndtCanvasEl.toDataURL('image/png');
+                    const cssW = window._ndtCanvasCssW || ndtCanvasEl.clientWidth || ndtCanvasEl.width;
+                    const cssH = window._ndtCanvasCssH || ndtCanvasEl.clientHeight || ndtCanvasEl.height;
+                    if ((window._ndtCanvasDpr || 1) > 1.05) {
+                        const off = document.createElement('canvas');
+                        off.width = cssW;
+                        off.height = cssH;
+                        off.getContext('2d').drawImage(ndtCanvasEl, 0, 0, cssW, cssH);
+                        return off.toDataURL('image/jpeg', 0.88);
+                    }
+                    return ndtCanvasEl.toDataURL('image/jpeg', 0.88);
                 } catch(e){}
             }
             return null;
@@ -13277,7 +13520,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                     defectNo: d.no,
                                     location: d.location || `${floorDisplayLabel} ${d.component || ''}`,
                                     cause: d.defectType === '상태양호' ? '-' : (d.cause || '건조수축'),
-                                    size: d.size || 'W=0.2mm',
+                                    size: d.defectType === '상태양호' ? '-' : ((d.size && String(d.size).trim()) || '-'),
                                     src: src
                                 });
                             }
@@ -17252,6 +17495,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 11. INITIALIZATION ---
+    window.resetCanvasTouchGestures = function() {
+        try {
+            if (typeof clearPendingNdtLongPress === 'function') clearPendingNdtLongPress();
+            if (typeof clearPendingDragLongPress === 'function') clearPendingDragLongPress();
+        } catch (_e) { /* ignore */ }
+        isNdtDragging = false;
+        ndtTouchMayPageScroll = false;
+        ndtTouchStartedOnCanvas = false;
+        isNdtMarkingDrag = false;
+        isNdtPinching = false;
+        isDraggingNdtPin = false;
+        isDraggingNdtPinGroup = false;
+        isDraggingNdtDisplacement = false;
+        isNdtDisplacementMarking = false;
+        pendingNdtPinHit = null;
+        pendingNdtDispHit = null;
+        activeDragNdtPin = null;
+        isDragging = false;
+        isMarkingDrag = false;
+        isAreaDrag = false;
+        isDraggingPin = false;
+        isDraggingPinGroup = false;
+        isPinching = false;
+        pendingDragHit = null;
+        isDraggingLegend = false;
+        isResizingLegend = false;
+        isMarqueeSelecting = false;
+        activePointerIsTouch = false;
+        mapTouchStartedOnCanvas = false;
+        ndtActivePointerIsTouch = false;
+        document.body.classList.remove('dragging-pin');
+    };
+
     function init() {
         window.setupCanvas = setupCanvas;
         window.resizeCanvas = resizeCanvas;

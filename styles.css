@@ -537,11 +537,11 @@ body {
     position: relative;
 }
 
-/* 터치 드래그 중 돋보기 (손가락 위 확대 미리보기) */
+/* 터치 중 돋보기 — 화면/도면은 확대하지 않고, 손가락 아래를 위로 옮겨 보여줌 */
 .touch-loupe {
     position: absolute;
-    width: 148px;
-    height: 148px;
+    width: 168px;
+    height: 168px;
     border-radius: 50%;
     pointer-events: none;
     z-index: 80;
@@ -860,7 +860,7 @@ body {
 /* 데스크탑에서는 3컬럼이 화면 높이만큼 늘어나도록(캔버스 작업공간이 아래쪽 여백 없이 꽉 차게).
    body를 뷰포트 높이에 고정하고 각 화면 영역에 스크롤 책임을 나눠줘야, 결함목록처럼 내용이 긴
    구역이 페이지 전체를 늘어뜨리지 않고 자기 영역 안에서만 스크롤된다(그래야 도면이 화면 아래로
-   한참 밀려 내려가지 않음). 모바일은 기존처럼 페이지 자체가 자연스럽게 스크롤되도록 그대로 둔다. */
+   한참 밀려 내려가지 않음). 모바일(≤1024)은 아래 max-width 규칙이 탭별로 재정의한다. */
 @media (min-width: 769px) {
     body {
         height: 100vh;
@@ -882,6 +882,26 @@ body {
 
     .inspect-layout {
         align-items: stretch;
+    }
+}
+
+/* 태블릿·가로폰(769–1024): 조사표/비파괴는 반드시 .app-content 스크롤 */
+@media (min-width: 769px) and (max-width: 1024px) {
+    body.bsa-tab-survey,
+    body.bsa-tab-ndt,
+    body.bsa-tab-home {
+        height: 100dvh !important;
+        overflow: hidden !important;
+    }
+
+    body.bsa-tab-survey .app-content,
+    body.bsa-tab-ndt .app-content,
+    body.bsa-tab-home .app-content {
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        min-height: 0 !important;
     }
 }
 
@@ -1353,15 +1373,47 @@ body {
         font-size: 0.72rem;
     }
 
-    .app-content {
+    /* 결함위치도만 스크롤 잠금 — 조사표/비파괴는 .app-content 한손가락 스크롤 */
+    body.bsa-tab-map .app-content {
         padding: 0.35rem 0.45rem;
         min-height: 0;
         overflow: hidden;
     }
 
+    body.bsa-tab-survey,
+    body.bsa-tab-ndt,
+    body.bsa-tab-home {
+        height: 100% !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+    }
+
+    body.bsa-tab-survey .app-content,
+    body.bsa-tab-ndt .app-content,
+    body.bsa-tab-home .app-content {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        height: auto !important;
+        padding: 0.35rem 0.45rem 1.25rem;
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+    }
+
     #tab-map.tab-content.active {
         min-height: 0;
         overflow: hidden;
+    }
+
+    #tab-survey.tab-content.active,
+    #tab-ndt.tab-content.active {
+        display: block !important;
+        overflow: visible !important;
+        height: auto !important;
+        max-height: none !important;
+        flex: none !important;
     }
 
     #tab-map .inspect-layout {
@@ -1555,18 +1607,7 @@ body {
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
     }
 
-    /* NDT 가로: 도면 최대화 + 하단 독 */
-    #tab-ndt.tab-content.active {
-        min-height: 0;
-        overflow: hidden;
-        display: flex !important;
-        flex-direction: column;
-    }
-
-    #tab-ndt .ndt-results-section {
-        display: none !important;
-    }
-
+    /* NDT 가로: 도면은 고정 높이, 아래로 스크롤하면 측정 결과표 */
     #tab-ndt .map-controls-toolbar {
         margin-bottom: 0.35rem !important;
         padding: 0.35rem 0.5rem !important;
@@ -1580,9 +1621,9 @@ body {
 
     #tab-ndt #ndtStyleSizeToolbar {
         display: none !important;
-        position: fixed;
-        left: 0.45rem;
-        right: 0.45rem;
+        position: absolute;
+        left: 0.35rem;
+        right: 0.35rem;
         bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
         z-index: 36;
         max-height: min(38vh, 200px);
@@ -1593,10 +1634,16 @@ body {
     }
 
     #tab-ndt #ndtCanvasContainer {
-        flex: 1 1 auto !important;
-        height: auto !important;
-        min-height: 0 !important;
-        max-height: none !important;
+        flex: none !important;
+        height: min(52vh, 360px) !important;
+        min-height: 180px !important;
+        max-height: 52vh !important;
+        margin-bottom: 0;
+        touch-action: pan-y pinch-zoom;
+    }
+
+    #tab-ndt #ndtCanvas {
+        touch-action: pan-y pinch-zoom;
     }
 
     #tab-ndt .mobile-canvas-dock {
@@ -1612,16 +1659,18 @@ body {
         padding-bottom: env(safe-area-inset-bottom, 0px);
     }
 
-    #tab-ndt #ndtStyleSizeToolbar {
-        position: absolute !important;
-        left: 0.35rem;
-        right: 0.35rem;
-        bottom: calc(3.9rem + env(safe-area-inset-bottom, 0px));
-        z-index: 36;
+    #tab-ndt .ndt-results-section {
+        display: block !important;
+        margin-top: 0.65rem !important;
+        margin-bottom: 2.5rem;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
     }
 
-    #tab-ndt #ndtCanvasContainer {
-        margin-bottom: 0;
+    #tab-ndt .ndt-results-section .table-responsive {
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
     }
 
     #tab-ndt .mobile-side-rail {
@@ -1820,6 +1869,7 @@ body {
     height: 100%;
     max-width: none;
     max-height: none;
+    touch-action: none;
 }
 
 /* TAB 2 & 3 & 4 Section Headers */
@@ -1845,12 +1895,26 @@ body {
     border: 1px solid #d0d0d0 !important;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
     overflow-x: auto;
+    /* overflow-y를 visible/auto로 두면 iOS가 이 박스를 세로 스크롤 포트로 취급해
+       페이지 스크롤에 두 손가락이 필요해짐 → hidden으로 가로만 스크롤, 세로는 페이지로 */
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    /* pan-y를 같이 주면 세로 제스처를 이 요소가 가로채서(움직일 세로 스크롤 없음)
+       순수 세로 스와이프가 먹통이 되고, 가로→세로로 꺾어야만 부모 스크롤이 됨 */
+    touch-action: pan-x;
     padding: 0.5rem;
     /* overflow-x:auto makes this a scroll container, which per spec also forces overflow-y
        to behave as "auto" — inside a flex column ancestor that collapses shrinkable items
        down to their automatic minimum size (0), that made this box get squeezed to a sliver.
        flex-shrink:0 keeps it at its natural content height so the page scrolls normally instead. */
     flex-shrink: 0;
+}
+
+.table-responsive {
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
 }
 
 .survey-table {
@@ -4354,15 +4418,41 @@ body {
         flex-direction: column;
     }
 
+    /* 조사표·비파괴·홈: body 고정 + .app-content가 한손가락 스크롤 담당
+       (body 스크롤은 iOS/Android에서 overflow-x 표·flex와 겹치면 자주 먹통이 됨) */
+    body.bsa-tab-survey,
+    body.bsa-tab-ndt,
+    body.bsa-tab-home {
+        height: 100% !important;
+        height: 100dvh !important;
+        max-height: 100dvh !important;
+        overflow: hidden !important;
+        overscroll-behavior-y: none;
+    }
+
     body.bsa-tab-survey .app-content,
     body.bsa-tab-ndt .app-content,
     body.bsa-tab-home .app-content,
     body:not(.bsa-tab-map) .app-content {
-        overflow: visible;
-        flex: none;
-        min-height: auto;
-        padding: 0.45rem 0.5rem 1rem;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
         -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+        overscroll-behavior-y: contain;
+        padding: 0.45rem 0.5rem 2rem;
+    }
+
+    /* 도면 밖(툴바·표·독)은 스크롤 잠금 없음 — 세로 스크롤 자유 */
+    body.bsa-tab-ndt #tab-ndt .map-controls-toolbar,
+    body.bsa-tab-ndt #tab-ndt .ndt-results-section,
+    body.bsa-tab-ndt #tab-ndt .mobile-canvas-dock,
+    body.bsa-tab-ndt #tab-ndt .section-header,
+    body.bsa-tab-survey #tab-survey {
+        touch-action: pan-y !important;
     }
 
     /* 상단: 조그만 탭 툴바 + 층수 우측 */
@@ -4469,9 +4559,10 @@ body {
     #tab-survey.tab-content.active {
         display: block !important;
         flex: none;
-        overflow: visible;
+        overflow: visible !important;
         min-height: 0;
-        height: auto;
+        height: auto !important;
+        max-height: none !important;
     }
 
     /* 좌 1/3 결함목록 · 우 도면 */
@@ -4723,6 +4814,16 @@ body {
         padding: 0.08rem !important;
     }
 
+    body.bsa-tab-survey .app-content,
+    body.bsa-tab-ndt .app-content,
+    body.bsa-tab-home .app-content {
+        padding: 0.35rem 0.45rem 1.5rem !important;
+        overflow-x: hidden !important;
+        overflow-y: scroll !important;
+        -webkit-overflow-scrolling: touch;
+        touch-action: pan-y;
+    }
+
     #tab-map .inspect-layout {
         gap: 0.16rem !important;
         height: 100%;
@@ -4917,9 +5018,17 @@ body {
 
     #tab-survey .table-container {
         overflow-x: auto;
+        overflow-y: hidden;
         -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
         padding: 0.3rem;
         margin-bottom: 0.8rem;
+    }
+
+    /* 비파괴 도면: 세로 한손가락=페이지 스크롤, 핀치=줌 (가로 팬은 JS) */
+    body.bsa-tab-ndt #ndtCanvasContainer,
+    body.bsa-tab-ndt #ndtCanvas {
+        touch-action: pan-y pinch-zoom;
     }
     #tab-survey .survey-table {
         width: max-content;
@@ -5003,7 +5112,9 @@ body {
 
     #tab-ndt .table-responsive {
         overflow-x: auto !important;
+        overflow-y: hidden !important;
         -webkit-overflow-scrolling: touch;
+        touch-action: pan-x;
         padding: 0.35rem !important;
     }
     #tab-ndt #ndtSummaryTable,
