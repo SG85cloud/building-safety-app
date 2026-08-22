@@ -7357,19 +7357,22 @@ document.addEventListener('DOMContentLoaded', () => {
         collectSelected(previousItemsRaw);
         collectSelected(currentItemsRaw);
 
-        const multiSelected = selectedCluster.length > 1;
-        const previousItems = multiSelected
+        const pinSelectedToTop = selectedCluster.length >= 1;
+        const previousItems = pinSelectedToTop
             ? previousItemsRaw.filter(d => !isDefectListItemSelected(d))
             : previousItemsRaw;
-        const currentItems = multiSelected
+        const currentItems = pinSelectedToTop
             ? currentItemsRaw.filter(d => !isDefectListItemSelected(d))
             : currentItemsRaw;
-        const unregForList = multiSelected
+        const unregForList = pinSelectedToTop
             ? unregisteredItems.filter(d => !isDefectListItemSelected(d))
             : unregisteredItems;
 
-        if (multiSelected) {
-            const selSection = renderDefectListSection(`✅ 선택됨 (${selectedCluster.length})`, selectedCluster, { mapSelected: true });
+        if (pinSelectedToTop) {
+            const selTitle = selectedCluster.length === 1
+                ? '✅ 선택됨'
+                : `✅ 선택됨 (${selectedCluster.length})`;
+            const selSection = renderDefectListSection(selTitle, selectedCluster, { mapSelected: true });
             if (selSection) {
                 selSection.classList.add('is-selected-cluster');
                 panel.appendChild(selSection);
@@ -7385,15 +7388,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const curSection = renderDefectListSection('🆕 금회차 조사항목', currentItems);
         if (curSection) panel.appendChild(curSection);
 
-        // 단일 선택: 선택이 바뀐 때만 해당 행으로 스크롤 (drawCanvas 재렌더마다 스크롤하지 않음)
-        if (selectedCluster.length === 1) {
-            const focusId = selectedCluster[0].id || selectedCluster[0].groupId || '';
-            if (focusId && window._defectListScrollSelectedId !== focusId) {
-                window._defectListScrollSelectedId = focusId;
+        // 선택 묶음이 바뀌면 목록 맨 위(선택됨)가 보이게
+        if (pinSelectedToTop) {
+            const clusterKey = selectedCluster.map(d => d.id || d.groupId).join(',');
+            if (window._defectListScrollSelectedId !== clusterKey) {
+                window._defectListScrollSelectedId = clusterKey;
                 requestAnimationFrame(() => {
-                    const row = panel.querySelector('.defect-list-item.is-map-selected');
-                    if (row && typeof row.scrollIntoView === 'function') {
-                        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    const cluster = panel.querySelector('.defect-list-section.is-selected-cluster');
+                    if (cluster && typeof cluster.scrollIntoView === 'function') {
+                        cluster.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
                 });
             }
