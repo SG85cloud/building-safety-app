@@ -9,7 +9,7 @@ Write-Host "============================================================" -Foreg
 Write-Host ""
 
 # Start Raw TCP Web Server with Flush Buffer
-Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File C:\Users\ST-SUGEUN\.gemini\antigravity\scratch\building-safety-app\server_raw.ps1" -WindowStyle Hidden
+Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$PSScriptRoot\server_raw.ps1`"" -WindowStyle Hidden
 Start-Sleep -Seconds 2
 
 # Anonymous Public Tunnel (localhost.run - Zero Password Prompt)

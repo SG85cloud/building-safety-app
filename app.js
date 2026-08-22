@@ -499,7 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
                 if (hydrated) anyHydrated = true;
-            })));
+            }))));
 
             if (anyHydrated) {
                 if (typeof drawCanvas === 'function') drawCanvas();

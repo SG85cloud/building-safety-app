@@ -1,6 +1,6 @@
 # Windows Native PowerShell TCP HTTP Server (Full Packet Buffer Read & Flush)
 $port = 8000
-$appDir = "C:\Users\ST-SUGEUN\.gemini\antigravity\scratch\building-safety-app"
+$appDir = $PSScriptRoot
 
 $listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $port)
 $listener.Server.ReuseAddress = $true

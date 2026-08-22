@@ -3,7 +3,7 @@ import socketserver
 import os
 
 PORT = 8000
-DIRECTORY = r"C:\Users\ST-SUGEUN\.gemini\antigravity\scratch\building-safety-app"
+DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):

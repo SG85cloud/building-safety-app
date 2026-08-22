@@ -4,7 +4,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 # Windows Native PowerShell Web Server (127.0.0.1 / localhost Binding - 100% Non-Admin & Tunnel Compatible)
 $port = 8000
-$appDir = "C:\Users\ST-SUGEUN\.gemini\antigravity\scratch\building-safety-app"
+$appDir = $PSScriptRoot
 
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://127.0.0.1:$port/")
