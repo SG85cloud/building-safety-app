@@ -1201,6 +1201,26 @@ body {
     max-width: 100%;
 }
 
+.defect-list-item-prev-photos {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    font-weight: 800;
+    font-size: 0.64rem;
+    line-height: 1.2;
+    color: #92400e;
+    background: rgba(245, 158, 11, 0.18);
+    border: 1px solid rgba(217, 119, 6, 0.4);
+    border-radius: 4px;
+    padding: 0.05rem 0.28rem;
+    white-space: nowrap;
+}
+
+.defect-list-item-prev-photos i {
+    font-size: 0.6rem;
+}
+
 .defect-list-item-actions {
     flex-shrink: 0;
     display: flex;
@@ -3434,6 +3454,73 @@ body {
     gap: 0.5rem;
     margin-top: 0.5rem;
     overflow-x: auto;
+}
+
+.prev-round-photo-block {
+    margin-bottom: 0.85rem;
+    padding: 0.55rem 0.6rem 0.65rem;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(217, 119, 6, 0.35);
+}
+
+.prev-round-photo-label {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.35rem 0.55rem;
+    color: #92400e !important;
+    margin-bottom: 0.15rem;
+}
+
+.prev-round-photo-hint {
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: #a16207;
+}
+
+.prev-round-photo-list {
+    margin-top: 0.25rem;
+}
+
+.prev-round-photo-thumb-wrap {
+    display: inline-block;
+    position: relative;
+    margin-right: 10px;
+    margin-top: 6px;
+    text-align: center;
+    vertical-align: top;
+}
+
+.prev-round-photo-thumb {
+    width: 88px;
+    height: 88px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 2px solid #d97706;
+    cursor: pointer;
+    background: #fff7ed;
+}
+
+.prev-round-photo-badge {
+    position: absolute;
+    top: -6px;
+    left: -4px;
+    background: #d97706;
+    color: #fff;
+    font-size: 0.62rem;
+    font-weight: 800;
+    line-height: 1;
+    padding: 0.18rem 0.32rem;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.prev-round-photo-caption {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: #92400e;
+    margin-top: 3px;
 }
 
 .photo-thumb {

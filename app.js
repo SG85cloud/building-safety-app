@@ -201,22 +201,40 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         Object.values(defectsMap || {}).forEach(arr => {
             (arr || []).forEach(d => {
-                if (!d.photos || d.photos.length === 0) return;
-                d.photos.forEach((url, i) => {
-                    if (!url) return;
-                    const key = getPhotoDocId(d.id, i);
-                    if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
-                    _idbPendingPhotoKeys.add(key);
-                    idbSet('photos', key, url).then(ok => {
-                        _idbPendingPhotoKeys.delete(key);
-                        if (ok) {
-                            _idbPersistedPhotoKeys.add(key);
-                            _idbSaveFailedNotified = false;
-                        } else {
-                            notifyIndexedDbSaveFailure();
-                        }
+                if (d.photos && d.photos.length > 0) {
+                    d.photos.forEach((url, i) => {
+                        if (!url) return;
+                        const key = getPhotoDocId(d.id, i);
+                        if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
+                        _idbPendingPhotoKeys.add(key);
+                        idbSet('photos', key, url).then(ok => {
+                            _idbPendingPhotoKeys.delete(key);
+                            if (ok) {
+                                _idbPersistedPhotoKeys.add(key);
+                                _idbSaveFailedNotified = false;
+                            } else {
+                                notifyIndexedDbSaveFailure();
+                            }
+                        });
                     });
-                });
+                }
+                if (d.prevRoundPhotos && d.prevRoundPhotos.length > 0) {
+                    d.prevRoundPhotos.forEach((url, i) => {
+                        if (!url) return;
+                        const key = getPhotoDocId(d.id, i, 'prev');
+                        if (_idbPersistedPhotoKeys.has(key) || _idbPendingPhotoKeys.has(key)) return;
+                        _idbPendingPhotoKeys.add(key);
+                        idbSet('photos', key, url).then(ok => {
+                            _idbPendingPhotoKeys.delete(key);
+                            if (ok) {
+                                _idbPersistedPhotoKeys.add(key);
+                                _idbSaveFailedNotified = false;
+                            } else {
+                                notifyIndexedDbSaveFailure();
+                            }
+                        });
+                    });
+                }
             });
         });
     }
@@ -237,10 +255,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const sanitizedDefects = {};
             Object.entries(rawDefects).forEach(([key, arr]) => {
                 sanitizedDefects[key] = (arr || []).map(d => {
-                    const { photos, ...rest } = d;
-                    return (photos && photos.length > 0)
-                        ? { ...rest, photoIds: photos.map((_, i) => getPhotoDocId(d.id, i)) }
-                        : rest;
+                    const { photos, prevRoundPhotos, photoIds, prevRoundPhotoIds, ...rest } = d;
+                    const out = { ...rest };
+                    if (photos && photos.length > 0) {
+                        out.photoIds = photos.map((_, i) => getPhotoDocId(d.id, i));
+                    }
+                    if (prevRoundPhotos && prevRoundPhotos.length > 0) {
+                        out.prevRoundPhotoIds = prevRoundPhotos.map((_, i) => getPhotoDocId(d.id, i, 'prev'));
+                    }
+                    return out;
                 });
             });
 
@@ -458,14 +481,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const defectsMap = window.state.defects || {};
             await Promise.all(Object.values(defectsMap).map(arr => Promise.all((arr || []).map(async (d) => {
-                if ((d.photos && d.photos.length > 0) || !d.photoIds || d.photoIds.length === 0) return;
-                const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
-                const filled = photos.filter(Boolean);
-                if (filled.length > 0) {
-                    d.photos = filled;
-                    anyHydrated = true;
+                let hydrated = false;
+                if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
+                    const photos = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+                    const filled = photos.filter(Boolean);
+                    if (filled.length > 0) {
+                        d.photos = filled;
+                        hydrated = true;
+                    }
                 }
-            }))));
+                if ((!d.prevRoundPhotos || d.prevRoundPhotos.length === 0) && d.prevRoundPhotoIds && d.prevRoundPhotoIds.length > 0) {
+                    const prevPhotos = await Promise.all(d.prevRoundPhotoIds.map(pid => idbGet('photos', pid)));
+                    const filledPrev = prevPhotos.filter(Boolean);
+                    if (filledPrev.length > 0) {
+                        d.prevRoundPhotos = filledPrev;
+                        hydrated = true;
+                    }
+                }
+                if (hydrated) anyHydrated = true;
+            })));
 
             if (anyHydrated) {
                 if (typeof drawCanvas === 'function') drawCanvas();
@@ -1452,7 +1486,7 @@ document.addEventListener('DOMContentLoaded', () => {
             Object.keys(window.state.defects || {}).forEach(k => {
                 if (k.startsWith(bldg.id + '_')) {
                     (window.state.defects[k] || []).forEach(d => {
-                        if (d.photos && d.photos.length > 0) photoDeleteJobs.push(deletePhotosForDefect(d.id, d.photos.length));
+                        photoDeleteJobs.push(deleteAllPhotosForDefect(d));
                     });
                     delete window.state.defects[k];
                 }
@@ -6767,6 +6801,103 @@ document.addEventListener('DOMContentLoaded', () => {
         return year * 10 + periodRank;
     }
 
+    // 다음 정기 회차(상반기→하반기→다음해 상반기). 수시점검은 다음 해 수시로 이동.
+    function getNextSurveyRoundParts(yearStr, periodStr) {
+        const yearNum = parseInt(String(yearStr || '').replace(/[^\d]/g, ''), 10);
+        const y = Number.isFinite(yearNum) ? yearNum : new Date().getFullYear();
+        const p = periodStr || '하반기';
+        if (p === '상반기') return { year: `${y}년`, period: '하반기' };
+        if (p === '하반기') return { year: `${y + 1}년`, period: '상반기' };
+        return { year: `${y + 1}년`, period: '수시점검' };
+    }
+
+    function ensureSurveyRoundSelectOption(selectId, value) {
+        const sel = document.getElementById(selectId);
+        if (!sel || !value) return;
+        if (![...sel.options].some(o => o.value === value)) {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = value;
+            sel.appendChild(opt);
+        }
+        sel.value = value;
+    }
+
+    function countBuildingDefects(bldg) {
+        if (!bldg || !bldg.id) return 0;
+        const prefix = `${bldg.id}_`;
+        let n = 0;
+        Object.keys(state.defects || {}).forEach((k) => {
+            if (k.startsWith(prefix)) n += (state.defects[k] || []).length;
+        });
+        return n;
+    }
+
+    /**
+     * 다음 회차 점검 시작 — 건물·층·도면·결함·비파괴는 그대로 두고
+     * 점검 연도/기간만 다음 회차로 올린다. 기존 결함은 전회차로 분류된다.
+     * (결함을 복제하지 않음: 같은 건물 데이터를 이어 쓰는 방식)
+     */
+    window.startNextSurveyRound = function() {
+        const bldg = state.currentBuilding;
+        if (!bldg || !state.currentBuildingId) {
+            window.showToast('건물을 먼저 선택해 주세요.', 'warning');
+            return;
+        }
+        const curYear = document.getElementById('selectInspectionYear')?.value
+            || bldg.inspectionYear || '2026년';
+        const curPeriod = document.getElementById('selectInspectionPeriod')?.value
+            || bldg.inspectionPeriod || '하반기';
+        const next = getNextSurveyRoundParts(curYear, curPeriod);
+        const toKey = `${next.year}_${next.period}`;
+        const defectCount = countBuildingDefects(bldg);
+
+        if (!window.confirm(
+            `다음 회차 점검을 시작할까요?\n\n` +
+            `· 현재: ${curYear} ${curPeriod}\n` +
+            `· 다음: ${next.year} ${next.period}\n\n` +
+            `건물·층·도면·결함(${defectCount}건)·비파괴 데이터는 그대로 유지됩니다.\n` +
+            `기존 결함은 「전회차」로 표시되고, 새로 등록하는 항목부터 금회차로 기록됩니다.`
+        )) return;
+
+        ensureSurveyRoundSelectOption('selectInspectionYear', next.year);
+        ensureSurveyRoundSelectOption('selectInspectionPeriod', next.period);
+        const yearEl = document.getElementById('selectInspectionYear');
+        const periodEl = document.getElementById('selectInspectionPeriod');
+        if (yearEl) yearEl.value = next.year;
+        if (periodEl) periodEl.value = next.period;
+
+        bldg.inspectionYear = next.year;
+        bldg.inspectionPeriod = next.period;
+
+        const toRank = getSurveyRoundOrderRank(toKey);
+        if (toRank !== null) {
+            // 정규 회차: 최신 회차 기준점을 새 회차로 올려 기존 결함을 전회차로 전환
+            bldg.latestSurveyRoundKey = toKey;
+        } else {
+            // 수시점검: 순서 비교가 불가하므로 기존 결함에 전회차 체크를 켠다
+            const prefix = `${bldg.id}_`;
+            Object.keys(state.defects || {}).forEach((k) => {
+                if (!k.startsWith(prefix)) return;
+                (state.defects[k] || []).forEach((d) => {
+                    if (d && d.surveyRound !== toKey) d.isCarriedOver = true;
+                });
+            });
+        }
+
+        saveStateToLocalStorage();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        if (typeof renderSurveyTable === 'function') renderSurveyTable();
+        if (typeof drawCanvas === 'function') drawCanvas();
+        if (typeof renderNdtSummaryTable === 'function') renderNdtSummaryTable();
+
+        window.showToast(
+            `${next.year} ${next.period} 점검 시작 · 기존 ${defectCount}건은 전회차로 유지`,
+            'success',
+            5500
+        );
+    };
+
     // 건물별 "최신 회차"를 앞으로만 전진시킨다. 상단 "점검 설정" 드롭다운을 보고서
     // 미리보기 등으로 잠깐 과거 회차로 바꿔도 이 값은 되돌아가지 않으므로, 이미
     // 전회차로 분류된 결함이 드롭다운 변경만으로 다시 금회차로 돌아오지 않는다.
@@ -6918,6 +7049,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnOpen = document.getElementById('btnOpenSurveyRoundReassignModal');
         if (btnOpen) btnOpen.addEventListener('click', window.openSurveyRoundReassignModal);
 
+        const btnNextRound = document.getElementById('btnStartNextSurveyRound');
+        if (btnNextRound) btnNextRound.addEventListener('click', window.startNextSurveyRound);
+
         const btnClose1 = document.getElementById('btnCloseSurveyRoundReassignModal');
         if (btnClose1) btnClose1.addEventListener('click', closeSurveyRoundReassignModal);
         const btnClose2 = document.getElementById('btnCloseSurveyRoundReassignModal2');
@@ -6942,6 +7076,135 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
         return n;
+    }
+
+    function countPreviousRoundInKeys(keys) {
+        let n = 0;
+        (keys || []).forEach((k) => {
+            (state.defects[k] || []).forEach((d) => {
+                if (d && isPreviousRoundDefect(d)) n++;
+            });
+        });
+        return n;
+    }
+
+    /**
+     * 현회차 출력(사진첩·보고서·상태조사표 사진란)에 쓸 사진만 반환.
+     * 전회차 결함의 사진·prevRoundPhotos는 제외한다.
+     */
+    function getDefectOutputPhotos(defect) {
+        if (!defect || isPreviousRoundDefect(defect)) return [];
+        return (Array.isArray(defect.photos) ? defect.photos : []).filter(Boolean);
+    }
+
+    async function ensureDefectPhotosLoaded(d) {
+        if (!d) return;
+        if ((!d.photos || d.photos.length === 0) && d.photoIds && d.photoIds.length > 0) {
+            const fromIdb = await Promise.all(d.photoIds.map(pid => idbGet('photos', pid)));
+            let filled = fromIdb.filter(Boolean);
+            if (filled.length === 0 && window._photoCache) {
+                filled = d.photoIds.map(pid => window._photoCache[pid]).filter(Boolean);
+            }
+            if (filled.length > 0) d.photos = filled;
+        }
+        if ((!d.prevRoundPhotos || d.prevRoundPhotos.length === 0) && d.prevRoundPhotoIds && d.prevRoundPhotoIds.length > 0) {
+            const fromIdb = await Promise.all(d.prevRoundPhotoIds.map(pid => idbGet('photos', pid)));
+            let filled = fromIdb.filter(Boolean);
+            if (filled.length === 0 && window._photoCache) {
+                filled = d.prevRoundPhotoIds.map(pid => window._photoCache[pid]).filter(Boolean);
+            }
+            if (filled.length > 0) d.prevRoundPhotos = filled;
+        }
+    }
+
+    /** 현회차 photos를 prevRoundPhotos로 옮기고 현회차 사진 슬롯을 비운다. 보관 장수 반환. */
+    async function archiveDefectPhotosToPrevRound(d) {
+        if (!d) return 0;
+        await ensureDefectPhotosLoaded(d);
+        const current = (Array.isArray(d.photos) ? d.photos : []).filter(Boolean);
+        const oldCount = current.length;
+        if (oldCount > 0) {
+            const archived = Array.isArray(d.prevRoundPhotos) ? d.prevRoundPhotos.slice() : [];
+            d.prevRoundPhotos = archived.concat(current);
+        }
+        const oldPhotoCount = (d.photoIds && d.photoIds.length) || oldCount;
+        d.photos = [];
+        delete d.photoIds;
+        if (typeof invalidatePersistedPhotoCacheForDefect === 'function') {
+            invalidatePersistedPhotoCacheForDefect(d.id);
+        }
+        // 예전 인덱스 키(defectId_0 …)는 현회차와 충돌하므로 IDB에서 제거
+        if (oldPhotoCount > 0) {
+            for (let i = 0; i < oldPhotoCount; i++) {
+                const pid = getPhotoDocId(d.id, i);
+                _idbPersistedPhotoKeys.delete(pid);
+                idbDelete('photos', pid);
+            }
+        }
+        return oldCount;
+    }
+
+    /**
+     * 건물 모든 층의 전회차 조사항목을 현회차로 가져온다.
+     * - isCarriedOver(전회차 체크) 해제
+     * - surveyRound를 현회차(latestSurveyRoundKey / 현재 선택 회차)로 변경
+     * - 기존 사진은 prevRoundPhotos로 보관하고 photos는 비움(현회차 신규 사진만 출력)
+     * 결함 내용·도면 위치는 그대로 둔다.
+     */
+    async function promotePreviousRoundToCurrentBulk() {
+        const bldg = state.currentBuilding;
+        if (!bldg || !state.currentBuildingId) {
+            window.showToast('건물을 먼저 선택하세요.', 'warning', 3500);
+            return;
+        }
+        const keys = getSurveyReassignScopeKeys(bldg, true);
+        const count = countPreviousRoundInKeys(keys);
+        if (count === 0) {
+            window.showToast('전회차 조사항목이 없습니다.', 'info', 3500);
+            return;
+        }
+        const toKey = (bldg.latestSurveyRoundKey) || getCurrentSurveyRoundKey();
+        const toLabel = toKey.replace('_', ' ');
+        if (!window.confirm(
+            `모든 층의 전회차 조사항목 ${count}건을 현회차(${toLabel})로 가져올까요?\n\n` +
+            `· 전회차 체크 해제\n` +
+            `· 조사 회차를 현회차로 변경\n` +
+            `· 기존 사진은 「전차 사진」으로 표시 (현장에서 확인 가능, 현차 출력 제외)\n` +
+            `· 결함 내용·도면 위치는 유지`
+        )) return;
+
+        if (typeof pushDefectHistory === 'function') pushDefectHistory();
+        let changed = 0;
+        let archivedPhotoCount = 0;
+
+        for (const k of keys) {
+            const arr = state.defects[k] || [];
+            for (const d of arr) {
+                if (!d || !isPreviousRoundDefect(d)) continue;
+                archivedPhotoCount += await archiveDefectPhotosToPrevRound(d);
+                d.isCarriedOver = false;
+                d.surveyRound = toKey;
+                if (d.prevRoundPhotos && d.prevRoundPhotos.length > 0) {
+                    uploadDefectPhotos(d.id, d.prevRoundPhotos, 'prev');
+                }
+                changed++;
+            }
+        }
+
+        saveStateToLocalStorage();
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+        if (typeof renderSurveyTable === 'function') renderSurveyTable();
+        if (typeof drawCanvas === 'function') drawCanvas();
+        const photoNote = archivedPhotoCount > 0
+            ? ` · 전차 사진 ${archivedPhotoCount}장 보관(현장에서 확인 가능)`
+            : '';
+        window.showToast(`모든 층 전회차 ${changed}건 → 현회차(${toLabel}) 완료${photoNote}`, 'success', 5500);
+    }
+    window.promotePreviousRoundToCurrentBulk = promotePreviousRoundToCurrentBulk;
+
+    function setupPromotePreviousRoundToCurrentEvents() {
+        const btn = document.getElementById('btnPromotePrevRoundToCurrent');
+        if (btn) btn.addEventListener('click', promotePreviousRoundToCurrentBulk);
     }
 
     function clearCarriedOverBulk() {
@@ -7518,6 +7781,16 @@ document.addEventListener('DOMContentLoaded', () => {
             lines.appendChild(measureEl);
         } else {
             lines.classList.add('no-measure');
+        }
+
+        const prevPhotoCount = (Array.isArray(d.prevRoundPhotos) ? d.prevRoundPhotos.filter(Boolean).length : 0)
+            || (Array.isArray(d.prevRoundPhotoIds) ? d.prevRoundPhotoIds.length : 0);
+        if (prevPhotoCount > 0) {
+            const prevBadge = document.createElement('span');
+            prevBadge.className = 'defect-list-item-prev-photos';
+            prevBadge.title = `전차 사진 ${prevPhotoCount}장 — 결함 수정에서 확인`;
+            prevBadge.innerHTML = `<i class="fa-solid fa-clock-rotate-left"></i> 전차 사진 ${prevPhotoCount}`;
+            lines.appendChild(prevBadge);
         }
 
         row.appendChild(lines);
@@ -10657,6 +10930,22 @@ document.addEventListener('DOMContentLoaded', () => {
             syncDefectArrowDirUi();
 
             window._pendingPhotos = existingPin.photos || [];
+            window._pendingPrevRoundPhotos = Array.isArray(existingPin.prevRoundPhotos)
+                ? existingPin.prevRoundPhotos.slice()
+                : [];
+            // IndexedDB에만 남은 전차 사진 참조가 있으면 모달 열릴 때 복원
+            if (window._pendingPrevRoundPhotos.length === 0
+                && Array.isArray(existingPin.prevRoundPhotoIds)
+                && existingPin.prevRoundPhotoIds.length > 0
+                && typeof ensureDefectPhotosLoaded === 'function') {
+                ensureDefectPhotosLoaded(existingPin).then(() => {
+                    window._pendingPrevRoundPhotos = Array.isArray(existingPin.prevRoundPhotos)
+                        ? existingPin.prevRoundPhotos.slice()
+                        : [];
+                    renderPrevRoundPhotoPreviewList();
+                    if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+                });
+            }
             if (existingPin.shapeType === 'area' && existingPin.areaX1 !== undefined) {
                 ensureAreaPinPlacement(existingPin);
                 window._pendingAreaRect = { x1: existingPin.areaX1, y1: existingPin.areaY1, x2: existingPin.areaX2, y2: existingPin.areaY2 };
@@ -10700,6 +10989,7 @@ document.addEventListener('DOMContentLoaded', () => {
             setDefectArrowOctant(tmpl && tmpl.arrowOctant);
             syncDefectArrowDirUi();
             window._pendingPhotos = [];
+            window._pendingPrevRoundPhotos = [];
 
             if (areaRect) {
                 if (locEl && !tmpl) {
@@ -10745,6 +11035,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (typeof updatePhoneRelayButtonLabel === 'function') updatePhoneRelayButtonLabel();
         renderPhotoPreviewList();
+        renderPrevRoundPhotoPreviewList();
 
         const titleEl = document.getElementById('defectModalTitle');
         if (titleEl) {
@@ -10807,6 +11098,34 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `).join('');
     }
+
+    function renderPrevRoundPhotoPreviewList() {
+        const block = document.getElementById('prevRoundPhotoBlock');
+        const list = document.getElementById('prevRoundPhotoPreviewList');
+        if (!block || !list) return;
+        const photos = (window._pendingPrevRoundPhotos || []).filter(Boolean);
+        if (photos.length === 0) {
+            block.style.display = 'none';
+            list.innerHTML = '';
+            return;
+        }
+        block.style.display = 'block';
+        list.innerHTML = photos.map((src, idx) => `
+            <div class="prev-round-photo-thumb-wrap">
+                <span class="prev-round-photo-badge">전차</span>
+                <img class="prev-round-photo-thumb" src="${src}" alt="전차 사진 ${idx + 1}" title="전차 사진 ${idx + 1} — 탭하여 확대" onclick="window.previewPrevRoundPhoto(${idx})">
+                <div class="prev-round-photo-caption">전차 ${idx + 1}</div>
+            </div>
+        `).join('');
+    }
+
+    window.previewPrevRoundPhoto = function(idx) {
+        const src = window._pendingPrevRoundPhotos && window._pendingPrevRoundPhotos[idx];
+        if (!src) return;
+        if (typeof window.openPhotoAnnotationModal === 'function') {
+            window.openPhotoAnnotationModal(src, null);
+        }
+    };
 
     window.annotatePendingPhoto = function(idx) {
         if (window._pendingPhotos && window._pendingPhotos[idx]) {
@@ -11152,6 +11471,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 invalidatePersistedPhotoCacheForDefect(state.defects[key][idx].id);
                 state.defects[key][idx].photos = photosVal;
+                if (Array.isArray(window._pendingPrevRoundPhotos)) {
+                    state.defects[key][idx].prevRoundPhotos = window._pendingPrevRoundPhotos.slice();
+                }
                 if (!state.defects[key][idx].inspectorName) {
                     state.defects[key][idx].inspectorName = window.state.userName || '';
                 }
@@ -11692,9 +12014,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             pushDefectHistory();
             defects.forEach(d => {
-                if (d.photos && d.photos.length > 0) {
-                    deletePhotosForDefect(d.id, d.photos.length);
-                }
+                deleteAllPhotosForDefect(d);
             });
             state.defects[key] = [];
             selectedDefectIds.clear();
@@ -12181,15 +12501,11 @@ document.addEventListener('DOMContentLoaded', () => {
         rawDefects.forEach((d, dIdx) => {
             const defectKey = d.id || `idx_${dIdx}`;
             defectPhotoLabels[defectKey] = [];
-            if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
-                d.photos.forEach(src => {
-                    if (src) {
-                        pCounter++;
-                        const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
-                        defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
-                    }
-                });
-            }
+            getDefectOutputPhotos(d).forEach(() => {
+                pCounter++;
+                const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
+            });
         });
 
         elements.surveyTableBody.innerHTML = defects.map((d, dIdx) => {
@@ -12352,21 +12668,17 @@ document.addEventListener('DOMContentLoaded', () => {
         let pCounter = 0;
 
         defects.forEach(d => {
-            if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
-                d.photos.forEach(photoSrc => {
-                    if (photoSrc) {
-                        pCounter++;
-                        const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
-                        const photoLabel = `사진${pNumStr}`;
-                        const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
-                        photoItems.push({
-                            label: photoLabel,
-                            title: componentDefectTitle,
-                            src: photoSrc
-                        });
-                    }
+            getDefectOutputPhotos(d).forEach(photoSrc => {
+                pCounter++;
+                const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                const photoLabel = `사진${pNumStr}`;
+                const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
+                photoItems.push({
+                    label: photoLabel,
+                    title: componentDefectTitle,
+                    src: photoSrc
                 });
-            }
+            });
         });
 
         if (photoItems.length === 0) {
@@ -13520,27 +13832,23 @@ document.addEventListener('DOMContentLoaded', () => {
                     const defectKey = d.id || `idx_${dIdx}`;
                     defectPhotoLabels[defectKey] = [];
 
-                    if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
-                        d.photos.forEach(src => {
-                            if (src) {
-                                pCounter++;
-                                const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
-                                const label = `사진${pNumStr}`;
-                                defectPhotoLabels[defectKey].push(label);
+                    getDefectOutputPhotos(d).forEach(src => {
+                        pCounter++;
+                        const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                        const label = `사진${pNumStr}`;
+                        defectPhotoLabels[defectKey].push(label);
 
-                                const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
-                                photoItems.push({
-                                    label: label,
-                                    title: componentDefectTitle,
-                                    defectNo: d.no,
-                                    location: d.location || `${floorDisplayLabel} ${d.component || ''}`,
-                                    cause: d.defectType === '상태양호' ? '-' : (d.cause || '건조수축'),
-                                    size: d.defectType === '상태양호' ? '-' : ((d.size && String(d.size).trim()) || '-'),
-                                    src: src
-                                });
-                            }
+                        const componentDefectTitle = `${d.no ? d.no + ' ' : ''}${d.component || '부재'} ${d.defectType || '결함'}`;
+                        photoItems.push({
+                            label: label,
+                            title: componentDefectTitle,
+                            defectNo: d.no,
+                            location: d.location || `${floorDisplayLabel} ${d.component || ''}`,
+                            cause: d.defectType === '상태양호' ? '-' : (d.cause || '건조수축'),
+                            size: d.defectType === '상태양호' ? '-' : ((d.size && String(d.size).trim()) || '-'),
+                            src: src
                         });
-                    }
+                    });
                 });
 
                 // --- 1. 상태조사표 (한 페이지당 20개씩 배치 — A4 세로 한 장을 거의 꽉 채우면서도
@@ -14783,7 +15091,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }));
                 // 표의 "비고" 칸에 사진 번호(사진1, 사진2...)를 적어 넣어야 하므로, 사진 갤러리를 만들기
                 // 전인 지금 미리 번호를 매겨둔다.
-                const photoDefects = pageDefects.filter(d => d.photos && d.photos.length > 0);
+                const photoDefects = pageDefects.filter(d => getDefectOutputPhotos(d).length > 0);
                 const photoLabelByDefect = new Map();
                 photoDefects.forEach((d, i) => photoLabelByDefect.set(d, `사진${i + 1}`));
 
@@ -14891,8 +15199,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     // 사진 디코딩(비동기)은 미리 다 끝내둔다
                     const decoded = [];
                     for (const d of items) {
-                        const { bytes, mime, ext } = dataUrlToBytes(d.photos[0]);
-                        const size = await loadImageSize(d.photos[0]);
+                        const outPhotos = getDefectOutputPhotos(d);
+                        const src = outPhotos[0];
+                        if (!src) continue;
+                        const { bytes, mime, ext } = dataUrlToBytes(src);
+                        const size = await loadImageSize(src);
                         decoded.push({ d, bytes, mime, ext, w: size.w, h: size.h });
                     }
 
@@ -15400,8 +15711,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 결함 레코드 1건을 사진 삭제 포함해서 제거 (저장/재렌더링은 호출부 책임 — 그룹 일괄삭제 시 중복 저장 방지)
     function removeSingleDefectRecord(key, id) {
         const target = state.defects[key].find(d => d.id === id);
-        if (target && target.photos && target.photos.length > 0) {
-            deletePhotosForDefect(id, target.photos.length).then(failCount => {
+        if (target) {
+            deleteAllPhotosForDefect(target).then(failCount => {
                 if (failCount > 0) {
                     window.showToast(`사진 ${failCount}건 삭제에 실패했습니다. 네트워크 상태를 확인해 주세요.`, 'warning', 5000);
                 }
@@ -15568,6 +15879,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     for (const arr of Object.values(window.state.defects)) {
                         for (const d of (arr || [])) {
                             if (d.photos && d.photos.length > 0) await uploadDefectPhotos(d.id, d.photos);
+                            if (d.prevRoundPhotos && d.prevRoundPhotos.length > 0) {
+                                await uploadDefectPhotos(d.id, d.prevRoundPhotos, 'prev');
+                            }
                         }
                     }
                 }
@@ -16081,15 +16395,11 @@ document.addEventListener('DOMContentLoaded', () => {
             rawDefects.forEach((d, dIdx) => {
                 const defectKey = d.id || `idx_${dIdx}`;
                 defectPhotoLabels[defectKey] = [];
-                if (d.photos && Array.isArray(d.photos) && d.photos.length > 0) {
-                    d.photos.forEach(src => {
-                        if (src) {
-                            pCounter++;
-                            const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
-                            defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
-                        }
-                    });
-                }
+                getDefectOutputPhotos(d).forEach(() => {
+                    pCounter++;
+                    const pNumStr = pCounter < 10 ? `0${pCounter}` : `${pCounter}`;
+                    defectPhotoLabels[defectKey].push(`사진${pNumStr}`);
+                });
             });
 
             let tableHtml = `
@@ -16733,7 +17043,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // Firestore 문서 1개 1MB 한도 대응: 도면/사진은 각자 별도 문서에 저장하고,
     // 회사 메타데이터 문서(safety_app/{companyId})에는 참조(ID)만 남긴다.
 
-    function getPhotoDocId(defectId, index) {
+    function getPhotoDocId(defectId, index, kind) {
+        if (kind === 'prev') return `${defectId}_prev_${index}`;
         return `${defectId}_${index}`;
     }
 
@@ -16748,10 +17059,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function uploadDefectPhotos(defectId, photosArray) {
+    async function uploadDefectPhotos(defectId, photosArray, kind) {
         if (!Array.isArray(photosArray) || photosArray.length === 0) return [];
         if (!window._photoCache) window._photoCache = {};
-        const photoIds = photosArray.map((_, i) => getPhotoDocId(defectId, i));
+        const photoIds = photosArray.map((_, i) => getPhotoDocId(defectId, i, kind));
         photosArray.forEach((url, i) => { window._photoCache[photoIds[i]] = url; });
         if (db && window.state.companyId) {
             const companyPhotos = db.collection('safety_app').doc(getCompanyDocId()).collection('photos');
@@ -16763,7 +17074,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 반환값: 삭제 실패 건수. 실패해도 예외를 던지지 않지만, 호출부에서 사용자에게 알릴 수 있도록 건수를 반환한다.
-    async function deletePhotosForDefect(defectId, count) {
+    async function deletePhotosForDefect(defectId, count, kind) {
         if (!count) return 0;
         const companyPhotos = (db && window.state.companyId)
             ? db.collection('safety_app').doc(getCompanyDocId()).collection('photos')
@@ -16771,7 +17082,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let failCount = 0;
         const jobs = [];
         for (let i = 0; i < count; i++) {
-            const photoDocId = getPhotoDocId(defectId, i);
+            const photoDocId = getPhotoDocId(defectId, i, kind);
             _idbPersistedPhotoKeys.delete(photoDocId);
             jobs.push(idbDelete('photos', photoDocId));
             if (companyPhotos) {
@@ -16783,6 +17094,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         await Promise.all(jobs);
         return failCount;
+    }
+
+    async function deleteAllPhotosForDefect(d) {
+        if (!d) return 0;
+        let fail = 0;
+        const curCount = (d.photos && d.photos.length) || (d.photoIds && d.photoIds.length) || 0;
+        const prevCount = (d.prevRoundPhotos && d.prevRoundPhotos.length) || (d.prevRoundPhotoIds && d.prevRoundPhotoIds.length) || 0;
+        if (curCount > 0) fail += await deletePhotosForDefect(d.id, curCount);
+        if (prevCount > 0) fail += await deletePhotosForDefect(d.id, prevCount, 'prev');
+        return fail;
     }
 
     async function deleteFloorDrawingsForBuilding(bldg) {
@@ -16820,21 +17141,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const result = {};
         for (const [key, arr] of Object.entries(defectsMap || {})) {
             result[key] = await Promise.all((arr || []).map(async d => {
-                if (!d.photoIds || d.photoIds.length === 0) {
-                    return { ...d, photos: [] };
-                }
-                const photos = await Promise.all(d.photoIds.map(async pid => {
-                    if (window._photoCache[pid]) return window._photoCache[pid];
-                    try {
-                        const snap = await companyPhotos.doc(pid).get();
-                        const url = snap.exists ? snap.data().dataUrl : null;
-                        if (url) window._photoCache[pid] = url;
-                        return url;
-                    } catch (e) {
-                        return null;
-                    }
-                }));
-                return { ...d, photos: photos.filter(Boolean) };
+                const loadIds = async (ids) => {
+                    if (!ids || ids.length === 0) return [];
+                    const photos = await Promise.all(ids.map(async pid => {
+                        if (window._photoCache[pid]) return window._photoCache[pid];
+                        try {
+                            const snap = await companyPhotos.doc(pid).get();
+                            const url = snap.exists ? snap.data().dataUrl : null;
+                            if (url) window._photoCache[pid] = url;
+                            return url;
+                        } catch (e) {
+                            return null;
+                        }
+                    }));
+                    return photos.filter(Boolean);
+                };
+                const photos = await loadIds(d.photoIds);
+                const prevRoundPhotos = await loadIds(d.prevRoundPhotoIds);
+                return { ...d, photos, prevRoundPhotos };
             }));
         }
         return result;
@@ -16853,8 +17177,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const sanitizedDefects = {};
             Object.entries(window.state.defects || {}).forEach(([key, arr]) => {
                 sanitizedDefects[key] = (arr || []).map(d => {
-                    const { photos, ...rest } = d;
-                    return { ...rest, photoIds: (photos || []).map((_, i) => getPhotoDocId(d.id, i)) };
+                    const { photos, prevRoundPhotos, photoIds, prevRoundPhotoIds, ...rest } = d;
+                    const out = { ...rest };
+                    if (photos && photos.length > 0) {
+                        out.photoIds = photos.map((_, i) => getPhotoDocId(d.id, i));
+                    }
+                    if (prevRoundPhotos && prevRoundPhotos.length > 0) {
+                        out.prevRoundPhotoIds = prevRoundPhotos.map((_, i) => getPhotoDocId(d.id, i, 'prev'));
+                    }
+                    return out;
                 });
             });
 
@@ -17591,6 +17922,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (typeof setupLocationMapLegendModalEvents === 'function') setupLocationMapLegendModalEvents();
         if (typeof setupSurveyRoundReassignModalEvents === 'function') setupSurveyRoundReassignModalEvents();
         if (typeof setupClearCarriedOverBulkEvents === 'function') setupClearCarriedOverBulkEvents();
+        if (typeof setupPromotePreviousRoundToCurrentEvents === 'function') setupPromotePreviousRoundToCurrentEvents();
         if (typeof setupTipShapeEvents === 'function') setupTipShapeEvents();
         if (typeof setupAreaMarkStyleEvents === 'function') setupAreaMarkStyleEvents();
         showLoginOverlay();

@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="스마트 안전점검">
-    <link rel="stylesheet" href="styles.css?v=20260822_selClusterFit">
+    <link rel="stylesheet" href="styles.css?v=20260822_prevPhotoView">
     <!-- FontAwesome icons for clean engineering UI -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- PDF 생성용: 페이지별로 직접 캡처해서 조립(큰 보고서에서 html2pdf 한방 렌더링이 캔버스 높이 한계로
@@ -335,7 +335,9 @@
                                 <option value="상반기">상반기</option>
                                 <option value="수시점검">수시점검</option>
                             </select>
+                            <button type="button" id="btnStartNextSurveyRound" class="chip" style="width: 100%; margin-top: 0.4rem; justify-content: center; color: #166534; border-color: #16a34a; background: #f0fdf4;" title="다음 회차 점검을 시작합니다. 건물·도면·결함·비파괴 데이터는 그대로 두고, 기존 결함은 전회차로 표시됩니다.">▶ 다음 회차 시작</button>
                             <button type="button" id="btnOpenSurveyRoundReassignModal" class="chip" style="width: 100%; margin-top: 0.4rem; justify-content: center; color: #2a2a2a; border-color: #2a2a2a;" title="건물 전체가 잘못된 회차로 통째로 등록됐을 때, 결함들의 회차를 한번에 올바르게 옮깁니다">🔄 회차 일괄 재지정</button>
+                            <button type="button" id="btnPromotePrevRoundToCurrent" class="chip" style="width: 100%; margin-top: 0.35rem; justify-content: center; color: #1d4ed8; border-color: #3b82f6; background: #eff6ff;" title="건물 모든 층의 전회차 조사항목을 현회차로 가져옵니다. 전회차 체크 해제 + 조사 회차를 현회차로 변경합니다.">⬆ 전회차 → 현회차 가져오기</button>
                             <button type="button" id="btnClearCarriedOverBulk" class="chip pc-only-chrome" style="width: 100%; margin-top: 0.35rem; justify-content: center; color: #525252; border-color: #a3a3a3;" title="엑셀 전차 가져오기 등으로 켜진「전회차」체크를 일괄로 해제합니다">☐ 전회차 체크 일괄 해제</button>
                         </div>
 
@@ -728,7 +730,14 @@
                     </div>
 
                     <div class="form-group defect-photo-block">
-                        <label class="form-label">현장 사진</label>
+                        <div id="prevRoundPhotoBlock" class="prev-round-photo-block" style="display:none;">
+                            <label class="form-label prev-round-photo-label">
+                                <i class="fa-solid fa-clock-rotate-left"></i> 전차 사진
+                                <span class="prev-round-photo-hint">현장 참고용 · 현차 출력에는 미포함</span>
+                            </label>
+                            <div class="photo-preview-list prev-round-photo-list" id="prevRoundPhotoPreviewList"></div>
+                        </div>
+                        <label class="form-label">현장 사진 <span style="font-weight:600; color:#64748b; font-size:0.78rem;">(현차)</span></label>
                         <div class="defect-photo-actions">
                             <button type="button" id="btnTriggerCamera" class="btn defect-photo-btn-primary">
                                 <i class="fa-solid fa-camera"></i> 촬영
@@ -1996,12 +2005,12 @@
     <script src="js/pdf-vector-bridge.js?v=20260821_land1"></script>
     <script src="js/tabs/registry.js?v=20260821_land1"></script>
     <script src="js/tabs/home.js?v=20260821_land1"></script>
-    <script src="js/tabs/map.js?v=20260821_land1"></script>
+    <script src="js/tabs/map.js?v=20260822_prevPhotoView"></script>
     <script src="js/tabs/survey.js?v=20260822_surveyInlineEdit"></script>
     <script src="js/tabs/ndt.js?v=20260822_survey2dScroll"></script>
     <script src="js/shared/report.js?v=20260821_land1"></script>
     <script src="js/shared/auth.js?v=20260821_land1"></script>
-    <script src="app.js?v=20260822_selListTop1"></script>
+    <script src="app.js?v=20260822_prevPhotoView"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const btn = document.getElementById('btnExportVectorPdf');
