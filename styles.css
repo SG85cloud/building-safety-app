@@ -1034,9 +1034,22 @@ body {
     box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.28);
 }
 
+.defect-list-section.is-selected-cluster {
+    flex: 0 0 auto !important;
+    min-height: auto !important;
+    max-height: none;
+}
+
 .defect-list-section.is-selected-cluster .defect-list-section-title {
     color: #1d4ed8;
     border-bottom-color: #93c5fd;
+}
+
+.defect-list-section.is-selected-cluster .defect-list-section-scroll {
+    flex: 0 0 auto !important;
+    max-height: none !important;
+    min-height: 0;
+    overflow: visible;
 }
 
 .defect-list-section {
@@ -1081,6 +1094,16 @@ body {
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+    }
+
+    .defect-list-section.is-selected-cluster {
+        flex: 0 0 auto;
+        min-height: auto;
+    }
+
+    .defect-list-section.is-selected-cluster .defect-list-section-scroll {
+        flex: none;
+        overflow: visible;
     }
 }
 
