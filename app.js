@@ -1764,7 +1764,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return { x: imgX, y: imgY };
     }
 
-    // 좌측 결함 목록에서 특정 결함을 클릭했을 때 캔버스를 그 위치로 이동/확대하고 잠깐 강조 표시
+    // 좌측 결함 목록에서 특정 결함을 클릭했을 때 캔버스를 그 위치로 이동·표시 (과도한 확대는 피함)
     window.focusDefectOnCanvas = function(defectId) {
         const defects = getCurrentFloorDefects();
         const defect = defects.find(d => d.id === defectId);
@@ -1781,7 +1781,9 @@ document.addEventListener('DOMContentLoaded', () => {
             ? (defect.areaY1 + defect.areaY2) / 2
             : (defect.y || 100);
 
-        const targetScale = 1.6;
+        // 기존 1.6배는 너무 커서 위치만 알기 어렵게 확대됨 → 현재 배율 근처에서 살짝만 맞춤
+        const cur = state.view.scale || 1;
+        const targetScale = Math.min(1.05, Math.max(0.7, Math.min(cur * 1.08, 1.05)));
         const v = imgToViewCoords(centerImgX, centerImgY);
         const cssW = state.canvasCssW || state.canvas.width;
         const cssH = state.canvasCssH || state.canvas.height;
@@ -7336,11 +7338,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         panel.innerHTML = '';
-        const previousItems = defects.filter(d => isPreviousRoundDefect(d) && !isDefectMapUnregistered(d));
-        const currentItems = defects.filter(d => !isPreviousRoundDefect(d));
+        const previousItemsRaw = defects.filter(d => isPreviousRoundDefect(d) && !isDefectMapUnregistered(d));
+        const currentItemsRaw = defects.filter(d => !isPreviousRoundDefect(d));
+
+        // 도면에서 선택된 결함 → 목록 하이라이트 / 여러 개면 상단 "선택됨"으로 묶음
+        const selectedCluster = [];
+        const seenSelectedKey = new Set();
+        const collectSelected = (list) => {
+            list.forEach((d) => {
+                if (!isDefectListItemSelected(d)) return;
+                const key = d.groupId || d.id;
+                if (seenSelectedKey.has(key)) return;
+                seenSelectedKey.add(key);
+                selectedCluster.push(d);
+            });
+        };
+        collectSelected(unregisteredItems);
+        collectSelected(previousItemsRaw);
+        collectSelected(currentItemsRaw);
+
+        const multiSelected = selectedCluster.length > 1;
+        const previousItems = multiSelected
+            ? previousItemsRaw.filter(d => !isDefectListItemSelected(d))
+            : previousItemsRaw;
+        const currentItems = multiSelected
+            ? currentItemsRaw.filter(d => !isDefectListItemSelected(d))
+            : currentItemsRaw;
+        const unregForList = multiSelected
+            ? unregisteredItems.filter(d => !isDefectListItemSelected(d))
+            : unregisteredItems;
+
+        if (multiSelected) {
+            const selSection = renderDefectListSection(`✅ 선택됨 (${selectedCluster.length})`, selectedCluster, { mapSelected: true });
+            if (selSection) {
+                selSection.classList.add('is-selected-cluster');
+                panel.appendChild(selSection);
+            }
+        }
 
         if (showPrevRoundRegister) {
-            const unregSection = renderDefectListSection('🟣 전차 미등록', unregisteredItems, { unregistered: true });
+            const unregSection = renderDefectListSection('🟣 전차 미등록', unregForList, { unregistered: true });
             if (unregSection) panel.appendChild(unregSection);
         }
         const prevSection = renderDefectListSection('🕐 전회차 조사항목', previousItems);
@@ -7348,9 +7385,35 @@ document.addEventListener('DOMContentLoaded', () => {
         const curSection = renderDefectListSection('🆕 금회차 조사항목', currentItems);
         if (curSection) panel.appendChild(curSection);
 
+        // 단일 선택: 선택이 바뀐 때만 해당 행으로 스크롤 (drawCanvas 재렌더마다 스크롤하지 않음)
+        if (selectedCluster.length === 1) {
+            const focusId = selectedCluster[0].id || selectedCluster[0].groupId || '';
+            if (focusId && window._defectListScrollSelectedId !== focusId) {
+                window._defectListScrollSelectedId = focusId;
+                requestAnimationFrame(() => {
+                    const row = panel.querySelector('.defect-list-item.is-map-selected');
+                    if (row && typeof row.scrollIntoView === 'function') {
+                        row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                });
+            }
+        } else {
+            window._defectListScrollSelectedId = null;
+        }
+
         updateUndoRedoButtons();
     }
     window.renderDefectListPanel = renderDefectListPanel;
+
+    function isDefectListItemSelected(d) {
+        const set = (typeof window.getSelectedDefectIds === 'function')
+            ? window.getSelectedDefectIds()
+            : null;
+        if (!set || set.size === 0 || !d) return false;
+        if (d.id && set.has(d.id)) return true;
+        if (d._groupMemberIds && d._groupMemberIds.some(id => set.has(id))) return true;
+        return false;
+    }
 
     // 결함번호(d.no, 예: "NO.01", "NO.01-1")에서 정렬용 숫자를 추출. 번호가 없으면 맨 뒤로 보낸다
     function getDefectSortNo(d) {
@@ -7408,6 +7471,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const row = document.createElement('div');
         row.className = `defect-list-item ${catClass}`.trim();
+        if (d.id) row.dataset.defectId = d.id;
+        if (isDefectListItemSelected(d) || options.mapSelected) {
+            row.classList.add('is-map-selected');
+        }
         if (isUnregistered) {
             row.classList.add('map-unregistered');
             if (window._pendingMapRegisterDefectId === d.id) row.classList.add('is-pending-map-register');
@@ -7473,8 +7540,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         row.addEventListener('click', (e) => {
             if (actions.contains(e.target)) return;
-            if (isUnregistered) startMapRegisterForDefect(d.id);
-            else window.focusDefectOnCanvas(d.id);
+            if (isUnregistered) {
+                startMapRegisterForDefect(d.id);
+                return;
+            }
+            // 목록 클릭 → 도면 선택·하이라이트 동기화 후 위치 표시
+            if (typeof window.getSelectedDefectIds === 'function') {
+                const set = window.getSelectedDefectIds();
+                if (set) {
+                    set.clear();
+                    if (d.id) set.add(d.id);
+                    if (typeof updateMapSelectionBar === 'function') updateMapSelectionBar();
+                    else if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
+                }
+            }
+            window.focusDefectOnCanvas(d.id);
         });
         editBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -9383,10 +9463,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const n = selectedDefectIds.size;
         if (n === 0) {
             bar.hidden = true;
-            return;
+        } else {
+            bar.hidden = false;
+            if (countEl) countEl.textContent = `${n}개 선택`;
         }
-        bar.hidden = false;
-        if (countEl) countEl.textContent = `${n}개 선택`;
+        // 결함목록: 선택 하이라이트 / 다중 선택 상단 묶음 / 단일 선택 스크롤
+        if (typeof renderDefectListPanel === 'function') renderDefectListPanel();
     }
 
     function translateDefectBy(d, dx, dy) {

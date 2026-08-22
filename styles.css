@@ -1028,6 +1028,17 @@ body {
     background: #fafafa;
 }
 
+.defect-list-item.is-map-selected {
+    border-color: #2563eb !important;
+    background: #eff6ff !important;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.28);
+}
+
+.defect-list-section.is-selected-cluster .defect-list-section-title {
+    color: #1d4ed8;
+    border-bottom-color: #93c5fd;
+}
+
 .defect-list-section {
     display: flex;
     flex-direction: column;
