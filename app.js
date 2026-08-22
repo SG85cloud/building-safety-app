@@ -10172,6 +10172,8 @@ document.addEventListener('DOMContentLoaded', () => {
     function handleDragEnd(clientX, clientY) {
         clearPendingDragLongPress();
         hideTouchLoupe(MAP_LOUPE_ID);
+        // 터치 제스처 종료 여부 — 아래에서 클리어되기 전에 보관 (PC 전용 동작 분기)
+        const endedFromTouch = !!activePointerIsTouch;
         activePointerIsTouch = false;
 
         if (isResizingLegend) {
@@ -10276,6 +10278,12 @@ document.addEventListener('DOMContentLoaded', () => {
             marqueeAdditive = false;
             updateMapSelectionBar();
             drawCanvas();
+            // PC: 드래그(마퀴)로 정확히 1개만 선택되면 클릭과 같이 결함 수정창 오픈
+            if (!endedFromTouch && !tiny && selectedDefectIds.size === 1) {
+                const onlyId = [...selectedDefectIds][0];
+                const d = getCurrentFloorDefects().find(def => def.id === onlyId);
+                if (d) openAddDefectModal(d.x, d.y, d.targetX, d.targetY, d);
+            }
         }
 
         isDragging = false;
